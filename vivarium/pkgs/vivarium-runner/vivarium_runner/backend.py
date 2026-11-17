@@ -961,7 +961,7 @@ class Qemu:
             "-netdev",
             uplink,
             "-device",
-            f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}",
+            f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)},host_mtu={spec.mtu}",
             # The guest tells QEMU which pages it has freed and QEMU
             # madvises them out of the memfd above, so the host stops
             # paying for a page cache the guest has dropped. Without it a
