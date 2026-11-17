@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import shutil
 import signal
 import subprocess
@@ -73,6 +74,44 @@ def until(check: Callable[[], bool], seconds: float, step: float = 0.1) -> bool:
     return check()
 
 
+def tree(root: int) -> dict[int, tuple[int, str]]:
+    """*root* and every process under it: pid to parent pid and `comm`."""
+    found: dict[int, tuple[int, str]] = {}
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            text = stat.read_text()
+        except OSError:
+            continue
+        comm, _, rest = text.partition(" (")[2].rpartition(")")
+        found[int(stat.parent.name)] = (int(rest.split()[1]), comm)
+    under = {root}
+    while grown := {pid for pid, (parent, _) in found.items() if parent in under} - under:
+        under |= grown
+    return {pid: found[pid] for pid in under if pid in found}
+
+
+def kill_the_bridge(runner: int) -> None:
+    """SIGKILL the UML bridge: the kernel and passt under it must exit too.
+    Nothing is left to kill them but their parent-death signal."""
+    processes = tree(runner)
+    [bridge] = [pid for pid, (_, comm) in processes.items() if comm == "uml-passt-bridg"]
+    children = {pid: comm for pid, (parent, comm) in processes.items() if parent == bridge}
+    if "linux" not in children.values() or not set(PASST) & set(children.values()):
+        sys.exit(f"the bridge runs {children}, not the kernel and passt")
+    watches = {os.pidfd_open(pid): pid for pid in children}
+    os.kill(bridge, signal.SIGKILL)
+    pending = set(watches)
+    deadline = time.monotonic() + 5
+    while pending and (remaining := deadline - time.monotonic()) > 0:
+        pending -= set(select.select(list(pending), [], [], remaining)[0])
+    left = [f"{children[watches[watch]]} ({watches[watch]})" for watch in pending]
+    for watch in watches:
+        os.close(watch)
+    if left:
+        sys.exit(f"the bridge died and left {', '.join(left)}")
+    print("ok: the kernel and passt exited with the bridge")
+
+
 STOP: Final = "ctl-stop"
 """End the run with `vivarium ctl stop` rather than a signal."""
 
@@ -85,9 +124,11 @@ def case(
     left_behind: tuple[str, ...],
     *,
     keep: bool = False,
+    first: Callable[[int], None] | None = None,
 ) -> int:
+    """*first*, given the runner's pid, runs once the phase started and before *end*."""
     how = end if isinstance(end, str) else end.name
-    name = f"{how}{'-keep' if keep else ''}"
+    name = f"{how}{'-keep' if keep else ''}{'-' + first.__name__ if first else ''}"
     out = work / f"run-{name}"
     log = work / f"run-{name}.log"
     env = {**os.environ, **({"VIVARIUM_KEEP": "1"} if keep else {})}
@@ -106,6 +147,8 @@ def case(
 
     if not until(started, 300, 0.2):
         sys.exit(f"{how}: no phase started")
+    if first is not None:
+        first(runner.pid)
     if isinstance(end, str):
         # While `hold` runs: the drive is cancelled from the socket's
         # handler, not from a signal handler, and must still tear down.
@@ -138,6 +181,8 @@ def main() -> None:
     vivarium, spec, work, backend = sys.argv[1], sys.argv[2], Path(sys.argv[3]), sys.argv[4]
     os.environ.setdefault("HOME", str(work))
     left_behind = LEFT_BEHIND[backend]
+    if backend == "uml":
+        case(vivarium, spec, work, signal.SIGKILL, left_behind, first=kill_the_bridge)
     case(vivarium, spec, work, signal.SIGKILL, left_behind, keep=True)
     case(vivarium, spec, work, signal.SIGKILL, left_behind)
     status = case(vivarium, spec, work, signal.SIGTERM, left_behind)

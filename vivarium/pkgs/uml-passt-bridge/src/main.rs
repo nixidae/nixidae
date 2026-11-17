@@ -37,6 +37,18 @@ extern "C" fn handle_term(_sig: i32) {
     SHUTDOWN.store(true, Ordering::SeqCst);
 }
 
+/// SIGKILL this forked child when the bridge dies. A fork clears the
+/// parent-death signal, and a SIGKILLed bridge runs no cleanup. The
+/// `getppid` check closes the race where the bridge died before the prctl.
+fn die_with_bridge(bridge: unistd::Pid) {
+    unsafe {
+        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+    }
+    if unistd::getppid() != bridge {
+        exit(1);
+    }
+}
+
 fn read_exact(fd: i32, buf: &mut [u8]) -> io::Result<()> {
     let mut off = 0;
     while off < buf.len() {
@@ -122,8 +134,10 @@ fn main() {
         }
     }
 
+    let bridge = unistd::getpid();
     let passt_pid = match unsafe { unistd::fork() }.expect("fork passt") {
         ForkResult::Child => {
+            die_with_bridge(bridge);
             drop(uml_a);
             drop(uml_b);
             drop(passt_a);
@@ -139,6 +153,7 @@ fn main() {
 
     let uml_pid = match unsafe { unistd::fork() }.expect("fork uml") {
         ForkResult::Child => {
+            die_with_bridge(bridge);
             drop(passt_a);
             drop(passt_b);
             drop(uml_a);
