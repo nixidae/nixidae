@@ -228,6 +228,13 @@ let
       description = "two libkrun guests on vsock uplinks hold lan's contract";
       timeoutMinutes = 30;
     };
+    pytest-host = {
+      # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
+      # (`lib.pytestCheck`, nixidae/nixidae#1413).
+      attr = "checks.pytest-host";
+      description = "a pytest suite drives guests through the vivarium plugin";
+      timeoutMinutes = 30;
+    };
     nix-db = {
       description = "an unprivileged read-only reader opens the guest's Nix database";
       timeoutMinutes = 20;
@@ -362,6 +369,8 @@ let
       backend ? "qemu",
       # The check this job runs, when the job's name is not the check's.
       test ? name,
+      # The whole attribute, for a check with no backend variants.
+      attr ? if backend == "uml" then "checks.${test}" else "checks.${test}.${backend}",
     }:
     job {
       id = "test-${name}";
@@ -373,7 +382,7 @@ let
       steps = [
         (steps.build {
           name = "Run ${test} on ${backend}: ${description}";
-          attrs = [ (if backend == "uml" then "checks.${test}" else "checks.${test}.${backend}") ];
+          attrs = [ attr ];
           timeoutMinutes = timeoutMinutes - 10;
         })
       ];
