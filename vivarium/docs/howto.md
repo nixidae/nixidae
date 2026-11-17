@@ -308,8 +308,9 @@ async def test_fresh(vm):                  # the run's only guest
   its store view and a copy of the project at the same path, so imports
   and `__file__` match the host's. The host reports each test as its
   own. `vivarium closure` gives the dev shell's Python closure, so the
-  `vivarium` CLI must be on PATH. Shortcuts taken are listed in
-  `docs/design/pytest.md`.
+  `vivarium` CLI must be on PATH. With pytest-cov (`--cov`), the guest
+  measures its tests the same way and pytest-cov's report includes
+  them. Shortcuts taken are listed in `docs/design/pytest.md`.
 - The runs are in `.vivarium/pytest/`, one `--out` each: `vivarium ctl`
   and the MCP server reach them as any run.
 - `--vivarium-keep` leaves each run up, at `.vivarium/pytest/<attr>`, and

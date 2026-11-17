@@ -247,14 +247,20 @@ the store and the project share replace its code shipping.
    `.up` and waits for `ready` with the runner's own `watch`; it stops a
    run with the control socket's `stop` in every mode.
    `checks.pytest-host`: 4 passed in 22.4 s in the sandbox.
-3. Mostly done: a test runs in a guest with `vivarium(attr,
+3. Done: a test runs in a guest with `vivarium(attr,
    guest="vm")`. `pytest_runtest_protocol` sends every test of the scope
    to one pytest in that guest (`vivarium.pytest_worker`) and relays the
    reports it wrote. The guest gets this Python through
    `Machine.add_paths` (dev: `vivarium closure`; sandbox: `pytestCheck`'s
    closureInfo) and the project as a tarball through `/artifacts`,
    unpacked at its own path. Sync and async tests both run there.
-   Coverage is not done yet.
+   Coverage: with pytest-cov active, the worker measures its pytest with
+   coverage.py, as pytest-cov's options say (`Measure`, read from the
+   options, not pytest-cov's objects). The host copies the data file
+   beside pytest-cov's own as a parallel file, and pytest-cov's combine
+   at the end merges it; paths match, so nothing is remapped.
+   `checks.pytest-coverage` reaches 100% of `sample` only through the
+   guest; with the worker measuring nothing it reads 50%.
 4. The Python-init guest. Measure boot to a ready worker.
 5. The pool, the `clean`/`dirty` marker keyword, function-scoped boxes.
 6. QEMU forked guests, if 4 and 5 leave a start time worth cutting.
@@ -299,3 +305,6 @@ What was taken to get a slice working, and where it should go:
 - **Host-side proxies carry plain data only**, and an async fixture of
   the user's own cannot use `vms` yet.
 - **`--vivarium-keep` does not notice** that the machines changed.
+- **Coverage follows pytest-cov's central mode only.** Under xdist
+  (`DistMaster`) the guest's file still lands beside the data file, but
+  that path is not tested. `--cov-context` is not passed to the guest.
