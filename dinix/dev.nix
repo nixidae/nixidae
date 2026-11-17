@@ -47,6 +47,8 @@ let
     };
 
   consolidated = imageFor true;
+
+  demo = import ./. { inherit pkgs modules; };
   split = imageFor false;
 
   vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
@@ -595,6 +597,16 @@ let
       {
         name = "dinit-client";
         path = dinitClient;
+      }
+      # A VM's first process, static, with its spec parser's tests; and dinit
+      # as PID 1 of a VM, for the demo configuration.
+      {
+        name = "dinix-boot";
+        path = demo.config.bootPackage;
+      }
+      {
+        name = "system-wrapper";
+        path = demo.config.systemWrapper;
       }
       {
         name = "docs";

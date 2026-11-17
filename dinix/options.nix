@@ -886,6 +886,31 @@ in
       '';
     };
 
+    systemWrapper = mkOption {
+      type = types.package;
+      description = ''
+        dinit as PID 1 of a virtual machine: the system manager, which also
+        powers the machine off and reboots it. What {option}`bootPackage`
+        execs once it has mounted the store.
+
+        `poweroff`, `reboot` and `halt` sit beside it, and with `dinitctl`
+        they reach this dinit through {option}`socketPath` from an absolute
+        store path.
+      '';
+    };
+
+    bootPackage = mkOption {
+      type = types.package;
+      default = pkgs.pkgsStatic.callPackage ./dinix-boot/package.nix { };
+      description = ''
+        `dinix-boot`, a virtual machine's first process. The kernel runs it as
+        `init=` from the root disk, before the Nix store is mounted, so it is
+        statically linked. It reads a spec of directories and mounts, makes
+        them, then execs one program: {option}`systemWrapper`. dinix-init stays
+        the helper that can exec nothing.
+      '';
+    };
+
     tuiWrapper = mkOption {
       type = types.package;
       description = ''
@@ -1218,6 +1243,24 @@ in
             --set-default DINIT_SOCKET_PATH ${config.socketPath}
           makeBinaryWrapper ${getExe' config.internal.dinitPackage "dinit-monitor"} $out/bin/dinit-monitor \
             --set-default DINIT_SOCKET_PATH ${config.socketPath}
+        '';
+
+    # The untrimmed package, whatever trimShutdownTools says: dinit as system
+    # manager execs its own `$out/bin/shutdown` to power the machine off.
+    systemWrapper =
+      pkgs.runCommand "${config.name}-system"
+        {
+          nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+          meta.mainProgram = "dinit";
+        }
+        ''
+          mkdir --parents $out/bin
+          makeBinaryWrapper ${getExe' config.package "dinit"} $out/bin/dinit \
+            --add-flags "${config.internal.dinitArgs} --system --system-mgr --socket-path ${config.socketPath}"
+          for tool in dinitctl dinit-monitor poweroff reboot halt; do
+            makeBinaryWrapper ${config.package}/bin/$tool $out/bin/$tool \
+              --set-default DINIT_SOCKET_PATH ${config.socketPath}
+          done
         '';
 
     # dinit for the TUI. A shell script, because the runtime directory comes
