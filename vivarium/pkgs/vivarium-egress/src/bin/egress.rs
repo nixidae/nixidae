@@ -32,11 +32,9 @@ use std::thread;
 #[cfg(all(target_os = "linux", feature = "vhost-user"))]
 use vivarium_egress::vsock;
 
-#[cfg(target_os = "linux")]
-use vivarium_egress::owned;
 use vivarium_egress::{
-    ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, encode, family, pump, socket,
-    splice_both,
+    ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, encode, family, owned, pump,
+    socket, splice_both,
 };
 
 /// Where a flow from the router goes on the host's side.
@@ -319,12 +317,14 @@ fn raise_nofile() -> io::Result<()> {
     Ok(())
 }
 
-/// Readiness of many listeners: epoll where there is one.
+/// Readiness of many listeners: epoll on Linux, kqueue on macOS. Not
+/// poll(2): macOS refuses it more fds than OPEN_MAX, and a wide forward
+/// is about 47000 listeners.
 struct Poller {
     #[cfg(target_os = "linux")]
     epoll: std::os::fd::OwnedFd,
     #[cfg(not(target_os = "linux"))]
-    fds: Vec<libc::pollfd>,
+    kqueue: std::os::fd::OwnedFd,
 }
 
 impl Poller {
@@ -352,16 +352,37 @@ impl Poller {
             Ok(Self { epoll })
         }
         #[cfg(not(target_os = "linux"))]
-        Ok(Self {
-            fds: listeners
+        {
+            let kqueue = unsafe { owned(libc::kqueue())? };
+            let changes: Vec<libc::kevent> = listeners
                 .iter()
-                .map(|listener| libc::pollfd {
-                    fd: listener.fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
+                .enumerate()
+                .map(|(index, listener)| libc::kevent {
+                    ident: listener.fd() as libc::uintptr_t,
+                    filter: libc::EVFILT_READ,
+                    flags: libc::EV_ADD,
+                    fflags: 0,
+                    data: 0,
+                    udata: index as *mut libc::c_void,
                 })
-                .collect(),
-        })
+                .collect();
+            for chunk in changes.chunks(1024) {
+                let rc = unsafe {
+                    libc::kevent(
+                        kqueue.as_raw_fd(),
+                        chunk.as_ptr(),
+                        chunk.len() as libc::c_int,
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null(),
+                    )
+                };
+                if rc != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            Ok(Self { kqueue })
+        }
     }
 
     /// The indexes of the listeners that are readable.
@@ -384,7 +405,17 @@ impl Poller {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let n = unsafe { libc::poll(self.fds.as_mut_ptr(), self.fds.len() as _, -1) };
+            let mut events: [libc::kevent; 256] = unsafe { std::mem::zeroed() };
+            let n = unsafe {
+                libc::kevent(
+                    self.kqueue.as_raw_fd(),
+                    std::ptr::null(),
+                    0,
+                    events.as_mut_ptr(),
+                    256,
+                    std::ptr::null(),
+                )
+            };
             if n < 0 {
                 let err = io::Error::last_os_error();
                 return if err.kind() == io::ErrorKind::Interrupted {
@@ -393,13 +424,7 @@ impl Poller {
                     Err(err)
                 };
             }
-            ready.extend(
-                self.fds
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, fd)| fd.revents != 0)
-                    .map(|(index, _)| index),
-            );
+            ready.extend(events[..n as usize].iter().map(|e| e.udata as usize));
         }
         Ok(())
     }
