@@ -39,6 +39,7 @@ from collections import defaultdict
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import anyio
@@ -50,6 +51,7 @@ from vivarium_runner.report import Report
 
 from . import access, journal, junit_in
 from .events import Event, Kind, Level
+from .cloud import Cloud, CloudService
 from .instances import InstanceError, free_index, instance_spec, seed
 from .phases import (
     PhaseState,
@@ -68,7 +70,7 @@ from .pytest_plugin import Plugin, arguments, machine_fixtures
 from .sinks import Broadcast
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Collection, Iterator
+    from collections.abc import Awaitable, Callable, Collection, Iterator, Mapping
 
     from vivarium_runner.machine import Cpus, MachineSpecJson
 
@@ -258,6 +260,7 @@ class Session:
         self._templates: dict[str, MachineSpec] = {}
         # The first index an instance may take: the nodes' and the templates' own come before it.
         self._instance_base = 0
+        self.cloud = Cloud(self)
         # Set when a guest's boot has ended, either way.
         self._starting: dict[str, anyio.Event] = {}
         # Every guest whose boot began, so a failed one is torn down too.
@@ -494,6 +497,7 @@ class Session:
         vms.shared = {}
         vms.segments = {lan.name: lan for lan in self._lans}
         vms.launcher = self
+        vms.cloud = self.cloud
         vms.phase = None
         vms.pytest_args = self.pytest_args
 
@@ -524,7 +528,7 @@ class Session:
         # last run's journal as if this guest had written it.
         path.unlink(missing_ok=True)
         self._journals[one.name] = journal.Tail(path)
-        return Machine(
+        vm = Machine(
             one,
             lan_fds=lan_fds,
             artifacts=self._guest_artifacts(one.name),
@@ -533,6 +537,8 @@ class Session:
             on_console=self._console,
             on_command=self._command,
         )
+        vm.service = CloudService(self.cloud, one.name)
+        return vm
 
     async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine:
         """Boot a new guest *name* from *template* while the run goes, and return it once up.
@@ -562,16 +568,28 @@ class Session:
         await self.ensure([name])
         return self.vms[name]
 
+    @property
+    def templates(self) -> Mapping[str, MachineSpec]:
+        """The run's templates by name, once prepared."""
+        return MappingProxyType(self._templates)
+
+    def holds(self, name: str) -> bool:
+        """Whether *name* is a launched guest the session still holds, booted or not."""
+        vm = None if self._all is None else self._all.get(name)
+        return vm is not None and vm.spec.index >= self._instance_base
+
     async def terminate(self, name: str) -> None:
         """Power off an instance `launch` started and unplug it; its index is free again."""
         if self._all is None or self.vms is None:
             raise SessionError("terminate before prepare")
-        vm = self._all.get(name)
-        if vm is None or vm.spec.index < self._instance_base:
+        if not self.holds(name):
             raise InstanceError(f"{name!r} is no instance; only a launched guest is terminated")
+        vm = self._all[name]
         self.emit(Kind.BOOT, f"terminating {name}", machine=name)
         await self.drain()
-        await _shutdown(vm)
+        # Shielded: a terminate that a cancel cuts short leaves a guest running and its ports plugged.
+        with anyio.CancelScope(shield=True):
+            await _shutdown(vm)
         for lan in self._lans:
             for member in [m for m in lan.members if m.startswith(f"{name}/")]:
                 lan.remove_member(member)
@@ -860,6 +878,7 @@ class Session:
         vms.shared = self.vms.shared
         vms.segments = self.vms.segments
         vms.launcher = self.vms.launcher
+        vms.cloud = self.vms.cloud
         vms.pytest_args = self.pytest_args
         # One script may serve several phases, told apart by this.
         vms.phase = phase.name
@@ -1058,6 +1077,7 @@ class Session:
 
     async def teardown(self) -> None:
         """Guests down. Safe to call twice; never called for you."""
+        await self.cloud.close()
         async with anyio.create_task_group() as group:
             for machine in self._attempted().values():
                 group.start_soon(_shutdown, machine)

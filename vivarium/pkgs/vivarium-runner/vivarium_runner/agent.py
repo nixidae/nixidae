@@ -7,8 +7,8 @@ including inside a Nix build sandbox.
 
 Commands run with ``/run/current-system/sw/bin`` on ``PATH``, so whatever
 a test's NixOS config puts in ``environment.systemPackages`` is callable.
-They also run synchronously, so one guest serves one command at a time --
-a test that wants two things at once wants two guests.
+A command runs in a thread, so the channel still carries other calls
+while it runs.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from typing import TypedDict
 import anyio
 import anyio.to_thread
 
+from . import cloud
 from .arpyc import AsyncConnection, Service, listen
 
 
@@ -81,7 +82,7 @@ class Agent(Service):
     def on_disconnect(self, conn: AsyncConnection) -> None:
         print("vivarium-agent: host disconnected", flush=True)
 
-    def exposed_run(
+    async def exposed_run(
         self,
         command: str,
         timeout: float = 900,
@@ -92,8 +93,12 @@ class Agent(Service):
         *env* is added to this one command's environment.  The same
         argument on both backends -- UML could pass a variable on the
         kernel command line and QEMU has no equivalent, so neither does.
+
+        In a thread, so the channel goes on reading while it runs: a
+        command that calls the host's cloud API waits on a reply this
+        channel carries (nixidae/nixidae#1408).
         """
-        done = _sh(command, timeout, env)
+        done = await anyio.to_thread.run_sync(_sh, command, timeout, env)
         return done.returncode, (done.stdout + done.stderr).rstrip("\n")
 
     def exposed_unit_state(self, unit: str) -> str:
@@ -227,6 +232,9 @@ async def _serve() -> None:
         # console, so it has no line discipline to make raw.
         conn = listen(fd, Agent(), raw_tty=os.isatty(fd))
         print(AGENT_READY, flush=True)
+    # `vivarium.cloud`: the guest calls the host's cloud API through this channel.
+    if os.environ.get("VIVARIUM_CLOUD") == "1":
+        await cloud.serve(conn)
     await conn.serve_forever()
 
 

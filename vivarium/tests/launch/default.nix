@@ -4,7 +4,7 @@
 mkTest {
   name = "launch";
   segments.fleet.instanceAddresses = [ "10.9.0.100/24" ];
-  nodes.cloud.vivarium.interfaces.eth1 = {
+  nodes.base.vivarium.interfaces.eth1 = {
     segment = "fleet";
     addresses = [ "10.9.0.1/24" ];
   };

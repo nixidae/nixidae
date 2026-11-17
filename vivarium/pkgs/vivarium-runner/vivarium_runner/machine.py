@@ -45,7 +45,7 @@ from anyio.abc import UNIXSocketStream
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview
 from .agent import AGENT_READY, ProcessInfo, UnitInfo
-from .arpyc import AsyncConnection, connect
+from .arpyc import AsyncConnection, Service, connect
 from .control import (
     AGENT,
     NONE,
@@ -506,6 +506,8 @@ class Machine:
         self.on_console = on_console
         self.on_command = on_command
         self.forward: list[forward.Rule] = list(spec.forward)
+        self.service: Service | None = None
+        """What answers this guest's own calls to the host: the session's cloud API. Set before boot."""
 
         self._rundir: Path | None = None
         self._process: subprocess.Process | None = None
@@ -724,7 +726,7 @@ class Machine:
             self._agent_sock.close()
             self._agent_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self._agent_sock.connect(str(launch.agent_path))
-        self._conn = connect(self._agent_sock.detach())
+        self._conn = connect(self._agent_sock.detach(), self.service)
         self._control = AgentControl(self._conn)
         self._agent_sock = None
         # Drop our copy of the guest's end, so the connection reports EOF
@@ -1819,6 +1821,20 @@ class Launcher(Protocol):
     async def terminate(self, name: str) -> None: ...
 
 
+class CloudControl(Protocol):
+    """The provider's side of the run's cloud API, for a phase: `vivarium.cloud.Cloud`. nixidae/nixidae#1408."""
+
+    capacity: dict[str, int]
+    """Live instances a template may have; one past it answers 409."""
+    boot_delay: float
+    """Seconds a launch stays `pending` before its guest boots."""
+
+    async def wait_running(self, instance_id: str, timeout: float = 300) -> Machine: ...
+    async def wait_ended(self, instance_id: str, timeout: float = 300) -> None: ...
+    async def terminate(self, instance_id: str) -> None: ...
+    async def interrupt(self, instance_id: str, seconds: float) -> None: ...
+
+
 class Machines(dict[str, Machine]):
     """The run's machines by name, also reachable as attributes.
 
@@ -1870,6 +1886,9 @@ class Machines(dict[str, Machine]):
     segments: Mapping[str, Lan] = MappingProxyType({})
     """The run's Ethernet segments by name. A class default, because
     an unset attribute falls through to ``__getattr__`` as a guest."""
+
+    cloud: CloudControl | None = None
+    """The run's cloud, which guests with `vivarium.cloud` call. A class default, as `segments`."""
 
     launcher: Launcher | None = None
     """What boots a guest from a template while the run goes: the session. A class default, as `segments`."""

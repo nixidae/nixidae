@@ -340,7 +340,10 @@ in
       restartIfChanged = false;
       after = units;
       bindsTo = units;
-      environment.VIVARIUM_AGENT_DEVICE = cfg.agentDevice;
+      environment = {
+        VIVARIUM_AGENT_DEVICE = cfg.agentDevice;
+      }
+      // lib.optionalAttrs cfg.cloud { VIVARIUM_CLOUD = "1"; };
       serviceConfig = {
         ExecStart = lib.getExe' config.system.build.vivariumRunnerPackage "vivarium-agent";
         StandardOutput = "journal+console";

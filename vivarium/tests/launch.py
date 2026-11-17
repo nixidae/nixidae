@@ -7,7 +7,7 @@ from vivarium_runner import Machines
 
 
 async def test(vms: Machines) -> None:
-    cloud = vms.cloud
+    base = vms.base
     first = await vms.launch("worker", "w1", user_data="token-1")
     second = await vms.launch("worker", "w2", user_data="token-2")
 
@@ -15,22 +15,22 @@ async def test(vms: Machines) -> None:
         await vm.succeed(f"test $(hostname) = {vm.name}")
         assert address in await vm.succeed("ip -4 -br addr show eth1"), f"{vm.name} lacks {address}"
         assert await vm.succeed("cat /run/vivarium/user-data") == token
-        await cloud.succeed(f"ping -c2 -W5 {address}")
+        await base.succeed(f"ping -c2 -W5 {address}")
     await first.succeed("ping -c2 -W5 10.9.0.101")
     print("[test] two instances, each with its own name, address and user data, reach each other")
 
     await vms.terminate("w1")
     assert "w1" not in vms
     assert not first.alive(), "w1 still runs after terminate"
-    await cloud.fail("ping -c1 -W2 10.9.0.100")
+    await base.fail("ping -c1 -W2 10.9.0.100")
 
     third = await vms.launch("worker", "w3")
     assert third.spec.index == first.spec.index, "w3 did not take w1's free index"
     assert "10.9.0.100" in await third.succeed("ip -4 -br addr show eth1")
     await third.fail("test -e /run/vivarium/user-data")
-    await cloud.succeed("ping -c2 -W5 10.9.0.100")
+    await base.succeed("ping -c2 -W5 10.9.0.100")
     print("[test] a terminated instance's index and address come back")
 
     for name in ("w2", "w3"):
         await vms.terminate(name)
-    assert sorted(vms) == ["cloud"]
+    assert sorted(vms) == ["base"]

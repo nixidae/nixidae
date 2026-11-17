@@ -249,6 +249,18 @@ in
       '';
     };
 
+    cloud = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Serve vivarium's cloud API at `/run/vivarium/cloud.sock`: this
+        guest launches, lists and terminates guests of the run's
+        `templates`, over the host's control channel. No guest network
+        is needed. `vivarium_runner/cloud.py` holds the API.
+        nixidae/nixidae#1408.
+      '';
+    };
+
     index = lib.mkOption {
       type = lib.types.ints.unsigned;
       default = 0;
