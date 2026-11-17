@@ -552,6 +552,35 @@ again, krun and UML router alternating, two runs each, host load 6-7:
 - libkrun stays unpatched: a batched `recv` in the muxer saves host CPU
   the muxer does not run short of.
 
+### The router on QEMU, 2026-11-17
+
+QEMU's `vhost-user-vsock-pci` device connects to the egress's vhost-user
+socket, as UML's kernel does. QEMU negotiates EVENT_IDX; UML does not.
+
+- QEMU gave a guest's vec0 no `host_mtu`, so every QEMU uplink was at
+  1500. At 65000, passt out of a QEMU guest went from 5-7 to 16-29
+  Gbit/s.
+- At 256M the QEMU router stalled into the guest: whole seconds at 0
+  Gbit/s, one host retransmit each, no drop or retransmit inside the
+  guests. Then the OOM killer took the agent. At 512M, eight runs in a
+  row gave 14.9-15.3 Gbit/s with no stall, 202M in use.
+- napi_tx off changes nothing on QEMU (14.4-15.4 against 15.1): KVM
+  injects the interrupt and nothing exits to the VMM.
+
+QEMU guests, the router on QEMU (512M) and on UML alternating, two runs
+each, two rounds a run, host load 7-13. The QEMU router's runs were at
+256M; their stalls are the low values into the guest:
+
+| path | direction | QEMU router | UML router | passt |
+| --- | --- | --- | --- | --- |
+| forward | host to guest | 0.27-15.4 Gbit/s | 14.5-16.2 Gbit/s | 4.5-18.3 Gbit/s |
+| forward | guest to host | 26.3-27.6 Gbit/s | 19.0-19.3 Gbit/s | 16.1-25.3 Gbit/s |
+| outbound | guest to host | 19.4-28.4 Gbit/s | 17.7-19.2 Gbit/s | 20.1-29.1 Gbit/s |
+| outbound | host to guest | 9.7-15.7 Gbit/s | 15.3-16.4 Gbit/s | 11.6-18.0 Gbit/s |
+
+- Out of a guest the QEMU router is the fastest of the three.
+- `.qemu` puts the router on QEMU, as `.krun` puts it on krun.
+
 ## Also measured
 
 - E4 again, with the E5 and E6 initrd and relay: the UML router gives
