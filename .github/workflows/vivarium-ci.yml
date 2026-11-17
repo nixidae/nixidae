@@ -1298,9 +1298,7 @@ jobs:
         retention-days: 7
     timeout-minutes: 120
   test-k8s-pull:
-    if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-k8s-pull,''))'
-    needs:
-    - kernel
+    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-k8s-pull,'))
     runs-on: ubuntu-24.04
     steps:
     - timeout-minutes: 10

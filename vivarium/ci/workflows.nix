@@ -491,27 +491,18 @@ let
   };
 
   /*
-    The one test that boots a virtual machine and reaches a registry.
+    The one test that reaches a registry: a QEMU node that pulls its own
+    images. The sandbox has no network, so this is `nix run`, not
+    `nix build`.
 
-    Everything above runs in the Nix sandbox, which has no network and no
-    /dev/kvm -- so nothing here exercised a QEMU guest or a node that
-    pulls its own images, and a bug in either was invisible to this
-    repository.
-
-    That is not hypothetical. passt needs an unprivileged user namespace
-    and Ubuntu denies one, so on a runner it exited at startup and every
-    guest booted with no uplink at all. On a developer machine it starts,
-    so the tests passed here for months, and the failure was found in
-    nixkube's CI three repositories away -- reported as a name that would
-    not resolve, which is what sent two rounds of work at the resolver.
-    `ghanix.userNamespaces` is the fix and the reason this job exists.
-
-    `nix run`, not `nix build`: the point is that it is outside the
-    sandbox.
+    passt needs an unprivileged user namespace, and Ubuntu denies one by
+    default. On a runner without `ghanix.userNamespaces`, passt exits at
+    startup and every guest boots with no uplink; the failure reads as a
+    name that does not resolve. A developer machine allows the namespace,
+    so only a runner shows it, and this job is where it shows.
   */
   pullJob = job {
     id = "test-k8s-pull";
-    needs = [ "kernel" ];
     timeoutMinutes = 30;
     cond = selectable "test-k8s-pull";
     ghanix = guestBootstrap;
@@ -553,9 +544,9 @@ let
   /*
     The session's own rules, on the smallest guests there are.
 
-    Five checks in one job rather than five jobs: each boots a single
-    guest with nothing on it, so the whole set costs less than any one of
-    the tests above. What they answer is about the runner and not about
+    One job rather than one per check: each boots a single guest with
+    nothing on it, so the whole set costs less than any one of the tests
+    above. What they answer is about the runner and not about
     the backend -- what a failure skips, what a knob is worth, what
     `--only` leaves alone -- so one backend is enough.
 
