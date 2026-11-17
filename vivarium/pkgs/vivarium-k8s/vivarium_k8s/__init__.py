@@ -52,6 +52,7 @@ def nodes(vms: Machines) -> dict[str, NodeFacts]:
         )
     return found
 
+
 # These are stuck-detectors, and that is the only thing they are.
 #
 # Nothing here is slow.  A guest is a process, its store is the host's, and
@@ -748,11 +749,11 @@ __all__ = [
     "KUBE_DNS",
     "KUBE_PROXY",
     "POLL",
-    "NodeFacts",
     "READY_TIMEOUT",
     "RUNTIME_MANIFEST",
     "STORAGE_MANIFEST",
     "UNIT_TIMEOUT",
+    "NodeFacts",
     "bring_up",
     "diagnose",
     "get_json",

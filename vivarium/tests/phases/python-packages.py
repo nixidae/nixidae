@@ -8,7 +8,6 @@ that runs the phase.
 
 import humanize
 import tomli_w
-
 from vivarium_runner import Machines
 
 

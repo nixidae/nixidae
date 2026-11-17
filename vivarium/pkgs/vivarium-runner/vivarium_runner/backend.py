@@ -78,7 +78,9 @@ def launch_config(
     return spec.launch.config
 
 
-def _section(owner: str, value: object, fields: frozenset[str], optional: frozenset[str] = frozenset()) -> Mapping[str, Any]:
+def _section(
+    owner: str, value: object, fields: frozenset[str], optional: frozenset[str] = frozenset()
+) -> Mapping[str, Any]:
     """A table inside `launch.config`, checked as `launch_config` checks the whole."""
     if not isinstance(value, Mapping):
         raise BackendError(f"{owner} is not an attribute set")
@@ -1263,9 +1265,7 @@ class Qemu:
         return fds
 
     @staticmethod
-    def _virtiofsd(
-        virtiofsd: Path, rundir: Path, socket_name: str, shared: str
-    ) -> tuple[int, subprocess.Popen[bytes]]:
+    def _virtiofsd(virtiofsd: Path, rundir: Path, socket_name: str, shared: str) -> tuple[int, subprocess.Popen[bytes]]:
         """Serve a host directory, and leave no socket behind.
 
         *socket_name* keeps the store's and the artifacts' sockets apart

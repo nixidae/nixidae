@@ -45,8 +45,12 @@ async def test(vms: Machines) -> None:
     await vm.succeed(FILL, timeout=300)
     cached = (await vm.meminfo())["Cached"]
     filled = vm.host_memory_kib()
-    print(f"[test] after filling: guest cached {before // 1024}M -> {cached // 1024}M, host {booted // 1024}M -> {filled // 1024}M")
-    assert cached - before > GREW_KIB, f"the fill cached {(cached - before) // 1024}M, so nothing after this measures anything"
+    print(
+        f"[test] after filling: guest cached {before // 1024}M -> {cached // 1024}M, host {booted // 1024}M -> {filled // 1024}M"
+    )
+    assert cached - before > GREW_KIB, (
+        f"the fill cached {(cached - before) // 1024}M, so nothing after this measures anything"
+    )
     assert filled - booted > GREW_KIB, "the host did not start paying for that cache"
 
     target = filled - int((filled - booted) * SETTLED_SHARE)

@@ -44,9 +44,7 @@ async def from_snapshot(snap: Path, run: Path, agent: str) -> int:
         sock.connect(str(run / "agent.sock"))
         conn = arpyc.connect(sock.detach())
         with anyio.fail_after(30):
-            code, out = await conn.call(
-                "run", ("sw_vers -productVersion; date -u",), {}
-            )
+            code, out = await conn.call("run", ("sw_vers -productVersion; date -u",), {})
         first = time.monotonic() - t0
         conn.close()
     print(json.dumps({"code": code, "out": out, "first_answer_s": round(first, 3)}))
@@ -55,9 +53,7 @@ async def from_snapshot(snap: Path, run: Path, agent: str) -> int:
 
 async def main() -> int:
     if sys.argv[1] == "--snapshot":
-        return await from_snapshot(
-            Path(sys.argv[2]).resolve(), Path(sys.argv[3]).resolve(), sys.argv[4]
-        )
+        return await from_snapshot(Path(sys.argv[2]).resolve(), Path(sys.argv[3]).resolve(), sys.argv[4])
     guest, run, agent = (
         Path(sys.argv[1]).resolve(),
         Path(sys.argv[2]).resolve(),
@@ -71,9 +67,7 @@ async def main() -> int:
         await anyio.run_process(["cp", "-c", str(guest / name), str(run / name)])
     image = (await anyio.Path(guest / "image").read_text()).strip()
     port = db.free_port()
-    vm = await db.launch(
-        run, db.qemu_args(Path(image), str(run), "memory-backend-ram", ssh_port=port)
-    )
+    vm = await db.launch(run, db.qemu_args(Path(image), str(run), "memory-backend-ram", ssh_port=port))
     qmp = None
     results: dict[str, object] = {}
     try:
@@ -98,9 +92,7 @@ async def main() -> int:
         conn = arpyc.connect(sock.detach())
         with anyio.fail_after(30):
             t1 = time.monotonic()
-            code, out = await conn.call(
-                "run", ("sw_vers -productVersion; id -un; nix --version",), {}
-            )
+            code, out = await conn.call("run", ("sw_vers -productVersion; id -un; nix --version",), {})
             results["run"] = {
                 "code": code,
                 "out": out,

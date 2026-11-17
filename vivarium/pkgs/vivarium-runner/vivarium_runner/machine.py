@@ -44,8 +44,8 @@ import anyio
 from anyio.abc import UNIXSocketStream
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
-from .channel import AGENT_READY, ProcessInfo, SystemState, UnitInfo
 from .arpyc import AsyncConnection, Service, connect
+from .channel import AGENT_READY, ProcessInfo, SystemState, UnitInfo
 from .control import (
     AGENT,
     NONE,
@@ -57,8 +57,9 @@ from .control import (
     ControlSpecJson,
     Dialect,
     NoneConfig,
+    dialect as find_dialect,
+    validate as validate_control,
 )
-from .control import dialect as find_dialect, validate as validate_control
 from .net import Lan
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")

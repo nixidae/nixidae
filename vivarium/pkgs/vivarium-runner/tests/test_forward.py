@@ -91,7 +91,9 @@ def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name() -> None:
         holder.listen()
         vm = Forwarding([Rule(address=FIRST, ports=(PortMap(port, port),))])
         escaped = FIRST.replace(".", r"\.")
-        with pytest.raises(MachineError, match=rf"^\[web\] forward: cannot forward .*{escaped}:{port} is already bound"):
+        with pytest.raises(
+            MachineError, match=rf"^\[web\] forward: cannot forward .*{escaped}:{port} is already bound"
+        ):
             vm.resolve_forward(set())
 
 

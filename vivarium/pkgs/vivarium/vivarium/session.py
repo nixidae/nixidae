@@ -51,8 +51,8 @@ from vivarium_runner.net import build_lans
 from vivarium_runner.report import Report
 
 from . import access, journal, junit_in
-from .events import Event, Kind, Level
 from .cloud import Cloud, CloudService
+from .events import Event, Kind, Level
 from .instances import InstanceError, free_index, instance_spec, seed
 from .phases import (
     PhaseState,
@@ -193,7 +193,9 @@ def with_cpus(machines: list[MachineSpecJson], override: CpuOverride) -> list[Ma
     A guest the override names and the run lacks is refused."""
     unknown = sorted(set(override.guests) - {m["name"] for m in machines})
     if unknown:
-        raise SessionError(f"no guest {', '.join(unknown)} to give processors; the guests: {', '.join(m['name'] for m in machines)}")
+        raise SessionError(
+            f"no guest {', '.join(unknown)} to give processors; the guests: {', '.join(m['name'] for m in machines)}"
+        )
     out: list[MachineSpecJson] = []
     for machine in machines:
         cpus = override.guests.get(machine["name"], override.every)

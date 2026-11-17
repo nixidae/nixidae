@@ -19,7 +19,9 @@ class TestResolveCpus:
     def test_a_count_is_kept(self) -> None:
         assert resolve_cpus(3, 16) == 3
 
-    @pytest.mark.parametrize(("scale", "host", "cpus"), [(1, 16, 16), (0.5, 16, 8), (0.5, 3, 2), (2, 4, 8), (0.01, 4, 1)])
+    @pytest.mark.parametrize(
+        ("scale", "host", "cpus"), [(1, 16, 16), (0.5, 16, 8), (0.5, 3, 2), (2, 4, 8), (0.01, 4, 1)]
+    )
     def test_a_scale_is_a_share_of_the_host(self, scale: float, host: int, cpus: int) -> None:
         assert resolve_cpus({"scale": scale}, host) == cpus
 

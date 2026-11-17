@@ -326,8 +326,7 @@ class TestTimeout:
         """The running test fails, and no later test starts."""
         tests = write_tests(
             tmp_path,
-            "import anyio\n\nasync def test_slow():\n    await anyio.sleep(30)\n\n"
-            "def test_later():\n    assert True\n",
+            "import anyio\n\nasync def test_slow():\n    await anyio.sleep(30)\n\ndef test_later():\n    assert True\n",
         )
         sink = Collect()
         session = session_for(tmp_path, sink)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from vivarium.instances import InstanceError, free_index, instance_spec, seed, shifted
 from vivarium_runner import Interface, MachineSpec
@@ -27,7 +29,7 @@ def test_a_slot_shifts_each_address_and_keeps_its_prefix() -> None:
 
 
 def test_a_slot_past_the_network_is_an_error() -> None:
-    with pytest.raises(InstanceError, match="outside its network 10.9.0.0/24"):
+    with pytest.raises(InstanceError, match=re.escape("outside its network 10.9.0.0/24")):
         shifted(["10.9.0.250/24"], 10)
 
 

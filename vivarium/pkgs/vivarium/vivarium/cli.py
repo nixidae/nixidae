@@ -263,9 +263,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
 
 def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """`ctl`: one request to a run. The runner and the `vivarium` CLI both take it."""
-    ctl = sub.add_parser(
-        "ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused"
-    )
+    ctl = sub.add_parser("ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused")
     ctl.add_argument("--out", type=_absolute, required=True, help="the run's --out")
     ctl.add_argument("--json", action="store_true", help="the whole reply as one JSON object on stdout")
     ctl.add_argument(

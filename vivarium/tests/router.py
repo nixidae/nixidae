@@ -180,7 +180,9 @@ async def forwards(vms: Machines) -> None:
     """The host reaches each guest on its own forwards, through the egress."""
     for name in GUESTS:
         await vms[name].succeed(f"systemd-run --collect --unit=tcp-{TCP} socat TCP-LISTEN:{TCP},fork,reuseaddr {NAME}")
-    await vms.a.succeed(f"systemd-run --collect --unit=tcp-{PRIVILEGED} socat TCP-LISTEN:{PRIVILEGED},fork,reuseaddr {NAME}")
+    await vms.a.succeed(
+        f"systemd-run --collect --unit=tcp-{PRIVILEGED} socat TCP-LISTEN:{PRIVILEGED},fork,reuseaddr {NAME}"
+    )
     await vms.a.succeed(f"systemd-run --collect --unit=udp-{UDP} socat UDP4-RECVFROM:{UDP},fork {UDP_NAME}")
 
     checks = [(name, TCP, False) for name in GUESTS] + [("a", PRIVILEGED, False), ("a", UDP, True)]

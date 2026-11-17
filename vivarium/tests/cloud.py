@@ -22,7 +22,9 @@ async def test(vms: Machines) -> None:
     cloud.capacity["worker"] = 1
     cloud.boot_delay = 1.0
 
-    status, first = await call(controller, "POST", "/v1/instances", {"template": "worker", "tags": {"pool": "build"}, "user_data": "join-1"})
+    status, first = await call(
+        controller, "POST", "/v1/instances", {"template": "worker", "tags": {"pool": "build"}, "user_data": "join-1"}
+    )
     assert (status, first["state"], first["launched_by"]) == (202, "pending", "controller"), first
     status, refused = await call(controller, "POST", "/v1/instances", {"template": "worker"})
     assert status == 409, refused

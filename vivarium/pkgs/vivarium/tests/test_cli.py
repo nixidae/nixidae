@@ -84,7 +84,10 @@ async def test_ctl_sends_each_reload_directory_absolute(tmp_path: Path, monkeypa
         ([], None),
         (["--cpus", "4"], CpuOverride(every=4)),
         (["--cpu-scale", "0.5"], CpuOverride(every={"scale": 0.5})),
-        (["--cpus", "2", "--cpus", "db=8", "--cpu-scale", "web=0.5"], CpuOverride(every=2, guests={"db": 8, "web": {"scale": 0.5}})),
+        (
+            ["--cpus", "2", "--cpus", "db=8", "--cpu-scale", "web=0.5"],
+            CpuOverride(every=2, guests={"db": 8, "web": {"scale": 0.5}}),
+        ),
     ],
 )
 def test_cpus_of_a_run(flags: list[str], cpus: CpuOverride | None) -> None:

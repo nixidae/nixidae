@@ -15,7 +15,6 @@ import json
 import socket
 
 import anyio
-
 from vivarium_runner import Machine, Machines
 
 DURATION = 5

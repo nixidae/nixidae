@@ -13,8 +13,9 @@ Not `ip link set down`: under UML a link once down never comes back
 """
 
 import anyio
-from lab import CONVERGE, POLL, bgp_peers, bgp_up, established, lab, loss, nexthops, ping, sas
 from vivarium_runner import Machine, Machines
+
+from lab import CONVERGE, POLL, bgp_peers, bgp_up, established, lab, loss, nexthops, ping, sas
 
 
 async def cut(vm: Machine, address: str) -> None:

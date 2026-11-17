@@ -11,8 +11,9 @@ the BGP session over it never drops.
 from typing import Any
 
 import anyio
-from lab import child, established, lab, loss, ping, vtysh
 from vivarium_runner import Machine, Machines
+
+from lab import child, established, lab, loss, ping, vtysh
 
 
 async def rekey_under_load(

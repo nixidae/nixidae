@@ -16,8 +16,9 @@
 import re
 
 import anyio
-from lab import capture, captured_during, esp_inner_mtu, lab, ping, route_mtu
 from vivarium_runner import Machine, Machines
+
+from lab import capture, captured_during, esp_inner_mtu, lab, ping, route_mtu
 
 
 async def test(vms: Machines) -> None:

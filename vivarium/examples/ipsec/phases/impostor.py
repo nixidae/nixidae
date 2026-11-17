@@ -16,9 +16,10 @@ end, and alice still reaches bob.
 """
 
 import anyio
-from lab import POLL, capture, epoch, established, journal_since, lab, ping, xfrm_stats
 from vivarium_runner import Machines
 from vivarium_runner.machine import MachineError
+
+from lab import POLL, capture, epoch, established, journal_since, lab, ping, xfrm_stats
 
 # What east logs as the reason, and the notify it answers with.
 ATTEMPTS = {

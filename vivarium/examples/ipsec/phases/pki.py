@@ -7,8 +7,9 @@ without it would refuse west and east as surely as mallory.
 
 import re
 
-from lab import lab
 from vivarium_runner import Machines
+
+from lab import lab
 
 
 async def test(vms: Machines) -> None:

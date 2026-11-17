@@ -32,15 +32,9 @@ def blobs_of_ls_tree(text: str) -> dict[str, str]:
 
 def main() -> None:
     vendored = blobs_of_ls_tree(pathlib.Path(sys.argv[1]).read_text())
-    commits = [
-        line.split()[0]
-        for line in pathlib.Path(sys.argv[2]).read_text().splitlines()
-        if line.strip()
-    ]
+    commits = [line.split()[0] for line in pathlib.Path(sys.argv[2]).read_text().splitlines() if line.strip()]
     count = int(sys.argv[3]) if len(sys.argv) > 3 else 30
-    token = subprocess.run(
-        ["gh", "auth", "token"], capture_output=True, text=True, check=True
-    ).stdout.strip()
+    token = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True).stdout.strip()
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {token}"
 
@@ -51,16 +45,12 @@ def main() -> None:
             print(f"{sha}: tree listing truncated, skipped", file=sys.stderr)
             continue
         upstream = {e["path"]: e["sha"] for e in body["tree"] if e["type"] == "blob"}
-        changed = sum(
-            upstream.get(p) != s for p, s in vendored.items() if p in upstream
-        )
+        changed = sum(upstream.get(p) != s for p, s in vendored.items() if p in upstream)
         added = sum(p not in upstream for p in vendored)
         removed = sum(p not in vendored for p in upstream)
         results.append((changed + added + removed, sha, changed, added, removed))
     for total, sha, changed, added, removed in sorted(results)[:5]:
-        print(
-            f"{sha} differs in {total} files: {changed} changed, {added} only vendored, {removed} only upstream"
-        )
+        print(f"{sha} differs in {total} files: {changed} changed, {added} only vendored, {removed} only upstream")
 
 
 if __name__ == "__main__":

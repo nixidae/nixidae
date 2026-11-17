@@ -16,7 +16,12 @@ from vivarium_runner.cloud import Call, RouteError, route
         ("GET", "/v1/instances?tag:pool=x&other=y", b"", Call("list", {"tags": {"pool": "x"}})),
         ("GET", "/v1/instances/i-0001", b"", Call("describe", {"id": "i-0001"})),
         ("DELETE", "/v1/instances/i-0001", b"", Call("terminate", {"id": "i-0001"})),
-        ("POST", "/v1/instances", b'{"template": "w", "tags": {"a": "b"}}', Call("launch", {"template": "w", "tags": {"a": "b"}})),
+        (
+            "POST",
+            "/v1/instances",
+            b'{"template": "w", "tags": {"a": "b"}}',
+            Call("launch", {"template": "w", "tags": {"a": "b"}}),
+        ),
     ],
 )
 def test_each_route_names_its_operation(method: str, target: str, body: bytes, call: Call) -> None:

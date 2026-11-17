@@ -11,8 +11,9 @@
 """
 
 import anyio
-from lab import lab, route_mtu
 from vivarium_runner import Machine, Machines
+
+from lab import lab, route_mtu
 
 PORT = 5002
 SINK = "/tmp/udp.bin"

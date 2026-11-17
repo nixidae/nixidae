@@ -10,8 +10,9 @@ the internet's 1500 once ESP is added: 1446 (`esp_inner_mtu`).
 
 import re
 
-from lab import esp_inner_mtu, lab
 from vivarium_runner import Machine, Machines
+
+from lab import esp_inner_mtu, lab
 
 ICMP_IP = 28
 

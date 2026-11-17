@@ -29,7 +29,12 @@ def main() -> None:
             line, buffer = buffer.split(b"\n", 1)
             message = json.loads(line)
             if "event" in message:
-                print(f"t={time.monotonic() - start:5.1f}s", message["event"], json.dumps(message.get("data", {})), flush=True)
+                print(
+                    f"t={time.monotonic() - start:5.1f}s",
+                    message["event"],
+                    json.dumps(message.get("data", {})),
+                    flush=True,
+                )
 
 
 if __name__ == "__main__":

@@ -12,7 +12,6 @@ from collections import defaultdict
 from typing import TypedDict
 
 import anyio
-
 from vivarium_runner import Machine, Machines
 
 DURATION = 5

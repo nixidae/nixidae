@@ -164,7 +164,15 @@ async def test_a_run_that_dies_while_it_builds_is_gone_with_its_reason(
     _run_json(tmp_path, await _dead_pid())
     with (tmp_path / BUILD_LOG).open("w") as log:
         log.write(
-            json.dumps({"action": "start", "id": 1, "type": BUILD, "text": "building '/nix/store/x.drv'", "fields": ["/nix/store/x.drv"]})
+            json.dumps(
+                {
+                    "action": "start",
+                    "id": 1,
+                    "type": BUILD,
+                    "text": "building '/nix/store/x.drv'",
+                    "fields": ["/nix/store/x.drv"],
+                }
+            )
             + "\n"
         )
         log.write(json.dumps({"action": "failed", "text": "error: builder for x failed"}) + "\n")

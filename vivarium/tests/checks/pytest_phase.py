@@ -52,7 +52,9 @@ def main() -> None:
 
     # Logged by a test that returned at once. Without the phase's settle
     # it was lost to the teardown -- measured, before settle.
-    if not any(e["kind"] == "journal" and e.get("text") == "logged-and-left" and e.get("phase") == "cases" for e in events):
+    if not any(
+        e["kind"] == "journal" and e.get("text") == "logged-and-left" and e.get("phase") == "cases" for e in events
+    ):
         run.fail("a line logged as a test returned was lost")
     print("ok: a line logged on the way out still reached the phase")
 

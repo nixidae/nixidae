@@ -33,7 +33,7 @@ async def main() -> None:
             except TimeoutError:
                 silent += 1
                 continue
-            except (OSError, anyio.EndOfStream):
+            except OSError, anyio.EndOfStream:
                 # The device closes the host side when the guest resets the request.
                 refused += 1
                 continue

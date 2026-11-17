@@ -487,9 +487,7 @@ def until_pause(argv: list[str], request: Request) -> int:
     about = control.run_file(this_cli(), request.out, child.pid, control=False, origin=origin)
     (request.out / control.RUN_FILE).write_text(about.to_json())
     say(f"started the run, pid {child.pid}, output in {request.out / LOG}")
-    args = argparse.Namespace(
-        target=str(request.out), json=False, quiet=True, through_pauses=False, wait=monitor.WAIT
-    )
+    args = argparse.Namespace(target=str(request.out), json=False, quiet=True, through_pauses=False, wait=monitor.WAIT)
     if request.command != "up":
         return runner_cli.watch(args)
     # stdout is `up`'s result, access.json; the progress is not.

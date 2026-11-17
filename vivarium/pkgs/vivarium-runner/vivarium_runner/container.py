@@ -993,8 +993,7 @@ def main(argv: list[str] | None = None) -> int:
     # (kernel.keys.maxkeys). The 21st of 30 containers failed with "join
     # keyctl: Disk quota exceeded" (nixidae/nixidae#903).
     proc = subprocess.Popen(
-        [*crun, "run", "--no-new-keyring", "--bundle", bundle,
-         "--console-socket", str(console), name],
+        [*crun, "run", "--no-new-keyring", "--bundle", bundle, "--console-socket", str(console), name],
         stdin=subprocess.DEVNULL,
         # Its own group, so a signal to the runner's group reaches this
         # process and not crun: crun would pass SIGTERM to systemd, which

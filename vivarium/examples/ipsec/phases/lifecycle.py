@@ -23,8 +23,9 @@ import re
 from typing import Any
 
 import anyio
-from lab import POLL, epoch, established, journal_since, lab, loss, ping
 from vivarium_runner import Machine, Machines
+
+from lab import POLL, epoch, established, journal_since, lab, loss, ping
 
 SPARE = "/etc/ipsec-lab"
 SWANCTL = "/etc/swanctl"

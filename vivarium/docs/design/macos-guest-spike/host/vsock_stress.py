@@ -25,9 +25,7 @@ import darwin_builder
 
 
 async def path_info_all(store: str) -> bytes:
-    result = await anyio.run_process(
-        ["nix", "path-info", "--all", "--store", store], check=False
-    )
+    result = await anyio.run_process(["nix", "path-info", "--all", "--store", store], check=False)
     if result.returncode != 0:
         msg = f"nix path-info failed: {result.stderr.decode(errors='replace')[-500:]}"
         raise RuntimeError(msg)
@@ -81,9 +79,7 @@ async def big_copy(store: str, path: str) -> dict[str, object]:
             "bytes_sent": sent_bytes, "mb_per_s": round(sent_bytes / seconds / 1e6, 1)}  # fmt: skip
 
 
-async def reset_with_open_connections(
-    socket: Path, qmp: darwin_builder.Qmp
-) -> dict[str, object]:
+async def reset_with_open_connections(socket: Path, qmp: darwin_builder.Qmp) -> dict[str, object]:
     """Open daemon connections, reset the guest, and see that each one ends."""
     streams = []
     for _ in range(16):

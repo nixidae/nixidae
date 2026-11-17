@@ -15,8 +15,9 @@ side.
 import re
 
 import anyio
-from lab import bgp_up, capture, child, established, lab, nexthops, ping
 from vivarium_runner import Machine, Machines
+
+from lab import bgp_up, capture, child, established, lab, nexthops, ping
 
 PORT = 7000
 

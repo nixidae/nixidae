@@ -45,8 +45,8 @@ def test_a_log_line_stays_in_the_file(tmp_path: Path) -> None:
 
 def test_the_monitor_names_nix_s_activities() -> None:
     """`vivarium` reads `build.jsonl` without huggorm, so it spells the numbers."""
-    assert BUILD == int(huggorm.ActivityType.BUILD)
-    assert SUBSTITUTE == int(huggorm.ActivityType.SUBSTITUTE)
+    assert int(huggorm.ActivityType.BUILD) == BUILD
+    assert int(huggorm.ActivityType.SUBSTITUTE) == SUBSTITUTE
 
 
 def test_a_plan_is_one_record_per_kind(tmp_path: Path) -> None:

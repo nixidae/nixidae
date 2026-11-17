@@ -92,6 +92,7 @@ def _in_loop(
     `__anext__`, so its setup and teardown are separate tasks. An anyio
     task group held open across its `yield` does not survive that.
     """
+
     def run(step: Callable[[], Any]) -> Any:
         return portal.call(step if bound is None else functools.partial(bound, step))
 

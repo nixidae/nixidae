@@ -63,12 +63,8 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream, Process, SocketStream
 
 HERE = Path(__file__).resolve().parent
-QEMU = Path(
-    os.environ.get("QEMU", Path.home() / "Dynamist/qemu/build-hvf/qemu-system-aarch64")
-)
-QEMU_IMG = Path(
-    os.environ.get("QEMU_IMG", Path.home() / "Dynamist/qemu/build-hvf/qemu-img")
-)
+QEMU = Path(os.environ.get("QEMU", Path.home() / "Dynamist/qemu/build-hvf/qemu-system-aarch64"))
+QEMU_IMG = Path(os.environ.get("QEMU_IMG", Path.home() / "Dynamist/qemu/build-hvf/qemu-img"))
 # The host's own booter runs unpatched under HVF.
 ROM = Path(
     os.environ.get(
@@ -216,21 +212,15 @@ async def set_clock(vsock: Path) -> str:
 
 
 async def pump(source: ByteStream, sink: ByteStream) -> None:
-    with contextlib.suppress(
-        anyio.BrokenResourceError, anyio.ClosedResourceError, anyio.EndOfStream
-    ):
+    with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError, anyio.EndOfStream):
         async for chunk in source:
             await sink.send(chunk)
     # Half-close, so the far side sees EOF and still answers.
-    with contextlib.suppress(
-        anyio.BrokenResourceError, anyio.ClosedResourceError, OSError
-    ):
+    with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError, OSError):
         await sink.send_eof()
 
 
-async def forward(
-    vsock: Path, listen: Path, *, task_status: anyio.abc.TaskStatus[None]
-) -> None:
+async def forward(vsock: Path, listen: Path, *, task_status: anyio.abc.TaskStatus[None]) -> None:
     """Serve the guest daemon on *listen*, a plain Unix socket Nix can use."""
     await anyio.Path(listen).unlink(missing_ok=True)
     listener = await anyio.create_unix_listener(listen)
@@ -262,16 +252,12 @@ def base_disk(img: Path) -> tuple[Path, str]:
     return (qcow2, "qcow2") if qcow2.exists() else (img / "disk.raw", "raw")
 
 
-def qemu_args(
-    img: Path, run: str, ram: str, *, ssh_port: int | None = None
-) -> list[str]:
+def qemu_args(img: Path, run: str, ram: str, *, ssh_port: int | None = None) -> list[str]:
     """The arguments of run-hvf.sh, with the guest's RAM the memory backend *ram*.
 
     *run* is the run directory, or ``{run}`` for a snapshot's template.
     """
-    netdev = "user,id=net0" + (
-        f",hostfwd=tcp:127.0.0.1:{ssh_port}-:22" if ssh_port else ""
-    )
+    netdev = "user,id=net0" + (f",hostfwd=tcp:127.0.0.1:{ssh_port}-:22" if ssh_port else "")
     disk, disk_format = base_disk(img)
     return [
         "-M",
@@ -378,9 +364,7 @@ async def store_command(vsock: Path, command: str, data: bytes = b"") -> str:
 
 async def launch(run: Path, args: list[str], qemu: Path = QEMU) -> Process:
     out = await anyio.open_file(run / "stdout.log", "ab")
-    return await anyio.open_process(
-        [str(qemu), *args], stdout=out.wrapped, stderr=out.wrapped
-    )
+    return await anyio.open_process([str(qemu), *args], stdout=out.wrapped, stderr=out.wrapped)
 
 
 async def stop(vm: Process, qmp: Qmp | None) -> None:
@@ -459,15 +443,11 @@ async def save(guest: Path, snap: Path) -> None:
     # Private: with a MAP_SHARED mapping the host pager writes dirty guest pages
     # back to the file, and the guest stalled for 5-25 s at a time. The state
     # carries no RAM, so the destination keeps the file's pages.
-    ram = (
-        "memory-backend-file,mem-path={snapshot}/ram.bin,share=off,readonly=on,rom=off"
-    )
+    ram = "memory-backend-file,mem-path={snapshot}/ram.bin,share=off,readonly=on,rom=off"
     await write_manifest(img, snap, qemu_args(img, "{run}", ram))
 
 
-async def write_manifest(
-    img: Path, snap: Path, args: list[str], **extra: object
-) -> None:
+async def write_manifest(img: Path, snap: Path, args: list[str], **extra: object) -> None:
     # Paths inside the snapshot are relative, and {snapshot} in the arguments,
     # so the directory can move.
     manifest = {
@@ -481,9 +461,7 @@ async def write_manifest(
         "clockVsockPort": CLOCK_PORT,
         **extra,
     }
-    await anyio.Path(snap / "snapshot.json").write_text(
-        json.dumps(manifest, indent=2) + "\n"
-    )
+    await anyio.Path(snap / "snapshot.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(
         json.dumps(
             {
@@ -567,9 +545,7 @@ async def save_running(img: Path, snap: Path) -> None:
         # of that snapshot had no network. The clock port renews the lease.
         address = await set_clock(snap / "vsock.sock")
         if not address:
-            sys.exit(
-                "the guest has no address on en0 after a DHCP renewal; not saving it"
-            )
+            sys.exit("the guest has no address on en0 after a DHCP renewal; not saving it")
         log(event="network", address=address)
         await qmp.call("stop")
         if VIRTIOFS or PYNIXD:
@@ -584,9 +560,7 @@ async def save_running(img: Path, snap: Path) -> None:
         await stop(vm, qmp)
 
 
-async def ssh(
-    run: Path, port: int, *command: str, check: bool = True, connect_timeout: int = 10
-) -> bool:
+async def ssh(run: Path, port: int, *command: str, check: bool = True, connect_timeout: int = 10) -> bool:
     """Run *command* in the guest as admin; with a "--" upload, ``scp`` instead."""
     askpass = anyio.Path(run / "askpass")
     if not await askpass.exists():
@@ -648,9 +622,7 @@ async def install_agent(guest: Path, port: int, agent: str) -> None:
             stdout=subprocess.DEVNULL, stderr=None,
         )  # fmt: skip
         tg.cancel_scope.cancel()
-    await ssh(
-        guest, port, "--", str(HERE.parent / "guest/vivarium-agent.plist"), "/tmp/"
-    )
+    await ssh(guest, port, "--", str(HERE.parent / "guest/vivarium-agent.plist"), "/tmp/")
     # The profile roots the closure, so the guest's garbage collector keeps it.
     await ssh(guest, port, "sudo -n sh -c '/nix/var/nix/profiles/default/bin/nix-env "
               f"-p /nix/var/nix/profiles/vivarium-agent --set {agent} && "
@@ -730,14 +702,10 @@ async def prepare(img: Path, guest: Path) -> None:
         disk, disk_format = base_disk(img)
         await anyio.run_process([str(QEMU_IMG), "create", "-q", "-f", "qcow2", "-F", disk_format, "-b",
                                  str(disk), str(guest / "overlay.qcow2")])  # fmt: skip
-        await anyio.run_process(
-            ["cp", "-c", str(img / "aux.img"), str(guest / "aux.img")]
-        )
+        await anyio.run_process(["cp", "-c", str(img / "aux.img"), str(guest / "aux.img")])
     await anyio.Path(guest / "image").write_text(f"{img}\n")
     # Anonymous: a shared file mapping stalls the guest, and nothing reads this RAM later.
-    vm = await launch(
-        guest, qemu_args(img, str(guest), "memory-backend-ram", ssh_port=port)
-    )
+    vm = await launch(guest, qemu_args(img, str(guest), "memory-backend-ram", ssh_port=port))
     qmp = None
     try:
         qmp = await Qmp.connect(guest / "qmp.sock")
@@ -745,9 +713,7 @@ async def prepare(img: Path, guest: Path) -> None:
         with anyio.fail_after(300):
             while not await ssh(guest, port, "true", check=False, connect_timeout=5):
                 if vm.returncode is not None:
-                    sys.exit(
-                        f"QEMU exited with {vm.returncode}; see {guest}/stdout.log"
-                    )
+                    sys.exit(f"QEMU exited with {vm.returncode}; see {guest}/stdout.log")
                 await anyio.sleep(1)
         log(event="ssh", seconds=round(time.monotonic() - start, 1))
         # tart's daemon reboots the guest when tart's host side is absent.
@@ -770,10 +736,7 @@ async def prepare(img: Path, guest: Path) -> None:
                   "sh /tmp/install-nix --daemon --yes > /tmp/install-nix.log 2>&1 || "
                   "{ tail -20 /tmp/install-nix.log; exit 1; }; }")  # fmt: skip
         log(event="nix", seconds=round(time.monotonic() - start, 1))
-        plists = [
-            HERE.parent / "guest" / name
-            for name in ("builder-daemon.plist", "builder-clock.plist")
-        ]
+        plists = [HERE.parent / "guest" / name for name in ("builder-daemon.plist", "builder-clock.plist")]
         await ssh(guest, port, "--", str(vsockcat), *map(str, plists), "/tmp/")
         await ssh(guest, port, "sudo -n sh -c 'install -m 755 /tmp/vsockcat /usr/local/bin/vsockcat && "
                   "install -m 644 /tmp/builder-daemon.plist /tmp/builder-clock.plist /Library/LaunchDaemons/ && "
@@ -784,9 +747,7 @@ async def prepare(img: Path, guest: Path) -> None:
         if waited.cancelled_caught:
             await ssh(guest, port, "sudo -n launchctl print system/org.nixidae.builder-daemon | "
                       "grep -E 'state|exit'; sudo -n tail -5 /var/log/builder-daemon.log", check=False)  # fmt: skip
-            sys.exit(
-                f"the guest daemon did not answer over vsock within 60 s; see {guest}/stdout.log"
-            )
+            sys.exit(f"the guest daemon did not answer over vsock within 60 s; see {guest}/stdout.log")
         await install_store(guest, port)
         if agent := os.environ.get("AGENT"):
             await install_agent(guest, port, agent)
@@ -812,14 +773,8 @@ async def compact(img: Path, root: Path) -> None:
     t0 = time.monotonic()
     if not await anyio.Path(qcow2).exists():
         partial = img / "disk.qcow2.partial"
-        options = (
-            ["-c", "-o", f"compression_type={compression}"]
-            if compression != "none"
-            else []
-        )
-        await anyio.run_process(
-            [str(QEMU_IMG), "convert", "-O", "qcow2", *options, str(raw), str(partial)]
-        )
+        options = ["-c", "-o", f"compression_type={compression}"] if compression != "none" else []
+        await anyio.run_process([str(QEMU_IMG), "convert", "-O", "qcow2", *options, str(raw), str(partial)])
         await anyio.run_process(
             [
                 str(QEMU_IMG),
@@ -838,11 +793,7 @@ async def compact(img: Path, root: Path) -> None:
         log(event="converted", seconds=round(time.monotonic() - t0, 1))
     async for overlay in anyio.Path(root).glob("*/overlay.qcow2"):
         info = json.loads(
-            (
-                await anyio.run_process(
-                    [str(QEMU_IMG), "info", "--output=json", "-U", str(overlay)]
-                )
-            ).stdout
+            (await anyio.run_process([str(QEMU_IMG), "info", "--output=json", "-U", str(overlay)])).stdout
         )
         if info.get("backing-filename") != str(raw):
             continue
@@ -903,10 +854,7 @@ async def started(snap: Path, run: Path) -> AsyncIterator[Started]:
         [manifest["qemuImg"], "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", at(manifest["overlay"]),
          str(run / "overlay.qcow2")],
     )  # fmt: skip
-    args = [
-        arg.replace("{run}", str(run)).replace("{snapshot}", str(snap))
-        for arg in manifest["args"]
-    ]
+    args = [arg.replace("{run}", str(run)).replace("{snapshot}", str(snap)) for arg in manifest["args"]]
     host_store = "virtiofs" in manifest
     async with contextlib.AsyncExitStack() as stack:
         if host_store:
@@ -982,9 +930,7 @@ async def register_closure(vsock: Path, drv: str) -> int:
     The guest reads the paths over virtiofs, so it needs their database rows
     and nothing else. pynix has no --include-outputs query or --dump-db.
     """
-    closure = await anyio.run_process(
-        ["nix-store", "--query", "--requisites", "--include-outputs", drv]
-    )
+    closure = await anyio.run_process(["nix-store", "--query", "--requisites", "--include-outputs", drv])
     paths = closure.stdout.decode().split()
     rows = await anyio.run_process(["nix-store", "--dump-db", *paths])
     await store_command(vsock, "load-db", rows.stdout)
@@ -996,9 +942,7 @@ async def build(snap: Path, run: Path, args: list[str]) -> int:
     async with started(snap, run) as guest:
         if guest.host_store and (drv := await drv_path(args)):
             count = await register_closure(guest.vsock, drv)
-            log(
-                event="registered", paths=count, seconds=round(time.monotonic() - t0, 3)
-            )
+            log(event="registered", paths=count, seconds=round(time.monotonic() - t0, 3))
         command = ["pynix", "build", "--store", f"unix://{guest.socket}?local-fs=false", "--eval-store", "auto",
                    "--copy", "auto", *args]  # fmt: skip
         result = await anyio.run_process(command, stdout=None, stderr=None, check=False)

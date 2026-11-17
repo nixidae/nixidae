@@ -122,7 +122,15 @@ def main() -> None:
         wait_for(device)
         router_end, client_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
         router = subprocess.Popen(
-            uml(kernel, initrd, run, "router", router_end.fileno(), f"lab=router {os.environ.get('E4_ROUTER', '')}", f"virtio_uml.device={device}:19"),
+            uml(
+                kernel,
+                initrd,
+                run,
+                "router",
+                router_end.fileno(),
+                f"lab=router {os.environ.get('E4_ROUTER', '')}",
+                f"virtio_uml.device={device}:19",
+            ),
             pass_fds=(router_end.fileno(),),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

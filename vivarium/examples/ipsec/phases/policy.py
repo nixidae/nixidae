@@ -10,8 +10,9 @@ gateways and no ICMP at all.
 import re
 
 import anyio
-from lab import capture, child, established, lab, ping
 from vivarium_runner import Machine, Machines
+
+from lab import capture, child, established, lab, ping
 
 
 def expect(what: str, got: object, want: object) -> None:

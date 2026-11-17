@@ -37,6 +37,7 @@ class Init(StrEnum):
     SYSTEMD = "systemd"
     DINIT = "dinit"
 
+
 TTY = os.environ.get("VIVARIUM_AGENT_DEVICE", "/dev/ttyS0")
 """Where the host is listening.  ttyS0 under UML.  Under QEMU the console
 takes ttyS0 -- a stock kernel prints there from its first line, before any

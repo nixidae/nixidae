@@ -517,9 +517,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         injecting it again. `reload` names working-tree directories of
         helper modules: imported from first, their modules dropped, so an
         edited helper is read again too."""
-        return _reply(
-            await request(runs().get(run).socket, Op.INJECT, os.path.abspath(path), _directories(reload))
-        )
+        return _reply(await request(runs().get(run).socket, Op.INJECT, os.path.abspath(path), _directories(reload)))
 
     @server.tool()
     async def run_pytest(

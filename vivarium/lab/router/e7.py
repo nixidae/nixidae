@@ -94,7 +94,9 @@ def main() -> None:
                 got = line.split("got", 1)[1].split()[0]
         threads[0].join(timeout=10)
         print(f"expected  {expected}")
-        print(f"to host   {result.get('received', 'nothing')}: {'match' if result.get('received') == expected else 'MISMATCH'}")
+        print(
+            f"to host   {result.get('received', 'nothing')}: {'match' if result.get('received') == expected else 'MISMATCH'}"
+        )
         print(f"to guest  {got}: {'match' if got == expected.split()[0] else 'MISMATCH'}")
     finally:
         for proc in reversed(procs):

@@ -6,7 +6,6 @@ import asyncio
 from http import HTTPStatus
 
 import anyio
-
 from vivarium.cloud import Cloud, State
 
 
@@ -68,7 +67,9 @@ def _cloud() -> tuple[Cloud, FakeSession]:
 def test_a_launch_is_pending_then_running_and_names_who_asked() -> None:
     async def main() -> None:
         cloud, session = _cloud()
-        status, body = await cloud.handle("ctl", "launch", {"template": "worker", "tags": {"pool": "a"}, "user_data": "t"})
+        status, body = await cloud.handle(
+            "ctl", "launch", {"template": "worker", "tags": {"pool": "a"}, "user_data": "t"}
+        )
         assert (status, body["state"], body["launched_by"]) == (HTTPStatus.ACCEPTED, "pending", "ctl")
         await cloud.instances[body["id"]].settled.wait()
         assert cloud.instances[body["id"]].state is State.RUNNING

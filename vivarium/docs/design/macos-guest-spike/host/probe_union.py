@@ -80,9 +80,9 @@ async def main(guest: Path, run: Path, shown: str, hidden: str) -> None:
             "mounts": f"mount | grep {MOUNT}",
             "shown after union": f"ls {MOUNT}/{name} | head -3",
             "hidden after union": f"ls -d {MOUNT}/{Path(hidden).name}",
-            "run from the store": f"{MOUNT}/{name}/bin/python3 -c \"print(1)\"",
+            "run from the store": f'{MOUNT}/{name}/bin/python3 -c "print(1)"',
             "create output": f"mkdir {MOUNT}/zzz-out && echo built > {MOUNT}/zzz-out/file"
-            f" && printf \"#!/bin/sh\\n\" > {MOUNT}/zzz-out/exe && chmod 755 {MOUNT}/zzz-out/exe"
+            f' && printf "#!/bin/sh\\n" > {MOUNT}/zzz-out/exe && chmod 755 {MOUNT}/zzz-out/exe'
             f" && ln -s file {MOUNT}/zzz-out/link && cat {MOUNT}/zzz-out/file",
             "write into an input": f"touch {MOUNT}/{name}/probe",
             "remove an input": f"rm -rf {MOUNT}/{name}",
