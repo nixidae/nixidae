@@ -33,8 +33,8 @@ use std::thread;
 use vivarium_egress::vsock;
 
 use vivarium_egress::{
-    ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, encode, family, owned, pump,
-    socket, splice_both,
+    ICMP, REQUEST_LEN, Stream, TCP, UDP, bind, connect, decode, echo_reply, encode, family, owned,
+    pump, pump_map, socket, splice_both,
 };
 
 /// Where a flow from the router goes on the host's side.
@@ -95,7 +95,7 @@ fn flow(mut relay: UnixStream, outside: &Outside) -> io::Result<()> {
                 libc::IPPROTO_ICMPV6
             };
             let fd = outside.connect(dst, libc::SOCK_DGRAM, proto)?;
-            return pump(Stream::from(relay), UdpSocket::from(fd));
+            return pump_map(Stream::from(relay), UdpSocket::from(fd), echo_reply);
         }
         _ => {
             relay.write_all(&[1])?;

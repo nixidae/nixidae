@@ -213,6 +213,28 @@ pub fn setsockopt<T>(fd: i32, level: i32, name: i32, value: &T) -> io::Result<()
 /// Datagrams both ways between a connected datagram socket and a stream
 /// of frames, until the stream closes or the flow is idle for `IDLE`.
 pub fn pump(stream: Stream, socket: UdpSocket) -> io::Result<()> {
+    pump_map(stream, socket, |datagram| Some(datagram))
+}
+
+/// What a ping socket receives, as Linux gives it: the ICMP echo reply
+/// alone. macOS puts the IPv4 header in front, and on `::1` also hands
+/// back the echo request this socket sent.
+pub fn echo_reply(packet: &[u8]) -> Option<&[u8]> {
+    let icmp = match packet.first() {
+        Some(byte) if byte >> 4 == 4 => packet.get(usize::from(byte & 0x0f) * 4..)?,
+        _ => packet,
+    };
+    // Echo reply: 0 for ICMP, 129 for ICMPv6.
+    matches!(icmp.first(), Some(0 | 129)).then_some(icmp)
+}
+
+/// `pump`, with each datagram from the socket passed through `map`; None
+/// drops it.
+pub fn pump_map(
+    stream: Stream,
+    socket: UdpSocket,
+    map: fn(&[u8]) -> Option<&[u8]>,
+) -> io::Result<()> {
     let activity = Arc::new(Activity::default());
     let done = Arc::new(AtomicBool::new(false));
     stream.set_read_timeout(TICK)?;
@@ -226,7 +248,10 @@ pub fn pump(stream: Stream, socket: UdpSocket) -> io::Result<()> {
                 match socket.recv(&mut buf) {
                     Ok(n) => {
                         activity.touch();
-                        if stream.write_frame_or_drop(&buf[..n]).is_err() {
+                        let Some(datagram) = map(&buf[..n]) else {
+                            continue;
+                        };
+                        if stream.write_frame_or_drop(datagram).is_err() {
                             break;
                         }
                     }
@@ -399,5 +424,35 @@ pub unsafe fn owned(fd: i32) -> io::Result<OwnedFd> {
         Err(io::Error::last_os_error())
     } else {
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::echo_reply;
+
+    // Recorded from a ping socket to 127.0.0.1 and ::1 on macOS 27.
+    const REPLY_ICMP: [u8; 13] = *b"\x00\x00\xa9\xf8\x12\x34\x00\x01hello";
+
+    #[test]
+    fn a_linux_reply_passes_unchanged() {
+        assert_eq!(echo_reply(&REPLY_ICMP), Some(&REPLY_ICMP[..]));
+    }
+
+    #[test]
+    fn a_macos_reply_loses_its_ipv4_header() {
+        let mut packet =
+            b"\x45\x00\x0d\x00\x96\xe9\x00\x00\x40\x01\x00\x00\x7f\x00\x00\x01\x7f\x00\x00\x01"
+                .to_vec();
+        packet.extend_from_slice(&REPLY_ICMP);
+        assert_eq!(echo_reply(&packet), Some(&REPLY_ICMP[..]));
+    }
+
+    #[test]
+    fn an_echo_request_is_dropped() {
+        let request = b"\x80\x00\x29\xaf\x12\x34\x00\x01hello";
+        assert_eq!(echo_reply(request), None);
+        let reply = b"\x81\x00\x28\xaf\x12\x34\x00\x01hello";
+        assert_eq!(echo_reply(reply), Some(&reply[..]));
     }
 }
