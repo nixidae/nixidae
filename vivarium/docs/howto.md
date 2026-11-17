@@ -14,6 +14,18 @@ $ nix run --file . mine.driver -- --out ./out      # by hand, output in ./out
 $ nix run --file . mine.driverDebug -- --out ./out # by hand, pause at the first failure
 ```
 
+A sandboxed verdict is a store path. For the same inputs, Nix reuses it
+from the store or from a cache, whether the test passed or failed. To
+boot the guests again, rebuild the attempt and keep the new run:
+
+```console
+$ nix build --rebuild --keep-failed --file . mine.attempt
+```
+
+Nix then says the output differs, because the timings always do, and
+exits 1. The new run is at the attempt's path with `.check` added, and
+its `status` holds the new verdict.
+
 A run by hand prints the commands that reach it, before the first
 phase and again at each pause:
 

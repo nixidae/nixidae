@@ -48,7 +48,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Check the generated files, the scripts, the Python types, the docs, the images and the kubeadm config
       run: nix build --no-link --print-build-logs --keep-going --file . checks.check-scripts checks.docs checks.check-python checks.check-k8s-images checks.check-k8s-config
@@ -98,7 +97,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Build the dinix guest kernel
       run: nix build --no-link --print-build-logs --keep-going --file . packages.directKernel
@@ -148,7 +146,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Build the UML kernel
       run: nix build --no-link --print-build-logs --keep-going --file . packages.umlKernel
@@ -200,7 +197,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -256,7 +252,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -315,7 +310,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -377,7 +371,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -436,7 +429,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -495,7 +487,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -556,7 +547,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -615,7 +605,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -673,7 +662,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -729,7 +717,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -787,7 +774,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -843,7 +829,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -902,7 +887,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -960,7 +944,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1018,7 +1001,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1079,7 +1061,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1140,7 +1121,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1201,7 +1181,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1259,7 +1238,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1314,7 +1292,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1370,7 +1347,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1428,7 +1404,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1484,7 +1459,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1543,7 +1517,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1602,7 +1575,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1661,7 +1633,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1720,7 +1691,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1778,7 +1748,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1834,7 +1803,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1893,7 +1861,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -1952,7 +1919,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2011,7 +1977,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2070,7 +2035,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2128,7 +2092,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2184,7 +2147,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2243,7 +2205,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2302,7 +2263,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2361,7 +2321,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2420,7 +2379,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2478,7 +2436,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2533,7 +2490,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2589,7 +2545,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2647,7 +2602,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2702,7 +2656,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2758,7 +2711,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2817,7 +2769,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2875,7 +2826,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2930,7 +2880,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -2985,7 +2934,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
@@ -3040,7 +2988,6 @@ jobs:
       with:
         authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
         name: lillecarl
-        pushFilter: (-vivarium-test-)
         useDaemon: false
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
