@@ -712,8 +712,12 @@ rec {
           modules = [
             {
               defaults.vivarium.backend = lib.mkForce backend;
-              # The router runs on krun too where the guests do, and on UML elsewhere.
-              router.backend = lib.mkIf (backend == "krun") (lib.mkForce "krun");
+              # The router runs on QEMU or krun too where the guests do, and
+              # on UML elsewhere.
+              router.backend = lib.mkIf (lib.elem backend [
+                "qemu"
+                "krun"
+              ]) (lib.mkForce backend);
             }
           ];
         };

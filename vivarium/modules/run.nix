@@ -135,14 +135,14 @@ in
       backend = mkOption {
         type = types.enum [
           "uml"
+          "qemu"
           "krun"
         ];
         default = "uml";
         description = ''
-          What the router guest runs on. `krun` needs /dev/kvm and carries
-          more: 16 Gbit/s out of a guest at MTU 65000 against UML's 13-15
-          (docs/design/router-lab.md, E2 and E7). A run's `.krun` variant
-          sets it to `krun`.
+          What the router guest runs on. `qemu` and `krun` need /dev/kvm
+          (docs/design/router-lab.md). A run's `.qemu` and `.krun` variants
+          set it to their own backend.
         '';
       };
       name = mkOption {

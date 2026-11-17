@@ -197,6 +197,8 @@ class QemuConfig:
     """tesseract and magick, for a guest with `vivarium.display`."""
     disk: QemuDisk | None = None
     """None boots the NixOS system through virtiofs."""
+    egress: Path | None = None
+    """The router's host half, which serves its vhost-user vsock device."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> QemuConfig:
@@ -204,8 +206,10 @@ class QemuConfig:
             spec,
             "qemu",
             frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}),
-            frozenset({"tesseract", "magick", "disk"}),
+            frozenset({"tesseract", "magick", "disk", "egress"}),
         )
+        if spec.router and "egress" not in config:
+            raise BackendError(f"{spec.name}: the router needs egress in vivarium.launch.config")
         tesseract, magick = _maybe(config, "tesseract"), _maybe(config, "magick")
         if (tesseract is None) != (magick is None):
             raise BackendError(f"{spec.name}: vivarium.launch.config names one of tesseract and magick; OCR needs both")
@@ -216,6 +220,7 @@ class QemuConfig:
             passt=_path(config, "passt"),
             ocr=(tesseract, magick) if tesseract is not None and magick is not None else None,
             disk=QemuDisk.of(f"{spec.name}: vivarium.launch.config.disk", config["disk"]) if "disk" in config else None,
+            egress=_maybe(config, "egress"),
         )
 
 
@@ -874,9 +879,9 @@ class Qemu:
 
         # Every unix socket this guest needs, in one directory short
         # enough to name them: virtiofsd's, the artifacts one, and the
-        # monitor. `vfs` and `art` are no longer than `qmp`, so one check
-        # covers all three.
-        sockets, cleanup = socket_dir(rundir, "qmp", None)
+        # monitor, and a router's vsock. `vfs`, `art` and `qmp` are no
+        # longer than `vsock`, so one check covers all four.
+        sockets, cleanup = socket_dir(rundir, "vsock", None)
         # A guest that rebooted left its monitor's socket.
         (sockets / "qmp").unlink(missing_ok=True)
 
@@ -910,7 +915,18 @@ class Qemu:
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
 
-        uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
+        passt_fd: int | None = None
+        if spec.router:
+            # No vec0: the router reaches the host over vsock, a vhost-user
+            # device the egress serves, as on UML. A reboot leaves the socket.
+            device = sockets / "vsock"
+            device.unlink(missing_ok=True)
+            args = router_egress_args(machine, f"vsock:{RELAY_IN_PORT}")
+            helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
+            uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
+        else:
+            netdev, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
+            uplink = ["-netdev", netdev, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)},host_mtu={spec.mtu}"]
 
         argv = [
             str(config.qemu),
@@ -958,10 +974,7 @@ class Qemu:
             "virtio-serial",
             "-device",
             "virtserialport,chardev=agent,name=vivarium-agent" if boot.get("efi") else "virtconsole,chardev=agent",
-            "-netdev",
-            uplink,
-            "-device",
-            f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)},host_mtu={spec.mtu}",
+            *uplink,
             # The guest tells QEMU which pages it has freed and QEMU
             # madvises them out of the memfd above, so the host stops
             # paying for a page cache the guest has dropped. Without it a

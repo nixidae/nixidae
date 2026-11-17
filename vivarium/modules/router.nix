@@ -127,8 +127,9 @@ in
       ];
     })
     (lib.mkIf cfg.enable {
-      # 256M on krun OOM-kills the agent at boot; UML boots in it.
-      vivarium.memory = lib.mkDefault (if config.vivarium.backend == "krun" then "512M" else "256M");
+      # 256M on krun OOM-kills the agent at boot, and on QEMU under load,
+      # after seconds-long stalls into the guest. UML runs in it.
+      vivarium.memory = lib.mkDefault (if config.vivarium.backend == "uml" then "256M" else "512M");
       # E2: two carry 16 Gbit/s on krun, and one is the limit. Every host
       # core, krun's default, fills 256M with per-CPU state before boot ends.
       vivarium.cpus = lib.mkDefault 2;
@@ -149,13 +150,14 @@ in
 
       assertions = [
         {
-          # Both reach the egress over vsock: UML through the egress's own
-          # vhost-user device, krun through libkrun's.
+          # Each reaches the egress over vsock: UML and QEMU through the
+          # egress's own vhost-user device, krun through libkrun's.
           assertion = lib.elem config.vivarium.backend [
             "uml"
+            "qemu"
             "krun"
           ];
-          message = "the router guest runs on UML or krun; it is ${config.vivarium.backend}.";
+          message = "the router guest runs on UML, QEMU or krun; it is ${config.vivarium.backend}.";
         }
         {
           # 10.0.2.(15 + index) stays below the pool at .215.
