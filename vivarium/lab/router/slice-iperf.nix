@@ -9,6 +9,9 @@
 }:
 let
   vivarium = import ../.. { inherit sources pkgs; };
+  env = name: default: if builtins.getEnv name == "" then default else builtins.getEnv name;
+  # LAB_ROUTED=vsock: `routed` is its own router, with no router guest.
+  routed = env "LAB_ROUTED" "router";
   node = proxy: {
     imports = [ ../../modules/iperf3.nix ];
     services.iperf3-server.enable = true;
@@ -19,22 +22,14 @@ in
 vivarium.lib.mkTest {
   name = "slice-iperf";
   # LAB_BACKEND=krun: both guests on krun. LAB_ROUTER=krun: the router too.
-  backend =
-    let
-      env = builtins.getEnv "LAB_BACKEND";
-    in
-    if env == "" then "uml" else env;
-  router.enable = true;
-  router.backend =
-    let
-      env = builtins.getEnv "LAB_ROUTER";
-    in
-    if env == "" then "uml" else env;
+  backend = env "LAB_BACKEND" "uml";
+  router.enable = routed == "router";
+  router.backend = env "LAB_ROUTER" "uml";
   settings.iperf3 = pkgs.lib.getExe pkgs.iperf3;
   phases.test = {
     script = ./slice_iperf.py;
     after = [ "boot" ];
   };
   nodes.passt = node "passt";
-  nodes.routed = node "router";
+  nodes.routed = node routed;
 }
