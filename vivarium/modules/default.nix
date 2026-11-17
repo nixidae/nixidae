@@ -60,27 +60,18 @@ let
           for the guest's lifetime, which is what makes two guests able
           to serve the same port number without arranging anything.
 
+          macOS has 127.0.0.1 alone, so there every guest shares it, and
+          a port that is taken moves to the next free one.
+
           Anything else is taken literally, so `0.0.0.0` reaches the
-          guest from off the machine.  Note that a shared address
-          collides with every other guest's `all` rule, one port at a
-          time, so give it an explicit `ports` list.
+          guest from off the machine.
         '';
       };
 
       ports = lib.mkOption {
-        type = lib.types.either (lib.types.enum [ "all" ]) (lib.types.listOf portMap);
-        default = "all";
+        type = lib.types.listOf portMap;
         example = lib.literalExpression "[ 8080 { host = 9090; guest = 80; } ]";
-        description = ''
-          Which ports to forward, or `"all"` for every port passt is
-          willing to bind on this address.
-
-          `"all"` costs about 36000 sockets and 17 MB, and takes under a
-          second, which is cheap enough that a guest with an address to
-          itself need not know its own port list in advance.  It is
-          still not free: a test that boots three guests does not want
-          it, which is why the default here is the ssh port alone.
-        '';
+        description = "Which ports to forward.";
       };
 
       protocols = lib.mkOption {
@@ -577,19 +568,15 @@ in
       defaultText = lib.literalExpression "[ { ports = [ config.vivarium.sshPort ]; } ]";
       example = lib.literalExpression ''
         [
-          { ports = "all"; }                              # the whole guest, privately
+          { ports = [ 4325 8080 ]; }                      # privately
           { address = "0.0.0.0"; ports = [ 8080 ]; }      # and one port, publicly
         ]
       '';
       description = ''
         How the host reaches services in this guest.
 
-        passt is the only way in, and its forwards are fixed once it has
-        started: it binds every socket while parsing its arguments, and
-        has no way to be told about a new one afterwards short of a
-        restart that would drop every connection through it.  So this is
-        decided before the guest boots, and `ports = "all"` exists to
-        make not having to decide affordable.
+        passt and the egress bind every forward when they start and take
+        no new one later, so this is decided before the guest boots.
       '';
     };
 
@@ -877,7 +864,7 @@ in
         `gvproxy` is gvisor-tap-vsock's,
         which runs on macOS too and needs no user namespace
         (nixidae/nixidae#1163). It gives the guest passt's addresses, and
-        forwards only listed TCP ports: no `ports = "all"` and no UDP.
+        forwards TCP ports only.
         krun only.
 
         `router` is the run's router guest (`router.enable` in `mkTest`,
@@ -993,8 +980,8 @@ in
       {
         assertion =
           config.vivarium.uplink.proxy == "gvproxy"
-          -> lib.all (rule: rule.ports != "all" && rule.protocols == [ "tcp" ]) config.vivarium.forward;
-        message = "vivarium.forward under gvproxy: list TCP ports only; gvproxy cannot forward `ports = \"all\"` or UDP.";
+          -> lib.all (rule: rule.protocols == [ "tcp" ]) config.vivarium.forward;
+        message = "vivarium.forward under gvproxy: TCP ports only; gvproxy cannot forward UDP.";
       }
       {
         assertion = lib.all (
@@ -1012,22 +999,6 @@ in
           in
           segments == lib.unique segments;
         message = "vivarium.interfaces: two interfaces of one guest on one segment.";
-      }
-      {
-        # Two wide rules on one address overlap on every port, and passt
-        # answers that with a warning per port before carrying on -- 36000
-        # lines of console for a configuration that meant one rule.
-        assertion =
-          let
-            wide = lib.filter (rule: rule.ports == "all") config.vivarium.forward;
-            addresses = map (rule: toString rule.address) wide;
-          in
-          addresses == lib.unique addresses;
-        message = ''
-          vivarium.forward has more than one `ports = "all"` rule on the same
-          address (rules with `address = null` all land on the same one).
-          Give them different addresses, or fold them into a single rule.
-        '';
       }
       {
         assertion =

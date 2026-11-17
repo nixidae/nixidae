@@ -625,8 +625,7 @@ class Machine:
         except forward.ForwardError as error:
             raise MachineError(f"[{self.name}] forward: {error}") from error
         for rule in self.forward:
-            what = "all ports" if rule.wide else ", ".join(str(port) for port in rule.ports)
-            self._log(f"forwarding {what} on {rule.address}")
+            self._log(f"forwarding {', '.join(str(port) for port in rule.ports)} on {rule.address}")
 
     async def start(self) -> None:
         """Boot the guest and connect to its agent."""
@@ -1394,7 +1393,7 @@ class Machine:
         Empty when nothing forwards it -- which is the answer worth
         having, since it cannot be fixed without rebooting the guest.
         """
-        return forward.reachable(self.forward, guest_port, forward.unprivileged_start())
+        return forward.reachable(self.forward, guest_port)
 
     async def processes(self) -> list[ProcessInfo]:
         """Every process in the guest: pid, ppid, name and cmdline.

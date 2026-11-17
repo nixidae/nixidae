@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 ONE = access.guest(["127.0.0.2:4325"], [Rule(address="127.0.0.2", ports=(PortMap(4325, 4325), PortMap(16443, 6443)))])
-DARK = access.guest([], [Rule(address="127.0.0.3")])
+DARK = access.guest([], [Rule(address="127.0.0.3", ports=(PortMap(8080, 8080),))])
 
 
 def test_the_document_names_each_guest_and_where_the_rest_is(tmp_path: Path) -> None:
@@ -27,7 +27,7 @@ def test_the_document_names_each_guest_and_where_the_rest_is(tmp_path: Path) -> 
     }
     assert written["guests"]["dark"] == {
         "ssh": None,
-        "forwards": [{"address": "127.0.0.3", "ports": "all", "protocols": ["tcp"]}],
+        "forwards": [{"address": "127.0.0.3", "ports": [{"host": 8080, "guest": 8080}], "protocols": ["tcp"]}],
     }
     assert written["ssh_config"] == str(tmp_path / "ssh_config")
     assert written["files"] == str(tmp_path / "access")

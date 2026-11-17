@@ -1,30 +1,16 @@
-"""Turning port-forward rules into passt arguments.
+"""Turning port-forward rules into passt and egress arguments.
 
-passt is the only path into a guest from the host, and its forwards are
-fixed for the life of the process: ``conf_ports()`` binds every socket
-while parsing options, there is no control socket, and the ``auto`` mode
-that watches ``/proc/net/tcp`` is pasta-only -- pasta shares the target
-namespace's ``/proc`` and passt does not.  Adding a forward to a running
-passt therefore means restarting it, which drops every established
-connection, including the ssh session you were in when you started the
-service you wanted to reach.
+A forward is a listed port. passt binds every forward while it parses
+its options and takes no new one later, so the forwards are decided
+before the guest boots; the egress takes them the same way.
 
-So the forwards are decided before the guest boots, and the way to avoid
-having to guess them is to make them cheap enough to take all at once.
-passt's port spec accepts a bind address, and a spec made only of
-exclusions is parsed in "weak" mode, where a port that will not bind is
-skipped instead of fatal.  ``-t 127.0.0.2/~32768-60999`` is thus every
-non-ephemeral port, bound on one address, in about a third of a second
-and 17 MB -- so a guest with an address to itself has all of its ports
-forwarded before it has decided which ones it wants, and two guests
-never collide because they are on different addresses.
+Each guest gets a loopback address of its own on Linux, so two guests
+never collide on a port. macOS has 127.0.0.1 alone: there the guests
+share it, and :func:`resolve` moves a port that is taken.
 
-What does not work, and is why :func:`probe` exists: a rule on
-``0.0.0.0`` conflicts with every other guest's wide range, one port at a
-time, and passt reports that as a bare ``Address already in use`` and
-exits.  An overlapping pair of specs within one instance is fatal the
-same way, which is why the privileged block below is excluded from the
-wide range rather than simply added alongside it.
+:func:`probe` exists because passt reports a port that will not bind
+as a bare ``Address already in use`` and exits, naming neither the
+guest nor the rule.
 """
 
 from __future__ import annotations
@@ -35,12 +21,9 @@ import socket
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final, Literal, TypedDict
+from typing import TypedDict
 
 from . import sysctl
-
-ALL: Final = "all"
-"""``ports`` value meaning every port passt is willing to bind."""
 
 _UNPRIVILEGED_START = Path("/proc/sys/net/ipv4/ip_unprivileged_port_start")
 _LOCAL_PORT_RANGE = Path("/proc/sys/net/ipv4/ip_local_port_range")
@@ -56,11 +39,6 @@ _LOOPBACK_LAST = 254
 address of its own with no privileges and no setup -- and 127.0.0.1 is
 left alone, because the host's own services are there."""
 
-_SENTINEL_PORT = 65534
-"""Probed to find out whether a wide rule already owns an address.  Any
-non-ephemeral port would do; this one is unlikely to be a real service
-that we mistake for another guest."""
-
 
 class ForwardError(Exception):
     """A forward cannot be set up: a collision, or nowhere to put it."""
@@ -72,10 +50,10 @@ class PortMapJson(TypedDict):
 
 
 class RuleJson(TypedDict, total=False):
-    """A `Rule` as Nix wrote it. `ports` is ``"all"`` or a list of ports."""
+    """A `Rule` as Nix wrote it."""
 
     address: str
-    ports: Literal["all"] | list[PortMapJson | int]
+    ports: list[PortMapJson | int]
     protocols: list[str]
     remapPrivileged: bool
     privilegedOffset: int
@@ -104,40 +82,27 @@ class PortMap:
 class Rule:
     """One ``(address, ports)`` pair to hand passt.
 
-    ``address`` is None until :func:`resolve` picks one; ``ports`` is
-    either :data:`ALL` or a tuple of :class:`PortMap`.
+    ``address`` is None until :func:`resolve` picks one.
     """
 
     address: str | None = None
-    ports: Literal["all"] | tuple[PortMap, ...] = ALL
+    ports: tuple[PortMap, ...] = ()
     protocols: tuple[str, ...] = ("tcp",)
     remap_privileged: bool = True
     privileged_offset: int = 10000
 
     @classmethod
     def from_json(cls, data: RuleJson) -> Rule:
-        ports = data.get("ports", ALL)
         return cls(
             address=data.get("address"),
-            ports=(ALL if isinstance(ports, str) else tuple(PortMap.from_json(port) for port in ports)),
+            ports=tuple(PortMap.from_json(port) for port in data.get("ports", [])),
             protocols=tuple(data.get("protocols", ["tcp"])),
             remap_privileged=data.get("remapPrivileged", True),
             privileged_offset=data.get("privilegedOffset", 10000),
         )
 
-    @property
-    def wide(self) -> bool:
-        return self.ports == ALL
-
     def host_ports(self) -> list[int]:
-        """Host ports this rule needs bound, for probing.
-
-        A wide rule needs the whole non-ephemeral range and cannot be
-        checked exhaustively; :data:`_SENTINEL_PORT` stands in for it,
-        which is enough to notice another guest already living here.
-        """
-        if isinstance(self.ports, str):
-            return [_SENTINEL_PORT]
+        """Host ports this rule needs bound, for probing."""
         return [port.host for port in self.ports if port.host is not None]
 
 
@@ -183,14 +148,6 @@ def _remap(rule: Rule, start: int) -> tuple[Rule, list[str]]:
         return rule, []
 
     offset = rule.privileged_offset
-    if isinstance(rule.ports, str):
-        if not rule.remap_privileged:
-            return rule, [f"ports below {start} are not forwarded (remapPrivileged is off)"]
-        return rule, [
-            f"ports 1-{start - 1} need privileges the host will not give us; "
-            f"reaching them on {offset + 1}-{offset + start - 1} instead"
-        ]
-
     kept: list[PortMap] = []
     notes: list[str] = []
     for port in rule.ports:
@@ -240,40 +197,14 @@ def _probe(address: str, ports: list[int]) -> int | None:
             sock.close()
 
 
-_PROC_LISTENERS = ((Path("/proc/net/tcp"), "0A"), (Path("/proc/net/udp"), "07"))
-"""TCP sockets in LISTEN, UDP sockets bound and unconnected."""
-
-
-def bound_on(address: str) -> bool:
-    """Whether anything listens on *address* itself, not on the wildcard.
-
-    A wide rule binds weakly, so a port another process holds there is
-    skipped and reaches that process instead of the guest: another run's
-    guest, measured with a second session on one host. A sample of ports
-    cannot see that; this sees every one.
-    """
-    wanted = f"{int.from_bytes(socket.inet_aton(address), sys.byteorder):08X}"
-    for path, state in _PROC_LISTENERS:
-        try:
-            lines = path.read_text().splitlines()[1:]
-        except OSError:
-            continue
-        for line in lines:
-            fields = line.split()
-            if fields[1].split(":")[0] == wanted and fields[3] == state:
-                return True
-    return False
-
-
 def _assign(rules: list[Rule], taken: set[str]) -> str:
     """Find a loopback address free for every rule that wants one."""
     wanted = sorted({port for rule in rules for port in rule.host_ports()})
-    wide = any(rule.wide for rule in rules)
     for octet in range(_LOOPBACK_FIRST, _LOOPBACK_LAST + 1):
         address = f"127.0.0.{octet}"
         if address in taken:
             continue
-        if _probe(address, wanted) is None and not (wide and bound_on(address)):
+        if _probe(address, wanted) is None:
             return address
     raise ForwardError(
         f"no free address in 127.0.0.{_LOOPBACK_FIRST}-{_LOOPBACK_LAST} "
@@ -312,11 +243,11 @@ def resolve(rules: list[Rule], *, taken: set[str], start: int | None = None) -> 
         notes.extend(f"{rule.address}: {note}" for note in said)
         rule, picked = _pick_ports(rule, start, reserved if rule.address == SHARED_LOOPBACK else set())  # noqa: PLW2901 -- the same rule, with its ports settled
         notes.extend(f"{rule.address}: {note}" for note in picked)
-        if rule.address == SHARED_LOOPBACK and not isinstance(rule.ports, str):
+        if rule.address == SHARED_LOOPBACK:
             for port in rule.host_ports():
                 taken.add(f"{shared}{port}")
                 reserved.add(port)
-        if rule.wide or rule.ports:
+        if rule.ports:
             resolved.append(rule)
     return resolved, notes
 
@@ -324,23 +255,13 @@ def resolve(rules: list[Rule], *, taken: set[str], start: int | None = None) -> 
 SHARED_LOOPBACK = "127.0.0.1"
 """Every guest's forwards on macOS, where lo0 has 127.0.0.1 alone and an
 alias needs root. The guests then share one port space: `resolve` moves a
-port another guest or the host holds, and one guest at most forwards every
-port."""
+port another guest or the host holds."""
 
 
 def _share(rule: Rule, taken: set[str]) -> Rule:
     """*rule* on :data:`SHARED_LOOPBACK`, a host port that is not free there
     left for `_pick_ports` to move. *taken* holds `127.0.0.1:<port>` for each
-    port another guest of the run has, and `127.0.0.1:all` for a wide rule."""
-    wide = f"{SHARED_LOOPBACK}:all"
-    if isinstance(rule.ports, str):
-        if wide in taken:
-            raise ForwardError(
-                f"another guest forwards every port on {SHARED_LOOPBACK}, the only loopback address macOS has; "
-                "list this guest's ports instead"
-            )
-        taken.add(wide)
-        return replace(rule, address=SHARED_LOOPBACK)
+    port another guest of the run has."""
     ports = tuple(
         replace(port, host=None)
         if port.host is not None
@@ -355,7 +276,7 @@ def _pick_ports(rule: Rule, start: int, reserved: set[int] | None = None) -> tup
     """A free host port for each port map that names none: the guest's port,
     else the first free one above it, never in the ephemeral range nor in
     *reserved*, the ports other guests on the same address have."""
-    if isinstance(rule.ports, str) or all(port.host is not None for port in rule.ports):
+    if all(port.host is not None for port in rule.ports):
         return rule, []
     if rule.address is None:
         raise ForwardError("ports are picked after the address")
@@ -396,142 +317,53 @@ def probe(rules: list[Rule]) -> None:
         assert rule.address is not None, "probe() runs after resolve()"
         clash = _probe(rule.address, rule.host_ports())
         if clash is not None:
-            what = "every port" if rule.wide else f"port {clash}"
-            raise ForwardError(f"cannot forward {what} on {rule.address}: {rule.address}:{clash} is already bound")
+            raise ForwardError(
+                f"cannot forward port {clash} on {rule.address}: {rule.address}:{clash} is already bound"
+            )
 
 
 # ── passt arguments ────────────────────────────────────────────────
 
 
-def _specs(rule: Rule, start: int) -> list[str]:
-    """The one or two passt port specs a rule turns into."""
-    if not isinstance(rule.ports, str):
-        if any(port.host is None for port in rule.ports):
-            raise ForwardError("passt gets a host port for every guest port; resolve() picks them")
-        return [f"{rule.address}/" + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host or 0))]
-
-    low, high = ephemeral_range()
-    # An exclusion-only spec is what puts passt in weak mode, where a
-    # port it cannot bind is skipped rather than fatal.  Excluding the
-    # ephemeral range costs nothing: passt excludes it anyway.
-    excluded = [f"~{low}-{high}"]
-
-    remapped: list[str] = []
-    if start > 1 and rule.remap_privileged:
-        offset = rule.privileged_offset
-        first, last = offset + 1, offset + start - 1
-        # The wide range would otherwise bind these itself, and passt
-        # treats a second spec over ports it already has as fatal.
-        excluded.append(f"~{first}-{last}")
-        remapped.append(f"{rule.address}/{first}-{last}:1-{start - 1}")
-
-    return [f"{rule.address}/" + ",".join(excluded), *remapped]
+def _spec(rule: Rule) -> str:
+    """The passt port spec a rule turns into."""
+    if any(port.host is None for port in rule.ports):
+        raise ForwardError("passt gets a host port for every guest port; resolve() picks them")
+    return f"{rule.address}/" + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host or 0))
 
 
-def to_args(rules: list[Rule], start: int | None = None) -> list[str]:
+def to_args(rules: list[Rule]) -> list[str]:
     """Bridge arguments carrying *rules*, as ``--tcp-ports``/``--udp-ports``."""
-    if start is None:
-        start = unprivileged_start()
     flags = {"tcp": "--tcp-ports", "udp": "--udp-ports"}
-    args: list[str] = []
-    for rule in rules:
-        for spec in _specs(rule, start):
-            for protocol in rule.protocols:
-                args += [flags[protocol], spec]
-    return args
+    return [arg for rule in rules for protocol in rule.protocols for arg in (flags[protocol], _spec(rule))]
 
 
 # ── egress arguments, for a guest behind the router ────────────────
 
 
-@dataclass(frozen=True)
-class Mapping:
-    """A run of host ports and the guest ports they reach, one to one."""
-
-    protocol: str
-    address: str
-    first: int
-    last: int
-    guest: int
-    """The guest port `first` reaches; `last` reaches `guest + last - first`."""
-    weak: bool
-    """A port that will not bind is skipped, as passt's exclusion-only spec."""
-
-
-def _subtract(first: int, last: int, holes: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    spans = [(first, last)]
-    for low, high in holes:
-        spans = [
-            piece
-            for start, end in spans
-            for piece in ((start, min(end, low - 1)), (max(start, high + 1), end))
-            if piece[0] <= piece[1]
-        ]
-    return spans
-
-
-def mappings(rule: Rule, start: int) -> list[Mapping]:
-    """What *rule* binds, as passt binds it for `_specs`, in explicit runs."""
-    if rule.address is None:
-        raise ForwardError("mappings() runs after resolve()")
-    runs: list[tuple[int, int, int, bool]] = []
-    if not isinstance(rule.ports, str):
+def egress_args(rules: list[Rule], guest_address: str, router: str) -> list[str]:
+    """The egress's FORWARD arguments for one guest: one host port each."""
+    args: list[str] = []
+    for rule in rules:
+        if rule.address is None:
+            raise ForwardError("egress_args() runs after resolve()")
         for port in rule.ports:
             if port.host is None:
                 raise ForwardError("the egress gets a host port for every guest port; resolve() picks them")
-            runs.append((port.host, port.host, port.guest, False))
-    else:
-        holes = [ephemeral_range()]
-        remap = start > 1 and rule.remap_privileged
-        if remap:
-            holes.append((rule.privileged_offset + 1, rule.privileged_offset + start - 1))
-        # Below `start` nothing binds: passt tries and skips, this skips.
-        runs += [(low, high, low, True) for low, high in _subtract(max(start, 1), 65535, holes)]
-        if remap:
-            # Weak, unlike passt's base range here: a host with a kubelet
-            # on *:10250 would otherwise refuse every wide rule.
-            runs.append((rule.privileged_offset + 1, rule.privileged_offset + start - 1, 1, True))
-    return [
-        Mapping(protocol, rule.address, first, last, guest, weak)
-        for protocol in rule.protocols
-        for first, last, guest, weak in runs
-    ]
+            args += [
+                f"{protocol}/{rule.address}:{port.host}={guest_address}:{port.guest}@{router}"
+                for protocol in rule.protocols
+            ]
+    return args
 
 
-def egress_args(rules: list[Rule], guest_address: str, router: str, start: int | None = None) -> list[str]:
-    """The egress's FORWARD arguments for one guest behind the router."""
-    if start is None:
-        start = unprivileged_start()
-    return [
-        f"{'~' if m.weak else ''}{m.protocol}/{m.address}:{m.first}-{m.last}={guest_address}:{m.guest}@{router}"
-        for rule in rules
-        for m in mappings(rule, start)
-    ]
-
-
-def reachable(rules: list[Rule], guest_port: int, start: int) -> list[str]:
+def reachable(rules: list[Rule], guest_port: int) -> list[str]:
     """Where a guest port can be reached from the host, as ``addr:port``.
 
     Empty if nothing forwards it, which is the interesting answer: it is
     what tells you a service came up somewhere the host cannot see.
     """
-    low, high = ephemeral_range()
-    found: list[str] = []
-    for rule in rules:
-        if isinstance(rule.ports, str):
-            if low <= guest_port <= high:
-                continue
-            remapped = start > 1 and rule.remap_privileged
-            if remapped and rule.privileged_offset < guest_port < rule.privileged_offset + start:
-                # These host ports carry guest ports 1 to start - 1.
-                continue
-            if guest_port >= start:
-                found.append(f"{rule.address}:{guest_port}")
-            elif rule.remap_privileged:
-                found.append(f"{rule.address}:{guest_port + rule.privileged_offset}")
-        else:
-            found += [f"{rule.address}:{port.host}" for port in rule.ports if port.guest == guest_port]
-    return found
+    return [f"{rule.address}:{port.host}" for rule in rules for port in rule.ports if port.guest == guest_port]
 
 
 # The guest's own address on its uplink, and the two addresses passt

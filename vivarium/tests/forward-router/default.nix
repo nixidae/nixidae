@@ -8,8 +8,19 @@ mkTest {
     script = ../forward.py;
     after = [ "boot" ];
   };
-  nodes.node = {
-    vivarium.forward = [ { ports = "all"; } ];
-    environment.systemPackages = [ pkgs.python3 ];
-  };
+  nodes.node =
+    { config, ... }:
+    {
+      # ssh, and forward.py's PLAIN and PRIVILEGED.
+      vivarium.forward = [
+        {
+          ports = [
+            config.vivarium.sshPort
+            8080
+            80
+          ];
+        }
+      ];
+      environment.systemPackages = [ pkgs.python3 ];
+    };
 }

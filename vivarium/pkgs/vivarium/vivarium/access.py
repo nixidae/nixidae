@@ -41,9 +41,7 @@ def guest(ssh: list[str], forwards: list[Rule]) -> Guest:
 
 def document(guests: Mapping[str, Guest], out: Path) -> str:
     def rule(each: Rule) -> dict[str, object]:  # object: one JSON value of several kinds
-        ports: object = (
-            "all" if isinstance(each.ports, str) else [{"host": p.host, "guest": p.guest} for p in each.ports]
-        )
+        ports = [{"host": p.host, "guest": p.guest} for p in each.ports]
         return {"address": each.address, "ports": ports, "protocols": list(each.protocols)}
 
     return (

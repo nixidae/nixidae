@@ -1407,8 +1407,8 @@ class Krun:
             raise BackendError(f"{spec.name}: gvproxy's socket path is too long for AF_UNIX: {sock}")
         forwards: dict[str, str] = {}
         for rule in rules:
-            if isinstance(rule.ports, str) or rule.protocols != ("tcp",):
-                raise BackendError(f"{spec.name}: gvproxy forwards listed TCP ports only, not {rule}")
+            if rule.protocols != ("tcp",):
+                raise BackendError(f"{spec.name}: gvproxy forwards TCP ports only, not {rule}")
             for port in rule.ports:
                 forwards[f"{rule.address}:{port.host}"] = f"{forward.UPLINK_ADDRESS}:{port.guest}"
         config = {

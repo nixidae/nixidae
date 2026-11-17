@@ -2,8 +2,8 @@
   The router guest (nixidae/nixidae#1404): two guests behind one router,
   each with an address of its own on `vec0`, reaching the host through the
   router's relay and each other across its bridge. The host reaches each
-  through the router's egress: `a` with every port, TCP and UDP, `b` with
-  one.
+  through the router's egress: `a` with two TCP ports, one privileged, and
+  a UDP port; `b` with one TCP port. router.py's TCP, PRIVILEGED and UDP.
 */
 { mkTest, ... }:
 let
@@ -23,11 +23,14 @@ mkTest {
     imports = [ answer ];
     vivarium.forward = [
       {
-        ports = "all";
-        protocols = [
-          "tcp"
-          "udp"
+        ports = [
+          7777
+          80
         ];
+      }
+      {
+        ports = [ 7778 ];
+        protocols = [ "udp" ];
       }
     ];
   };

@@ -1,11 +1,9 @@
 /*
   Can the host reach a service in a guest?
 
-  The only test that connects inwards.  One guest with every
-  port forwarded, and a web server started long after passt
-  stopped accepting arguments -- which is the case that cannot
-  be checked any other way, since passt's forwards are fixed for
-  its lifetime.
+  The only test that connects inwards.  One guest with three ports
+  forwarded, and web servers started long after passt stopped accepting
+  arguments.
 */
 { pkgs, mkTest, ... }:
 mkTest {
@@ -14,8 +12,19 @@ mkTest {
     script = ../forward.py;
     after = [ "boot" ];
   };
-  nodes.node = {
-    vivarium.forward = [ { ports = "all"; } ];
-    environment.systemPackages = [ pkgs.python3 ];
-  };
+  nodes.node =
+    { config, ... }:
+    {
+      # ssh, and forward.py's PLAIN and PRIVILEGED.
+      vivarium.forward = [
+        {
+          ports = [
+            config.vivarium.sshPort
+            8080
+            80
+          ];
+        }
+      ];
+      environment.systemPackages = [ pkgs.python3 ];
+    };
 }

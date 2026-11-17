@@ -9,13 +9,12 @@ and expects a process in the guest to answer it.
 
 The three things worth guarding, in order of how quietly they break:
 
-  * a port bound in the guest after boot is reachable anyway, which is
-    the whole reason `ports = "all"` exists -- passt cannot be told
-    about a forward once it is running;
+  * a listed port bound in the guest after boot is reachable: passt and
+    the egress listen on it from the start;
   * a privileged port is reachable at its offset, because nothing here
     may bind below `net.ipv4.ip_unprivileged_port_start`;
-  * a port in the host's ephemeral range is *not* reachable, and says so
-    rather than appearing to work.
+  * a port nobody listed is *not* reachable, and says so rather than
+    appearing to work.
 """
 
 import asyncio
@@ -23,7 +22,9 @@ import urllib.error
 import urllib.request
 
 from vivarium_runner import Machine, Machines
-from vivarium_runner.forward import ephemeral_range
+
+UNLISTED = 9090
+"""Served in the guest, and in no forward."""
 
 PAGE = "hello-from-inside-the-guest"
 DOC_ROOT = "/tmp/www"
@@ -73,9 +74,9 @@ async def test(vms: Machines) -> None:
     await vm.wait_for_unit("sshd.service")
     assert vm.reachable(vm.spec.ssh_port), "sshd's port is not forwarded"
 
-    # Nothing has bound either of these yet, and passt has been running
-    # since before the guest booted.
-    for port in (PLAIN, PRIVILEGED):
+    # Nothing has bound these yet, and passt has been running since
+    # before the guest booted.
+    for port in (PLAIN, PRIVILEGED, UNLISTED):
         await serve(vm, port)
 
     where = vm.reachable(PLAIN)
@@ -89,12 +90,10 @@ async def test(vms: Machines) -> None:
     print(f"[test] privileged {PRIVILEGED} answers on {where[0]}")
 
     listening = await vm.listening()
-    for port in (PLAIN, PRIVILEGED, vm.spec.ssh_port):
+    for port in (PLAIN, PRIVILEGED, UNLISTED, vm.spec.ssh_port):
         assert port in listening, f"{port} missing from {listening}"
     print(f"[test] guest reports listening on {', '.join(map(str, listening))}")
 
-    # passt skips the host's ephemeral range, and saying so is the point:
-    # a service there comes up fine and is simply unreachable.
-    low, _ = ephemeral_range()
-    assert vm.reachable(low) == [], f"{low} should not be forwarded"
-    print(f"[test] ephemeral {low} correctly reports as not forwarded")
+    # A service comes up fine and is simply unreachable; saying so is the point.
+    assert vm.reachable(UNLISTED) == [], f"{UNLISTED} should not be forwarded"
+    print(f"[test] unlisted {UNLISTED} correctly reports as not forwarded")

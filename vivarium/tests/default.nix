@@ -253,12 +253,6 @@ let
   k8sConfig = (mkNode k8sNodes.cp).config;
   demo = mkNode {
     vivarium.memory = "512M";
-    # A guest you drive by hand rather than from a test: give it a
-    # host address to itself with everything on it forwarded, so
-    # whatever you start in there is reachable without having said
-    # so in advance.  Tests keep the narrow default; three guests
-    # holding 36000 sockets each is not what a builder is for.
-    vivarium.forward = [ { ports = "all"; } ];
     environment.systemPackages = [ pkgs.speedtest-cli ];
   };
 

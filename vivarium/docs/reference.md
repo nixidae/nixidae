@@ -395,12 +395,12 @@ a forward on dynhetz, 8 runs at MTU 1500: host to guest 2.7 to 6.0 Gbit/s
 with passt and 1.7 to 2.5 with gvproxy; guest to host 5.9 to 9.1 with passt
 and 2.8 to 3.7 with gvproxy.
 
-So `vivarium.forward` decides them before boot, and `ports = "all"` exists
-to make not deciding affordable:
+So `vivarium.forward` lists the ports before boot. The default is the ssh
+port alone:
 
 ```nix
 vivarium.forward = [
-  { ports = "all"; }                                   # the guest, privately
+  { ports = [ 8080 { host = null; guest = 6443; } ]; } # privately
   { address = "0.0.0.0"; ports = [ 8080 ]; }           # and one port, publicly
 ];
 ```
@@ -411,12 +411,9 @@ out of `127.0.0.2` upwards and keeps it for the guest's lifetime. All of
 privileges and no setup, and it is what makes the collisions go away: two
 guests can both serve 8080, because they are not on the same address.
 
-`ports = "all"` is one passt spec made only of exclusions, which is what puts
-passt in the mode where a port it cannot bind is skipped instead of fatal. It
-comes to about 36000 sockets and 17 MB in under a second — cheap enough for a
-guest you drive by hand, which is why the demo guest has it, and not cheap
-enough for three guests in a test, which is why the default is the ssh port
-alone.
+macOS has only 127.0.0.1 on `lo0`. There every guest's forwards go to
+127.0.0.1, and a port another guest or the host already holds moves to the
+next free one; the runner says where.
 
 Two things to know:
 
@@ -425,10 +422,9 @@ Two things to know:
   22 is reachable on host port 10022 and the runner says so on the console
   every time. Set `remapPrivileged = false` to leave them unforwarded
   instead, or lower the sysctl on the host and the remapping stops happening.
-- **A shared address collides with everything.** A rule on `0.0.0.0` fights
-  every other guest's `all` rule, one port at a time. The runner probes each
-  requested port before spawning passt so the error names the guest and the
-  port, rather than passt exiting with a bare `Address already in use`.
+- **A port that is taken fails by name.** The runner probes each requested
+  port before spawning passt so the error names the guest and the port,
+  rather than passt exiting with a bare `Address already in use`.
 
 `vivarium-run` with no `--command` polls the guest for what it is listening on and
 prints where each port answers, so a service you start inside is followed by

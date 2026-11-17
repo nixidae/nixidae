@@ -13,12 +13,12 @@
 //! socket of ADDR's family to ADDR, as passt's: 127.0.0.1 and ::1 reach
 //! nothing off this host.
 //!
-//! FORWARD is `[~][tcp/|udp/]HOST=GUEST_ADDR:PORT@ROUTER`. HOST is
+//! FORWARD is `[tcp/|udp/]HOST=GUEST_ADDR:PORT@ROUTER`. HOST is
 //! `ADDR:FIRST[-LAST]`, each host port reaching the guest port at the same
-//! offset from PORT, or a bare port on 127.0.0.1. `~` is weak: a port that
-//! will not bind is skipped, as passt's exclusion-only spec. ROUTER is the
-//! path libkrun listens on for the relay, or `vsock:PORT` on the device.
-//! Every listener is bound before the device's socket appears.
+//! offset from PORT, or a bare port on 127.0.0.1. A port that will not bind
+//! is an error. ROUTER is the path libkrun listens on for the relay, or
+//! `vsock:PORT` on the device. Every listener is bound before the device's
+//! socket appears.
 
 use std::collections::HashMap;
 use std::env;
@@ -167,7 +167,6 @@ struct Spec {
     first: u16,
     last: u16,
     guest: SocketAddr,
-    weak: bool,
     router: Router,
 }
 
@@ -183,16 +182,12 @@ type DeviceRef<'a> = Option<&'a ()>;
 
 fn parse_spec(text: &str, device: DeviceRef) -> io::Result<Spec> {
     let bad = |why: &str| io::Error::other(format!("forward {text:?}: {why}"));
-    let (weak, rest) = match text.strip_prefix('~') {
-        Some(rest) => (true, rest),
-        None => (false, text),
-    };
-    let (proto, rest) = if let Some(rest) = rest.strip_prefix("tcp/") {
+    let (proto, rest) = if let Some(rest) = text.strip_prefix("tcp/") {
         (TCP, rest)
-    } else if let Some(rest) = rest.strip_prefix("udp/") {
+    } else if let Some(rest) = text.strip_prefix("udp/") {
         (UDP, rest)
     } else {
-        (TCP, rest)
+        (TCP, text)
     };
     let (host, rest) = rest.split_once('=').ok_or_else(|| bad("no ="))?;
     let (guest, router) = rest.split_once('@').ok_or_else(|| bad("no @"))?;
@@ -229,7 +224,6 @@ fn parse_spec(text: &str, device: DeviceRef) -> io::Result<Spec> {
         first,
         last,
         guest,
-        weak,
         router,
     })
 }
@@ -258,7 +252,6 @@ impl Listener {
 /// Every port of every spec, bound and non-blocking.
 fn bind_all(specs: &[Spec]) -> io::Result<Vec<Listener>> {
     let mut listeners = Vec::new();
-    let mut skipped = 0usize;
     for (index, spec) in specs.iter().enumerate() {
         for port in spec.first..=spec.last {
             let at = SocketAddr::new(spec.bind, port);
@@ -269,10 +262,6 @@ fn bind_all(specs: &[Spec]) -> io::Result<Vec<Listener>> {
             };
             let socket = match socket {
                 Ok(socket) => socket,
-                Err(_) if spec.weak => {
-                    skipped += 1;
-                    continue;
-                }
                 Err(err) if err.raw_os_error() == Some(libc::EMFILE) => {
                     return Err(io::Error::other(format!(
                         "{at}: out of file descriptors after {} listeners",
@@ -294,14 +283,11 @@ fn bind_all(specs: &[Spec]) -> io::Result<Vec<Listener>> {
             });
         }
     }
-    if skipped > 0 {
-        eprintln!("egress: {skipped} ports in weak ranges did not bind, skipped");
-    }
     Ok(listeners)
 }
 
-/// The soft limit on open files, raised to the hard one: a wide forward
-/// is some 36000 listeners per guest and protocol, all in this process.
+/// The soft limit on open files, raised to the hard one: the router's
+/// egress holds every guest's listeners and flows in one process.
 fn raise_nofile() -> io::Result<()> {
     let mut limit = libc::rlimit {
         rlim_cur: 0,
@@ -318,8 +304,7 @@ fn raise_nofile() -> io::Result<()> {
 }
 
 /// Readiness of many listeners: epoll on Linux, kqueue on macOS. Not
-/// poll(2): macOS refuses it more fds than OPEN_MAX, and a wide forward
-/// is about 47000 listeners.
+/// poll(2): macOS refuses it more fds than OPEN_MAX.
 struct Poller {
     #[cfg(target_os = "linux")]
     epoll: std::os::fd::OwnedFd,
