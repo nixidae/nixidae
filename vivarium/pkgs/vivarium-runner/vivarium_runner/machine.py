@@ -1308,9 +1308,17 @@ class Machine:
         `writableStore`) sees the paths under its /nix, and that is all,
         which is enough to run a tool the host built.
         """
+        added = await self.add_paths([*storeview.read_paths(Path(info) / "store-paths"), info])
+        await self._load_registration(info)
+        return added
+
+    async def add_paths(self, paths: list[str]) -> list[str]:
+        """Put store paths the host has into the guest's store view, and
+        nothing into its Nix database: enough to run a program, such as
+        the host's Python for a test in the guest. *paths* is a whole
+        closure. Returns the paths that were new to the view."""
         if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] a {self.control_kind} guest has no store")
-        paths = [*storeview.read_paths(Path(info) / "store-paths"), info]
         is_container = self.spec.backend == "container"
         added: list[str] = []
         if self.store_allowlist is not None:
@@ -1323,7 +1331,6 @@ class Machine:
             mounts = [path for path in added if not os.path.islink(path)]
             if is_container and mounts:
                 await self._attach(self._rundir, mounts)
-        await self._load_registration(info)
         return added
 
     async def _attach(self, rundir: Path, paths: list[str]) -> None:
