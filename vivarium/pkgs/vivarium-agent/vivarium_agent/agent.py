@@ -346,10 +346,12 @@ async def _serve() -> None:
         # console, so it has no line discipline to make raw.
         conn = listen(fd, Agent(), raw_tty=os.isatty(fd))
         print(AGENT_READY, flush=True)
-    # `vivarium.cloud`: the guest calls the host's cloud API through this channel.
-    if os.environ.get("VIVARIUM_CLOUD") == "1":
-        await cloud.serve(conn)
-    await conn.serve_forever()
+    async with anyio.create_task_group() as group:
+        # `vivarium.cloud`: the guest calls the host's cloud API through this channel.
+        if os.environ.get("VIVARIUM_CLOUD") == "1":
+            await group.start(cloud.serve, conn)
+        await conn.serve_forever()
+        group.cancel_scope.cancel()
 
 
 def main() -> None:

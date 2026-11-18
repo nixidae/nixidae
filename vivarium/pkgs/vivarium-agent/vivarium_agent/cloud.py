@@ -21,8 +21,8 @@ room for answers 409, as a cloud out of capacity does.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
+import functools
 import json
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -30,13 +30,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, urlsplit
 
+import anyio
+from anyio.streams.buffered import BufferedByteStream
+
 if TYPE_CHECKING:
+    from anyio.abc import SocketStream, TaskStatus
+
     from .arpyc import AsyncConnection
 
 SOCKET = "/run/vivarium/cloud.sock"
 
 _MAX_BODY = 1 << 20
 """User data is the largest field; EC2 caps its own at 16 KiB."""
+
+_MAX_HEAD = 1 << 16
+"""The request line and headers, as asyncio's stream limit allowed them."""
 
 type Json = dict[str, Any]
 """A JSON object as the API carries it; each operation reads its own fields."""
@@ -87,8 +95,8 @@ def route(method: str, target: str, body: bytes) -> Call:
     raise RouteError(HTTPStatus.METHOD_NOT_ALLOWED, f"no {method} on {url.path}")
 
 
-async def _read_request(reader: asyncio.StreamReader) -> tuple[str, str, bytes]:
-    head = await reader.readuntil(b"\r\n\r\n")
+async def _read_request(reader: BufferedByteStream) -> tuple[str, str, bytes]:
+    head = await reader.receive_until(b"\r\n\r\n", _MAX_HEAD)
     lines = head.decode("latin-1").split("\r\n")
     method, target, _version = lines[0].split(" ", 2)
     length = 0
@@ -98,7 +106,7 @@ async def _read_request(reader: asyncio.StreamReader) -> tuple[str, str, bytes]:
             length = int(value.strip())
     if length > _MAX_BODY:
         raise RouteError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, f"a body of {length} bytes; the limit is {_MAX_BODY}")
-    return method, target, await reader.readexactly(length)
+    return method, target, await reader.receive_exactly(length)
 
 
 def _response(reply: Reply) -> bytes:
@@ -111,28 +119,34 @@ def _response(reply: Reply) -> bytes:
     return head.encode() + body
 
 
-async def _handle(conn: AsyncConnection, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-    try:
+async def _handle(conn: AsyncConnection, client: SocketStream) -> None:
+    async with client:
+        stream = BufferedByteStream(client)
         try:
-            call = route(*await _read_request(reader))
+            call = route(*await _read_request(stream))
             status, body = await conn.call("cloud", (call.op, call.args), {})
             reply = Reply(status, body)
         except RouteError as error:
             reply = Reply(error.status, {"error": str(error)})
-        except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, ValueError) as error:
+        except (anyio.IncompleteRead, anyio.DelimiterNotFound, ValueError) as error:
             reply = Reply(HTTPStatus.BAD_REQUEST, {"error": f"not an HTTP request: {error}"})
         except Exception as error:  # noqa: BLE001 -- the host's failure, carried back as vinegar's generic exception
             reply = Reply(HTTPStatus.BAD_GATEWAY, {"error": f"the host's cloud failed: {error}"})
-        writer.write(_response(reply))
-        await writer.drain()
-    finally:
-        writer.close()
-        with contextlib.suppress(OSError):
-            await writer.wait_closed()
+        # A client that left takes its reply with it. The listener's task
+        # group would end the agent on an error a handler lets out.
+        with contextlib.suppress(OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
+            await stream.send(_response(reply))
 
 
-async def serve(conn: AsyncConnection, path: str = SOCKET) -> asyncio.Server:
-    """Answer the cloud API on *path*, through the host behind *conn*."""
+async def serve(
+    conn: AsyncConnection, path: str = SOCKET, *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED
+) -> None:
+    """Answer the cloud API on *path*, through the host behind *conn*, until cancelled.
+
+    `task_status.started()` comes once *path* accepts connections.
+    """
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).unlink(missing_ok=True)
-    return await asyncio.start_unix_server(lambda r, w: _handle(conn, r, w), path)  # noqa: TID251 -- nixidae/nixidae#949
+    async with await anyio.create_unix_listener(path) as listener:
+        task_status.started()
+        await listener.serve(functools.partial(_handle, conn))
