@@ -298,11 +298,6 @@ def _maybe(config: Mapping[str, object], key: str) -> Path | None:
     return _path(config, key) if key in config else None
 
 
-REBOOTED = "reboot: Restarting system"
-"""What the guest kernel prints last before a reset. A power-off prints
-`reboot: Power down` instead."""
-
-
 class KrunExit(IntEnum):
     """The exit status of a krun guest's process: the code the guest set
     through libkrun's virtio-fs ioctl before its reset. `krunExit` in
@@ -504,6 +499,35 @@ def _abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) 
         os.close(fd)
 
 
+def _monitor(path: Path) -> int:
+    """QEMU's monitor socket, listening before QEMU starts.
+
+    So the runner connects as soon as QEMU runs, with no wait for the
+    socket to appear. A guest that rebooted left the previous one's path.
+    """
+    path.unlink(missing_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        listener.bind(str(path))
+        listener.listen(1)
+    except BaseException:
+        listener.close()
+        raise
+    return listener.detach()
+
+
+def _monitor_args(fd: int) -> list[str]:
+    """The monitor on *fd*, and the guest's CPUs stopped until the runner
+    starts them through it: see `Qmp.run`."""
+    return [
+        "-chardev",
+        f"socket,id=monitor,fd={fd},server=on,wait=off",
+        "-object",
+        "monitor-qmp,id=qmp,chardev=monitor",
+        "-S",
+    ]
+
+
 def _lan_args(spec: MachineSpec, lan_fds: Mapping[str, int]) -> list[str]:
     """QEMU's netdev and device for each LAN interface, on its socket fd."""
     argv: list[str] = []
@@ -515,6 +539,15 @@ def _lan_args(spec: MachineSpec, lan_fds: Mapping[str, int]) -> list[str]:
             f"virtio-net-pci,netdev=nic{nic.nic},mac={nic.mac},host_mtu={nic.mtu}",
         ]
     return argv
+
+
+@dataclass(frozen=True)
+class Stop:
+    """How a guest's process ended, as the host saw it."""
+
+    returncode: int | None
+    cause: str | None = None
+    """QEMU's `ShutdownCause`, such as `guest-reset`, when its monitor said one."""
 
 
 @dataclass
@@ -540,6 +573,8 @@ class Launch:
     cleanup: list[Path] = field(default_factory=list)
     """Directories the backend made outside the run directory, removed when
     the guest is torn down."""
+    paused: bool = False
+    """The guest's CPUs wait for the monitor (`memory`) to start them."""
     agent_path: Path | None = None
     """A socket to connect to for the agent, once it says it is ready, for
     a backend with no serial line to carry the socketpair."""
@@ -563,7 +598,7 @@ class Backend(Protocol):
     name: str
     reboots: bool
 
-    def rebooted(self, returncode: int | None, console: Iterable[str]) -> bool:
+    def rebooted(self, stop: Stop) -> bool:
         """Whether a guest process that ended asked for a reboot."""
         ...
 
@@ -662,7 +697,7 @@ class Uml:
     reboots = False
 
     @staticmethod
-    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
+    def rebooted(stop: Stop) -> bool:
         return False
 
     @staticmethod
@@ -855,8 +890,10 @@ class Qemu:
     bootloader names. See `Machine._reboot`."""
 
     @staticmethod
-    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
-        return any(REBOOTED in line for line in console)
+    def rebooted(stop: Stop) -> bool:
+        # A reset with `-no-reboot` ends QEMU. Linux's reboot is one, and
+        # so is a reset the firmware or the bootloader makes before Linux.
+        return stop.cause == "guest-reset"
 
     def validate(self, spec: MachineSpec) -> None:
         if QemuConfig.of(spec).disk is None and (spec.boot is None or spec.boot.kernel is None):
@@ -941,8 +978,8 @@ class Qemu:
         # monitor, and a router's vsock. `vfs`, `art` and `qmp` are no
         # longer than `vsock`, so one check covers all four.
         sockets, cleanup = socket_dir(rundir, "vsock", None)
-        # A guest that rebooted left its monitor's socket.
-        (sockets / "qmp").unlink(missing_ok=True)
+        monitor_fd = _monitor(sockets / "qmp")
+        opened.append(monitor_fd)
 
         vfs_fd, vfsd = self._virtiofsd(config.virtiofsd, sockets, "vfs", spec.store)
         helpers.append(vfsd)
@@ -1049,8 +1086,7 @@ class Qemu:
             "virtio-balloon-pci,free-page-reporting=on",
             # And the monitor, which is how the host asks for a size
             # rather than waiting for the guest to volunteer one.
-            "-qmp",
-            f"unix:{sockets}/qmp,server=on,wait=off",
+            *_monitor_args(monitor_fd),
         ]
         # A firmware boot has no kernel: systemd-boot on the ESP picks one.
         if (kernel := boot.kernel) is not None:
@@ -1103,7 +1139,9 @@ class Qemu:
         argv += _lan_args(spec, lan_fds)
 
         pass_fds = tuple(
-            fd for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, *disk_fds) if fd is not None
+            fd
+            for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, monitor_fd, *disk_fds)
+            if fd is not None
         )
         return Launch(
             argv=argv,
@@ -1111,6 +1149,7 @@ class Qemu:
             helpers=helpers,
             memory=sockets / "qmp",
             cleanup=cleanup,
+            paused=True,
             disk_fds=disk_fds,
             notes=notes,
         )
@@ -1175,7 +1214,9 @@ class Qemu:
         if disk.uplink:
             uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
             argv += ["-netdev", uplink, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}"]
-        argv += ["-qmp", f"unix:{sockets}/qmp,server=on,wait=off"]
+        monitor_fd = _monitor(sockets / "qmp")
+        opened.append(monitor_fd)
+        argv += _monitor_args(monitor_fd)
         if disk.kernel is not None:
             argv += ["-kernel", str(disk.kernel), "-initrd", str(disk.initrd), "-append", disk.cmdline]
         if (config_disk := disk.config_disk) is not None:
@@ -1185,13 +1226,14 @@ class Qemu:
             copy.chmod(0o600)
             argv += ["-drive", f"file={copy},if=virtio,format=raw"]
         argv += _lan_args(spec, lan_fds)
-        pass_fds = tuple(fd for fd in (agent_fd, passt_fd, *lan_fds.values(), *disk_fds) if fd is not None)
+        pass_fds = tuple(fd for fd in (agent_fd, passt_fd, *lan_fds.values(), monitor_fd, *disk_fds) if fd is not None)
         return Launch(
             argv=argv,
             pass_fds=pass_fds,
             helpers=helpers,
             memory=sockets / "qmp",
             cleanup=cleanup,
+            paused=True,
             notes=forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else [],
         )
 
@@ -1406,8 +1448,8 @@ class Krun:
     one it was: `KrunExit`."""
 
     @staticmethod
-    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
-        return returncode == KrunExit.REBOOT
+    def rebooted(stop: Stop) -> bool:
+        return stop.returncode == KrunExit.REBOOT
 
     @staticmethod
     def validate(spec: MachineSpec) -> None:
@@ -1654,7 +1696,7 @@ class Container:
         return None
 
     @staticmethod
-    def rebooted(returncode: int | None, console: Iterable[str]) -> bool:
+    def rebooted(stop: Stop) -> bool:
         return False
 
     @staticmethod

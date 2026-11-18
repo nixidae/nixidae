@@ -1,4 +1,4 @@
-"""A QEMU guest's balloon, screen and input devices, over the monitor.
+"""A QEMU guest's start, stop, balloon, screen and input devices, over the monitor.
 
 The protocol is QEMU's own ``qemu.qmp``, which the QEMU project ships and
 nixpkgs packages: it does the greeting, the capabilities handshake, the
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast
 
 import anyio
-from qemu.qmp import QMPClient, QMPError
+from qemu.qmp import EventListener, QMPClient, QMPError, Runstate
 
 from .display import InputEvent
 
@@ -47,6 +47,7 @@ class Qmp:
         # Two first calls at once would open two connections, and the
         # socket serves one at a time.
         self._connecting = anyio.Lock()
+        self._shutdowns: EventListener | None = None
 
     async def _connected(self) -> QMPClient:
         async with self._connecting:
@@ -55,6 +56,37 @@ class Qmp:
                 await client.connect(str(self.path))
                 self._client = client
             return self._client
+
+    async def run(self) -> None:
+        """Listen for the guest's SHUTDOWN, then start its CPUs.
+
+        QEMU starts the guest stopped (`-S`), so no reset comes before the
+        listener does.
+        """
+        client = await self._connected()
+        self._shutdowns = EventListener("SHUTDOWN")
+        client.register_listener(self._shutdowns)
+        await client.execute("cont")
+
+    async def shutdown_cause(self, timeout: float = 5.0) -> str | None:
+        """Why QEMU stopped the guest: its `ShutdownCause`, such as `guest-reset`.
+
+        For a QEMU that has exited. QEMU sends every event before it
+        closes the monitor, so the client has them all once it sees the
+        close. None when QEMU sent no SHUTDOWN, as when it was killed, or
+        when `run` did not start the guest.
+        """
+        client, shutdowns = self._client, self._shutdowns
+        if client is None or shutdowns is None:
+            return None
+        with anyio.move_on_after(timeout):
+            while client.runstate == Runstate.RUNNING:
+                await client.runstate_changed()
+        if not shutdowns.history:
+            return None
+        # qemu.qmp types a message's fields as `object`; QEMU's SHUTDOWN is `{"guest": bool, "reason": str}`.
+        data = cast("dict[str, object]", shutdowns.history[-1]["data"])
+        return str(data["reason"])
 
     async def close(self) -> None:
         if self._client is not None:

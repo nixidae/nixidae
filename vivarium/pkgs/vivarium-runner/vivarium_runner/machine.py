@@ -74,6 +74,12 @@ _CONSOLE_HISTORY = 2000
 POWEROFF_GRACE = 20
 """Seconds a guest has to power itself off before the runner signals it."""
 
+RESETS_BEFORE_UP = 3
+"""Resets a guest may make before it comes up, before the runner gives up.
+OVMFFull resets once on its first boot through the firmware (measured on
+`boot-counting` with `vivarium.secureBoot`), and a key enrollment resets
+once more."""
+
 
 BOOTLOADER = "bootloader.json"
 """The bootspec of the system the guest boots next, under its artifacts.
@@ -560,6 +566,8 @@ class Machine:
         self._exited = anyio.Event()
         """Set when the guest stopped by itself: a poweroff, a halt or a crash, never a host shutdown or a reboot."""
         self._reboot_error: str | None = None
+        self._resets = 0
+        """Resets since the guest last came up: see `RESETS_BEFORE_UP`."""
         self._control: Control | None = None
         self._transcript: anyio.AsyncFile[bytes] | None = None
         self.store_allowlist: Path | None = None
@@ -727,6 +735,8 @@ class Machine:
         self._spare_fds = []
         self.recorder.step(self.name, "launch", f"launch {self.name}", time.monotonic() - started)
         self._monitor = hold(self._tasks, self._pump_console, None, name=f"console of {self.name}")
+        if launch.paused:
+            await self._run_cpus()
 
         if self.control_kind not in (AGENT, NONE):
             await self._start_console(find_dialect(self.name, self.spec.control), started)
@@ -756,6 +766,21 @@ class Machine:
                 + (f"console never matched {none.ready.pattern!r}" if none else "agent did not come up")
                 + f" within {self.boot_timeout:g}s"
             ) from None
+        except MachineError:
+            if not await self._rebooted():
+                raise
+            # The firmware or the bootloader reset the guest before it was
+            # up, as it does on a machine: it boots again.
+            self._resets += 1
+            if self._resets > RESETS_BEFORE_UP:
+                raise MachineError(f"[{self.name}] reset {self._resets} times before it came up") from None
+            for sock in (self._agent_sock, self._guest_sock):
+                if sock is not None:
+                    sock.close()
+            self._agent_sock = self._guest_sock = None
+            await self._reboot()
+            return
+        self._resets = 0
 
         if none:
             # Nothing in the guest to connect to: tests reach it over the network.
@@ -778,6 +803,23 @@ class Machine:
         self._guest_sock = None
         self._watcher = hold(self._tasks, self._watch, name=f"watch {self.name}")
 
+    async def _rebooted(self) -> bool:
+        """Did the guest's process end because the guest asked for a reboot?"""
+        if self._process is None or self._process.returncode is None:
+            return False
+        cause = await self._memory.shutdown_cause() if isinstance(self._memory, qmp.Qmp) else None
+        return self.backend.rebooted(backends.Stop(self._process.returncode, cause))
+
+    async def _run_cpus(self) -> None:
+        """Start the CPUs of a guest that QEMU started stopped: see `Qmp.run`."""
+        if not isinstance(self._memory, qmp.Qmp):
+            raise MachineError(f"[{self.name}] starts stopped, and has no monitor to start it")
+        try:
+            with anyio.fail_after(self.boot_timeout):
+                await self._memory.run()
+        except (OSError, EOFError, qmp.QmpError, TimeoutError) as error:
+            raise MachineError(f"[{self.name}] the monitor did not start the guest: {error or 'timed out'}") from None
+
     async def _watch(self) -> None:
         """Boot the guest again when it reboots itself; record a stop it made by itself.
 
@@ -793,7 +835,7 @@ class Machine:
             await self._monitor.wait()
         if self._stopping:
             return
-        if self.backend.rebooted(self._process.returncode, self._history):
+        if await self._rebooted():
             try:
                 await self._reboot()
             except MachineError as error:
