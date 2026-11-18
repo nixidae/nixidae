@@ -532,10 +532,12 @@ Two things to know about the QEMU guest:
   were two host filesystems, which cannot collide while `/nix/store` is a
   bind of `/nix`.
 
-`checks` holds the default of each test, which is UML. The `.qemu`
-variants are deliberately **not** checks, until we know whether our CI
-runners have `/dev/kvm`: a builder without it does not fail such a test,
-it refuses to build it — which would stop CI rather than report anything.
+`checks.<test>` runs the test on its default backend, UML, and
+`checks.<test>.qemu` runs it on QEMU. A CI job runs the `.qemu` variant
+unless `ci/workflows.nix` names another backend: a QEMU guest does not
+wait on the UML kernel build. The runners open `/dev/kvm` to the
+sandbox. A `.qemu` derivation asks the daemon for the `kvm` feature, so
+a builder without it refuses the build. It does not fail the test.
 
 ### Where each backend and uplink runs
 
