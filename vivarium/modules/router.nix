@@ -20,6 +20,7 @@
   pkgs,
   hostPkgs,
   nodes,
+  utils,
   ...
 }:
 let
@@ -51,14 +52,23 @@ let
   # The router's port to a guest: at most 15 characters, so its index.
   port = node: "g${toString node.vivarium.index}";
 
+  # The uplink's routing table on the router: the bridge is a port of
+  # this VRF, and the relay binds every socket to it (nixidae/nixidae#1523).
+  vrf = "vrf-${bridge}";
+  vrfDevice = "sys-subsystem-net-devices-${utils.escapeSystemdPath vrf}.device";
+
   /*
     Everything the guests send off the bridge goes to the relay. TCP by
     `redirect`, so the relay reads SO_ORIGINAL_DST; UDP by tproxy, and
     ICMP echo by mark 1 to a raw socket. The bridge's own traffic --
     DHCP, broadcast, multicast, neighbour discovery, a guest to a guest --
     stays. IPv6 has the same rules, with no DNS address of its own.
+
+    `tproxyIn` is the device `tproxy` matches. A VRF runs prerouting a
+    second time with itself as the input device, and a socket that
+    `tproxy` assigns on the bridge's pass is lost (E11, router-lab.md).
   */
-  ruleset = ''
+  ruleset = tproxyIn: ''
     define onlink = { ${subnet}, 224.0.0.0/4, 255.255.255.255 }
     table ip router {
       chain prerouting {
@@ -69,9 +79,9 @@ let
       }
       chain mangle {
         type filter hook prerouting priority mangle;
-        iifname "${bridge}" ip daddr != $onlink meta l4proto udp meta mark set 1 tproxy to :9001
-        iifname "${bridge}" ip daddr ${gateway} udp dport != 67 meta mark set 1 tproxy to :9001
-        iifname "${bridge}" ip daddr ${dns} udp dport 53 meta mark set 1 tproxy to :9001
+        iifname "${tproxyIn}" ip daddr != $onlink meta l4proto udp meta mark set 1 tproxy to :9001
+        iifname "${tproxyIn}" ip daddr ${gateway} udp dport != 67 meta mark set 1 tproxy to :9001
+        iifname "${tproxyIn}" ip daddr ${dns} udp dport 53 meta mark set 1 tproxy to :9001
         iifname "${bridge}" ip daddr != $onlink icmp type echo-request meta mark set 1
         iifname "${bridge}" ip daddr ${gateway} icmp type echo-request meta mark set 1
       }
@@ -85,8 +95,8 @@ let
       }
       chain mangle {
         type filter hook prerouting priority mangle;
-        iifname "${bridge}" ip6 daddr != $onlink6 meta l4proto udp meta mark set 1 tproxy to :9001
-        iifname "${bridge}" ip6 daddr ${gateway6} meta l4proto udp meta mark set 1 tproxy to :9001
+        iifname "${tproxyIn}" ip6 daddr != $onlink6 meta l4proto udp meta mark set 1 tproxy to :9001
+        iifname "${tproxyIn}" ip6 daddr ${gateway6} meta l4proto udp meta mark set 1 tproxy to :9001
         iifname "${bridge}" ip6 daddr != $onlink6 icmpv6 type echo-request meta mark set 1
         iifname "${bridge}" ip6 daddr ${gateway6} icmpv6 type echo-request meta mark set 1
       }
@@ -234,14 +244,26 @@ in
         "net.bridge.bridge-nf-call-arptables" = 0;
       };
 
+      systemd.network.netdevs."10-${vrf}" = {
+        netdevConfig = {
+          Kind = "vrf";
+          Name = vrf;
+        };
+        vrfConfig.Table = 1000;
+      };
       systemd.network.netdevs."20-${bridge}".netdevConfig = {
         Kind = "bridge";
         Name = bridge;
         MTUBytes = toString config.vivarium.mtu;
       };
       systemd.network.networks = {
+        "30-${vrf}" = {
+          matchConfig.Name = vrf;
+          networkConfig.ConfigureWithoutCarrier = true;
+        };
         "40-${bridge}" = {
           matchConfig.Name = bridge;
+          vrf = [ vrf ];
           address = [
             "${gateway}/24"
             "${dns}/24"
@@ -307,12 +329,20 @@ in
         enable = true;
         # tproxy needs the kernel's module; the build sandbox's nft lacks it.
         checkRuleset = false;
-        inherit ruleset;
+        ruleset = ruleset vrf;
       };
 
       systemd.services.vivarium-relay = lib.recursiveUpdate relayService {
         description = "The router's relay to the host";
-        after = [ "nftables.service" ];
+        # E11: a relay socket bound to no device routes in the main table,
+        # and a reply into the VRF fails. A bind before networkd makes the
+        # VRF fails too.
+        environment.RELAY_DEVICE = vrf;
+        bindsTo = [ vrfDevice ];
+        after = [
+          "nftables.service"
+          vrfDevice
+        ];
       };
     })
     # An uplink segment takes precedence: `MachineSpec.vsock` reads the same.
@@ -384,7 +414,7 @@ in
             ip route add local 0.0.0.0/0 dev lo table 100
             ip -6 route add local ::/0 dev lo table 100
             sysctl -q -w net.ipv4.icmp_echo_ignore_all=1 net.ipv6.icmp.echo_ignore_all=1
-            nft -f ${pkgs.writeText "uplink.nft" ruleset}
+            nft -f ${pkgs.writeText "uplink.nft" (ruleset bridge)}
           '
         '';
         preStop = "ip netns delete ${netns}";
