@@ -7,7 +7,6 @@ different thing: it logs in on a serial console and runs commands there.
 
 from __future__ import annotations
 
-import asyncio
 import collections
 import math
 import re
@@ -15,7 +14,8 @@ import socket
 from collections.abc import Callable
 
 import anyio
-from anyio.abc import TaskGroup
+from anyio.abc import ByteReceiveStream, TaskGroup, UNIXSocketStream
+from anyio.streams.buffered import BufferedByteReceiveStream
 
 from .held import Held, hold
 
@@ -23,6 +23,9 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 HISTORY = 2000
 """Console lines kept for `ConsoleLines.tail`."""
+
+LINE_LIMIT = 65536
+"""Bytes in one console line; a longer one is dropped."""
 
 
 class GuestExited(Exception):
@@ -43,9 +46,9 @@ class ConsoleLines:
         self._send, self._recv = anyio.create_memory_object_stream[str](math.inf)
         self._stdout: Held | None = None
         self._serial: Held | None = None
-        self._serial_writer: asyncio.StreamWriter | None = None
+        self._serial_stream: UNIXSocketStream | None = None
 
-    def start(self, tasks: TaskGroup, stdout: asyncio.StreamReader, name: str) -> None:
+    def start(self, tasks: TaskGroup, stdout: ByteReceiveStream, name: str) -> None:
         """Pump the guest process's *stdout*, in *tasks*."""
         self._stdout = hold(tasks, self._pump, stdout, name=name)
 
@@ -55,11 +58,8 @@ class ConsoleLines:
         It is read to the end, or the guest stalls once the socket buffer
         is full.
         """
-        # asyncio's StreamReader, so one pump reads both kinds of console:
-        # the guest process's stdout is one too. anyio's streams have no
-        # readline.
-        reader, self._serial_writer = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251 -- see above
-        self._serial = hold(tasks, self._pump, reader, name=name)
+        self._serial_stream = await UNIXSocketStream.from_socket(sock)
+        self._serial = hold(tasks, self._pump, self._serial_stream, name=name)
 
     async def drained(self) -> None:
         """Until the stdout pump has read to the end."""
@@ -72,9 +72,9 @@ class ConsoleLines:
             if task is not None:
                 await task.stop()
         self._stdout = self._serial = None
-        if self._serial_writer is not None:
-            self._serial_writer.close()
-            self._serial_writer = None
+        if self._serial_stream is not None:
+            await self._serial_stream.aclose()
+            self._serial_stream = None
 
     def reset(self) -> None:
         """Drop every line, so a second boot does not match the first boot's.
@@ -112,26 +112,33 @@ class ConsoleLines:
             if pattern.search(line):
                 return line
 
-    async def _pump(self, reader: asyncio.StreamReader) -> None:
+    async def _pump(self, stream: ByteReceiveStream) -> None:
+        buffered = BufferedByteReceiveStream(stream)
         while True:
             try:
-                raw = await reader.readline()
-            except ValueError:
-                # Line longer than the stream limit; skip it rather than die.
+                raw = await buffered.receive_until(b"\n", LINE_LIMIT)
+            except anyio.DelimiterNotFound:
+                # The buffer keeps what it read: drop it, rather than die.
+                await buffered.receive(LINE_LIMIT)
                 continue
-            except OSError as error:
+            except anyio.IncompleteRead:
+                # The end, with the last line unterminated.
+                self._take(buffered.buffer)
+                return
+            except (OSError, anyio.BrokenResourceError) as error:
                 # The guest's end went away mid-read: the console ends, and
                 # the guest's exit says the rest. Raised, it ends the run.
                 self._say(f"the console ended: {error}")
                 return
-            if not raw:
-                return
-            line = _ANSI.sub("", raw.decode(errors="replace").rstrip())
-            if not line:
-                continue
-            self._say(line)
-            self.history.append(line)
-            self._send.send_nowait(line)
+            self._take(raw)
+
+    def _take(self, raw: bytes) -> None:
+        line = _ANSI.sub("", raw.decode(errors="replace").rstrip())
+        if not line:
+            return
+        self._say(line)
+        self.history.append(line)
+        self._send.send_nowait(line)
 
     def _say(self, line: str) -> None:
         if self.on_line is not None:

@@ -22,14 +22,8 @@ import shlex
 import shutil
 import signal
 import socket
-import subprocess as sync_subprocess
 import tempfile
 import time
-
-# asyncio's subprocess, kept on purpose: its StreamReader gives the console
-# pump a readline that anyio's process stdout has no equivalent for. It runs
-# under anyio's asyncio backend unchanged.
-from asyncio import subprocess  # noqa: TID251 -- see above
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,8 +52,8 @@ from .control import (
     dialect as find_dialect,
     validate as validate_control,
 )
+from .guestprocess import GuestProcess
 from .held import Held, hold
-from .lifetime import die_with_parent
 from .machine_spec import Interface, MachineSpec, Systems
 from .store import Store, StoreError
 
@@ -93,28 +87,6 @@ type SwitchAction = Literal["switch", "boot", "test", "dry-activate"]
 class GuestTimeout(MachineError):
     """A command or agent call ran past its own timeout in the guest. The
     guest killed it, and still answers."""
-
-
-def _killpg(pid: int, sig: int) -> None:
-    """Signal *pid*'s whole process group, and tolerate it being gone.
-
-    The group and not the process: a guest is a tree -- the UML bridge
-    starts passt and the kernel under it, QEMU starts nothing but is
-    itself one of several -- and signalling only the leader leaves the
-    rest running with nothing to report to.
-    """
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(os.getpgid(pid), sig)
-
-
-def _running(pid: int) -> bool:
-    """*pid* exists and is not a zombie waiting to be reaped."""
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return False
-    # The state follows the command name, which may itself hold ") ".
-    return stat.rpartition(")")[2].split()[0] not in ("Z", "X")
 
 
 OUTPUT_LIMIT = 2000
@@ -209,17 +181,14 @@ class Machine:
         sets it once every guest's forwards are resolved."""
 
         self._rundir: Path | None = None
-        self._process: subprocess.Process | None = None
+        self._process: GuestProcess | None = None
         # Pumped from `_boot` to `_stop_process`, kept across both.
         self._console = ConsoleLines(self._log)
         self._agent_sock: socket.socket | None = None
         self._guest_sock: socket.socket | None = None
         self._conn: AsyncConnection | None = None
-        self._helpers: list[sync_subprocess.Popen[bytes]] = []
         self._spare_fds: list[int] = []
         self._controls = Controls()
-        self._pid_file: Path | None = None
-        self._cleanup: list[Path] = []
         self._disk_fds: tuple[int, ...] = ()
         self._lan_kept: dict[str, int] = {}
         self._watcher: Held | None = None
@@ -350,9 +319,6 @@ class Machine:
             # A host that lacks something is a reason, not a crash: said
             # the way a guest that did not boot is said.
             raise MachineError(f"[{self.name}] {error}") from None
-        self._helpers = launch.helpers
-        self._cleanup = launch.cleanup
-        self._pid_file = launch.pid_file
         for fd in set(self._disk_fds) - set(launch.disk_fds):
             os.close(fd)
         self._disk_fds = launch.disk_fds
@@ -367,21 +333,7 @@ class Machine:
             self.say(note)
         self._log(f"exec: {' '.join(launch.argv)}")
 
-        self._process = await subprocess.create_subprocess_exec(
-            *launch.argv,
-            # Never the runner's stdin: a UML console reads it, and took
-            # the input meant for `--interactive`'s REPL (measured).
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=launch.env or None,
-            # Own process group, so everything the backend started under
-            # it dies together when we signal it.
-            start_new_session=True,
-            # And the kernel kills it if we never get to signal anything.
-            preexec_fn=die_with_parent,
-            pass_fds=launch.pass_fds,
-        )
+        self._process = await GuestProcess.spawn(launch)
         for fd in self._spare_fds:
             os.close(fd)
         self._spare_fds = []
@@ -666,18 +618,6 @@ class Machine:
 
     async def _stop_process(self) -> None:
         """What one boot of the guest leaves after its process exited."""
-        # virtiofsd and passt, where the backend started them itself.
-        # Under UML they are children of the bridge and went with it.
-        #
-        # By group and not by pid: each one leads its own session, and a
-        # helper that forked -- passt does -- leaves the child behind when
-        # only the leader is killed.
-        for helper in self._helpers:
-            if helper.poll() is None:
-                _killpg(helper.pid, signal.SIGKILL)
-                helper.wait()
-        self._helpers = []
-
         await self._console.stop()
 
         channel, self._controls = self._controls.channel, Controls()
@@ -688,68 +628,19 @@ class Machine:
             with contextlib.suppress(OSError, EOFError, ControlError):
                 await channel.close()
 
-        for directory in self._cleanup:
-            shutil.rmtree(directory, ignore_errors=True)
-        self._cleanup = []
+        if self._process is not None:
+            self._process.release()
 
     async def _reap(self, grace: float, *, kill: bool = False) -> None:
         """Wait *grace* seconds for the guest to exit, then SIGTERM its
         process group, then SIGKILL it. *kill* goes to SIGKILL at once."""
-        if self._process is None or self._process.returncode is not None:
-            return
-        # The agent's poweroff returns once the shutdown is queued, so a
-        # guest that was asked gets the time to finish it: measured, a
-        # QEMU guest was SIGTERMed right after the request.
-        if grace:
-            try:
-                with anyio.fail_after(grace):
-                    await self._process.wait()
-                return
-            except TimeoutError:
-                pass
-        steps = ((signal.SIGKILL, 5),) if kill else ((signal.SIGTERM, 30), (signal.SIGKILL, 5))
-        for sig, wait in steps:
-            self._signal(sig)
-            try:
-                with anyio.fail_after(wait):
-                    await self._process.wait()
-                return
-            except TimeoutError:
-                continue
-        self._log("process would not die")
-
-    def _signal(self, sig: int) -> None:
-        """Signal the process group, and the guest's own pid as well.
-
-        The pid too because under UML the spawned process is the bridge,
-        and killing its group alone left the kernel answering RPC in one
-        run of two.
-        """
-        if self._process is None:
-            return
-        pid = self._guest_pid()
-        if self._process.returncode is None:
-            _killpg(self._process.pid, sig)
-        if pid is not None and pid != self._process.pid and _running(pid):
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(pid, sig)
-
-    def _guest_pid(self) -> int | None:
-        """The guest's own process: the kernel under UML, QEMU itself."""
-        if self._process is None:
-            return None
-        if self._pid_file is None:
-            return self._process.pid
-        try:
-            return int(self._pid_file.read_text().strip())
-        except (OSError, ValueError):
-            return None
+        if self._process is not None and not await self._process.reap(grace, kill=kill):
+            self._log("process would not die")
 
     def alive(self) -> bool:
         """Is the guest's process still running? Asks the host, not the
         agent: a dead guest's agent does not answer, it hangs."""
-        pid = self._guest_pid()
-        return pid is not None and _running(pid)
+        return self._process is not None and self._process.alive()
 
     async def crash(self) -> None:
         """Kill the guest outright, the way a power cut would.
@@ -760,8 +651,8 @@ class Machine:
         """
         if self._process is None:
             raise MachineError(f"[{self.name}] not started")
-        pid = self._guest_pid()
-        self._signal(signal.SIGKILL)
+        pid = self._process.guest_pid()
+        self._process.signal(signal.SIGKILL)
         await self._process.wait()
         self._close_kept()
         # Polled: under UML the kernel is not our child, so there is
@@ -780,7 +671,7 @@ class Machine:
             with anyio.fail_after(timeout):
                 await self._process.wait()
         except TimeoutError:
-            self._signal(signal.SIGTERM)
+            self._process.signal(signal.SIGTERM)
             return -1
         return self._process.returncode or 0
 
@@ -1165,9 +1056,9 @@ class Machine:
             raise MachineError(f"[{self.name}] is not running")
         # UML forks the kernel from the passt bridge, so the process the
         # runner spawned is the bridge. The kernel writes its own pid.
-        pid = self._guest_pid()
+        pid = self._process.guest_pid()
         if pid is None:
-            raise MachineError(f"[{self.name}] no pid file: {self._pid_file}")
+            raise MachineError(f"[{self.name}] no pid file: {self._process.pid_file}")
         try:
             return self.backend.host_memory_kib(self.spec, pid)
         except backends.BackendError as error:
