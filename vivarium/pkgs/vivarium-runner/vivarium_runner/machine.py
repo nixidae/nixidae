@@ -884,6 +884,9 @@ class Machine:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+        # The next boot's agent is a new one: until it is up, a command
+        # reaches no guest, and says why.
+        self._control = None
         await self._stop_process()
         # A second boot must not match the first boot's ready line.
         self._history.clear()
@@ -1218,8 +1221,15 @@ class Machine:
                 f"[{self.name}] is driven through its {self.control_kind} console, and has no agent for this call"
             )
         if self._conn is None:
-            raise MachineError(f"[{self.name}] agent is not connected")
+            raise self._unreachable("agent is not connected")
         return _agent_rpc(self._conn)
+
+    def _unreachable(self, why: str) -> MachineError:
+        """The error for a call that cannot reach the guest: why the guest is
+        gone, when a reboot it did not come back from says so."""
+        if self._reboot_error is not None:
+            return MachineError(f"[{self.name}] did not come back from its reboot: {self._reboot_error}")
+        return MachineError(f"[{self.name}] {why}")
 
     async def _ask[T](
         self,
@@ -1311,7 +1321,7 @@ class Machine:
         """
         timeout = timeout or self.command_timeout
         if self._control is None:
-            raise MachineError(f"[{self.name}] not connected")
+            raise self._unreachable("not connected")
         # The guest kills the command at `timeout`; give the round trip
         # longer, so its error is what we report, not ours.
         return await self._ask(
