@@ -181,12 +181,8 @@ in
     };
 
     backend = mkOption {
-      type = types.enum [
-        "uml"
-        "qemu"
-        "krun"
-        "container"
-      ];
+      # Each guest checks the name against its own `vivarium.backendNames`.
+      type = types.str;
       default = "uml";
       description = ''
         What the guests become. `uml` needs nothing of the host; `qemu`

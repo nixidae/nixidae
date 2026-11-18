@@ -18,89 +18,92 @@ let
     inherit lib;
   };
 in
-lib.mkIf (cfg.backend == "container") {
-  vivarium.launch = {
-    backend = "container";
-    config = { inherit (tools) crun setpriv passt; };
-  };
-  # `uid-range`: 65536 ids and a cgroup of its own, which a plain sandbox
-  # build does not have. With `nestedVirtualization` the container binds
-  # the host's /dev/kvm.
-  vivarium.requiredSystemFeatures = [ "uid-range" ] ++ lib.optional cfg.nestedVirtualization "kvm";
+lib.mkMerge [
+  { vivarium.backendNames = [ "container" ]; }
+  (lib.mkIf (cfg.backend == "container") {
+    vivarium.launch = {
+      backend = "container";
+      config = { inherit (tools) crun setpriv passt; };
+    };
+    # `uid-range`: 65536 ids and a cgroup of its own, which a plain sandbox
+    # build does not have. With `nestedVirtualization` the container binds
+    # the host's /dev/kvm.
+    vivarium.requiredSystemFeatures = [ "uid-range" ] ++ lib.optional cfg.nestedVirtualization "kvm";
 
-  assertions = [
-    {
-      # crun passes no /dev/fuse, and seccomp refuses the setuid bit that
-      # unprivileged mounts need (nixidae/nixidae#1498).
-      assertion = !config.programs.fuse.enable;
-      message = "vivarium: guest ${config.networking.hostName} enables programs.fuse, and a container guest has no FUSE. Use another backend for it.";
-    }
-  ];
+    assertions = [
+      {
+        # crun passes no /dev/fuse, and seccomp refuses the setuid bit that
+        # unprivileged mounts need (nixidae/nixidae#1498).
+        assertion = !config.programs.fuse.enable;
+        message = "vivarium: guest ${config.networking.hostName} enables programs.fuse, and a container guest has no FUSE. Use another backend for it.";
+      }
+    ];
 
-  boot.isContainer = true;
-  # isContainer shares the host's resolv.conf, which guest.nix's resolved
-  # refuses. The guest resolves the way the other backends do.
-  networking.useHostResolvConf = false;
+    boot.isContainer = true;
+    # isContainer shares the host's resolv.conf, which guest.nix's resolved
+    # refuses. The guest resolves the way the other backends do.
+    networking.useHostResolvConf = false;
 
-  # No serial line. The runner binds a directory at /run/host/agent, and
-  # the agent listens on a socket in it.
-  vivarium.agentDevice = "unix:/run/host/agent/sock";
+    # No serial line. The runner binds a directory at /run/host/agent, and
+    # the agent listens on a socket in it.
+    vivarium.agentDevice = "unix:/run/host/agent/sock";
 
-  # A Nix build's seccomp filter refuses setuid bits, and the runner says
-  # so with a file (vivarium_runner.container.NO_SETUID). Skipped rather than
-  # failed: without it every sandboxed boot is "degraded". By hand the
-  # file is absent and the wrappers are made as usual.
-  systemd.services.suid-sgid-wrappers.unitConfig.ConditionPathExists = "!/run/host/agent/no-setuid";
+    # A Nix build's seccomp filter refuses setuid bits, and the runner says
+    # so with a file (vivarium_runner.container.NO_SETUID). Skipped rather than
+    # failed: without it every sandboxed boot is "degraded". By hand the
+    # file is absent and the wrappers are made as usual.
+    systemd.services.suid-sgid-wrappers.unitConfig.ConditionPathExists = "!/run/host/agent/no-setuid";
 
-  # Every container maps root to the same host user, so every guest's
-  # keys count against one quota of 200 (kernel.keys.maxkeys). A system
-  # service gets a private session keyring by default, so 30 guests
-  # used it up during boot (nixidae/nixidae#903). `inherit` shares the
-  # manager's keyring and makes no key per service.
-  systemd.packages = [
-    (pkgs.writeTextDir "etc/systemd/system/service.d/10-vivarium-keyring.conf" ''
-      [Service]
-      KeyringMode=inherit
-    '')
-  ];
+    # Every container maps root to the same host user, so every guest's
+    # keys count against one quota of 200 (kernel.keys.maxkeys). A system
+    # service gets a private session keyring by default, so 30 guests
+    # used it up during boot (nixidae/nixidae#903). `inherit` shares the
+    # manager's keyring and makes no key per service.
+    systemd.packages = [
+      (pkgs.writeTextDir "etc/systemd/system/service.d/10-vivarium-keyring.conf" ''
+        [Service]
+        KeyringMode=inherit
+      '')
+    ];
 
-  # isContainer's login prompt, on the console the runner reads.
-  systemd.services.console-getty.enable = false;
+    # isContainer's login prompt, on the console the runner reads.
+    systemd.services.console-getty.enable = false;
 
-  # isContainer sets `daemon`, for a nixos-container that uses its host's
-  # daemon. This guest runs its own, as the other backends do, and there
-  # a user's `nix daemon` inherited `daemon` and served itself through its
-  # own socket, one worker per connection until the test timed out.
-  # `auto` is what Nix reads when the variable is absent; NixOS cannot
-  # remove a variable, only replace it.
-  environment.variables.NIX_REMOTE = lib.mkForce "auto";
+    # isContainer sets `daemon`, for a nixos-container that uses its host's
+    # daemon. This guest runs its own, as the other backends do, and there
+    # a user's `nix daemon` inherited `daemon` and served itself through its
+    # own socket, one worker per connection until the test timed out.
+    # `auto` is what Nix reads when the variable is absent; NixOS cannot
+    # remove a variable, only replace it.
+    environment.variables.NIX_REMOTE = lib.mkForce "auto";
 
-  # A container cannot mount these, and systemd reports the failure as a
-  # degraded system (measured).
-  systemd.suppressedSystemUnits = [
-    "sys-kernel-debug.mount"
-    "sys-kernel-tracing.mount"
-  ];
+    # A container cannot mount these, and systemd reports the failure as a
+    # degraded system (measured).
+    systemd.suppressedSystemUnits = [
+      "sys-kernel-debug.mount"
+      "sys-kernel-tracing.mount"
+    ];
 
-  /*
-    The root filesystem's starting point, which the runner copies per run.
+    /*
+      The root filesystem's starting point, which the runner copies per run.
 
-    A directory and not a disk image: a container's root is a directory on
-    the host. It holds only what must exist before the init runs; the
-    store is the host's, under an overlay whose upper and work
-    directories are the two here, so a guest writes to its own store.
-  */
-  system.build.vivariumRootImage = pkgs.runCommand "container-root" { } ''
-    mkdir -p $out/{etc,var,root,home,artifacts,nix/store,nix/var,.nix-upper,.nix-work}
-    # Without it nix-daemon.socket is skipped silently -- see image.nix.
-    mkdir -p $out/nix-state/nix/daemon-socket
-    ${lib.optionalString cfg.nixDatabase.enable ''
-      mkdir -p $out/nix-state/nix/db
-      install -m 0644 ${config.system.build.vivariumNixDatabase}/db.sqlite $out/nix-state/nix/db/
-      install -m 0644 ${config.system.build.vivariumNixDatabase}/schema $out/nix-state/nix/db/
-      test -s $out/nix-state/nix/db/db.sqlite''}
-  '';
+      A directory and not a disk image: a container's root is a directory on
+      the host. It holds only what must exist before the init runs; the
+      store is the host's, under an overlay whose upper and work
+      directories are the two here, so a guest writes to its own store.
+    */
+    system.build.vivariumRootImage = pkgs.runCommand "container-root" { } ''
+      mkdir -p $out/{etc,var,root,home,artifacts,nix/store,nix/var,.nix-upper,.nix-work}
+      # Without it nix-daemon.socket is skipped silently -- see image.nix.
+      mkdir -p $out/nix-state/nix/daemon-socket
+      ${lib.optionalString cfg.nixDatabase.enable ''
+        mkdir -p $out/nix-state/nix/db
+        install -m 0644 ${config.system.build.vivariumNixDatabase}/db.sqlite $out/nix-state/nix/db/
+        install -m 0644 ${config.system.build.vivariumNixDatabase}/schema $out/nix-state/nix/db/
+        test -s $out/nix-state/nix/db/db.sqlite''}
+    '';
 
-  # No kernel: the launcher execs the system's init.
-  vivarium.boot.system = "${config.system.build.toplevel}";
-}
+    # No kernel: the launcher execs the system's init.
+    vivarium.boot.system = "${config.system.build.toplevel}";
+  })
+]

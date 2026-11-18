@@ -205,13 +205,19 @@ in
       ];
 
   options.vivarium = {
+    backendNames = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      description = ''
+        The backends this guest can take: the values `backend` accepts.
+        Each backend's module adds its own name, outside its `mkIf` on
+        `backend`. A backend another package adds is a NixOS module that
+        adds its name here, and a `vivarium.backends` entry point that the
+        runner loads.
+      '';
+    };
+
     backend = lib.mkOption {
-      type = lib.types.enum [
-        "uml"
-        "qemu"
-        "krun"
-        "container"
-      ];
+      type = lib.types.enum config.vivarium.backendNames;
       default = "uml";
       description = ''
         Which machine a guest becomes.
@@ -1104,6 +1110,8 @@ in
     # `mkNode` passes the host's; an evaluation without it runs on the
     # system it builds for.
     _module.args.hostPkgs = lib.mkDefault pkgs;
+
+    vivarium.backendNames = [ "uml" ];
 
     vivarium.interfaces.vec1 = lib.mkIf (config.vivarium.lan.network != null) {
       segment = config.vivarium.lan.network;
