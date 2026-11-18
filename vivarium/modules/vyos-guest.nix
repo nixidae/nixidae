@@ -18,8 +18,8 @@ let
   cfg = config.vivarium.vyos;
   inherit (lib) mkOption types;
 
-  runner = config.system.build.vivariumRunnerPackage;
-  units = import ./foreign-units.nix { inherit lib pkgs runner; };
+  agent = config.system.build.vivariumAgentPackage;
+  units = import ./foreign-units.nix { inherit lib pkgs agent; };
   # vec0 is the uplink. On the out-of-band fabric (nixidae/nixidae#958) it
   # joins a management segment and leases there, so rename it eth0 and let
   # VyOS DHCP it. Otherwise VyOS does not manage it: the agent is on ttyS0,
@@ -97,7 +97,7 @@ let
 
   configBoot = pkgs.writeText "config.boot" (cfg.config + vrfBlock + interfaceBlock);
   roots = [
-    runner
+    agent
     units
     configBoot
     links

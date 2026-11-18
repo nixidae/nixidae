@@ -35,6 +35,7 @@ let
     mkNode
     mkTest
     fromNixosTest
+    agent
     runner
     session
     k8s
@@ -69,6 +70,7 @@ let
       mkNode
       mkTest
       fromNixosTest
+      agent
       runner
       session
       k8s
@@ -89,6 +91,10 @@ let
       Python set of its own.
     */
     runnerSource = ./pkgs/vivarium-runner;
+    /**
+      The pyproject project of `agent`, which `runnerSource` depends on.
+    */
+    agentSource = ./pkgs/vivarium-agent;
   };
   inherit (tests) k8sConfig;
 
@@ -206,6 +212,7 @@ lib.fix (self: {
   packages = {
     inherit
       cli
+      agent
       runner
       session
       k8s

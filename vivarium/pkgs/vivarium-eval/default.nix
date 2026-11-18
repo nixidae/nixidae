@@ -25,6 +25,7 @@ let
   inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) ps;
 
   projects = {
+    vivarium-agent = ../vivarium-agent;
     vivarium-runner = ../vivarium-runner;
     vivarium = ../vivarium;
     vivarium-eval = ./.;

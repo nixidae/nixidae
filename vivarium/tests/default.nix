@@ -19,6 +19,7 @@ let
     mkNode
     mkTest
     fromNixosTest
+    agent
     runner
     session
     k8s
@@ -425,6 +426,7 @@ let
       mkNode
       mkTest
       fromNixosTest
+      agent
       runner
       session
       k8s

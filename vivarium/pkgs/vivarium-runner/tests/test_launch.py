@@ -10,7 +10,6 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
-from vivarium_runner.agent import virtio_port
 from vivarium_runner.backend import BackendError, Krun, KrunConfig, Qemu, QemuConfig, Uml, UmlConfig
 from vivarium_runner.machine import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName
@@ -142,12 +141,3 @@ def test_a_krun_boot_reads() -> None:
 def test_krun_refuses_a_bad_boot(boot: dict[str, object], says: str) -> None:
     with pytest.raises(BackendError, match=says):
         Krun.validate(krun({**KRUN, "boot": boot}))
-
-
-def test_a_virtio_port_is_found_by_name(tmp_path: Path) -> None:
-    for port, name in (("vport1p1", "other"), ("vport2p1", "vivarium-agent")):
-        (tmp_path / port).mkdir()
-        (tmp_path / port / "name").write_text(f"{name}\n")
-    assert virtio_port("vivarium-agent", tmp_path) == Path("/dev/vport2p1")
-    with pytest.raises(FileNotFoundError, match="no virtio-serial port is named 'absent'"):
-        virtio_port("absent", tmp_path)

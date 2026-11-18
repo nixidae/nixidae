@@ -9,11 +9,10 @@ version = "0.2.0"
 description = "Run NixOS systems under User-Mode Linux and drive them from Python"
 # `os.unshare` and `os.setns` are 3.12.
 requires-python = ">=3.12"
-dependencies = ["rpyc", "qemu.qmp"]
+dependencies = ["vivarium-agent", "qemu.qmp"]
 
 [project.scripts]
 vivarium-run = "vivarium_runner.cli:main"
-vivarium-agent = "vivarium_runner.agent:main"
 
 # The backends, by the name `vivarium.backend` gives. Another package adds
 # one the same way; `vivarium_runner.backend.get` reads this group.

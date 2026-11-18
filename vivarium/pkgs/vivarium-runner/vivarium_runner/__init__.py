@@ -7,6 +7,8 @@ talks to. A phase script is a coroutine over :class:`Machines`.
 
 from __future__ import annotations
 
+from vivarium_agent.channel import ProcessInfo, SystemState, UnitInfo
+
 from .display import Button
 from .forward import ForwardError
 from .machine import GuestTimeout, Interface, LaunchSpec, Machine, MachineError, Machines, MachineSpec, Systems
@@ -23,6 +25,9 @@ __all__ = [
     "MachineError",
     "MachineSpec",
     "Machines",
+    "ProcessInfo",
     "SegmentError",
+    "SystemState",
     "Systems",
+    "UnitInfo",
 ]

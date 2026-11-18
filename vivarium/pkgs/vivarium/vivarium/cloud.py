@@ -1,6 +1,6 @@
 """The host's half of vivarium's cloud API: instances of templates, launched by guests. nixidae/nixidae#1408.
 
-`vivarium_runner/cloud.py` is the wire. Here a launch is recorded, answered
+`vivarium_agent/cloud.py` is the wire. Here a launch is recorded, answered
 `pending` at once, and booted in the background, as a cloud does. A phase
 plays the provider's side through `vms.cloud`: `capacity`, `boot_delay`,
 `interrupt`.
@@ -23,7 +23,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
 import anyio
-from vivarium_runner.arpyc import Service
+from vivarium_agent.arpyc import Service
 
 if TYPE_CHECKING:
     from vivarium_runner import Machine

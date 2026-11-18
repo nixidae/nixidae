@@ -1,7 +1,7 @@
 {
   lib,
   python3Packages,
-  dinit-client,
+  vivarium-agent,
 }:
 
 python3Packages.buildPythonPackage {
@@ -21,7 +21,8 @@ python3Packages.buildPythonPackage {
 
   build-system = [ python3Packages.hatchling ];
   dependencies = [
-    python3Packages.rpyc
+    # The control channel's protocol, and the agent at its other end.
+    vivarium-agent
     # ConsoleControl. The rest of the runner is bare asyncio until
     # nixidae/nixidae#949.
     python3Packages.anyio
@@ -29,8 +30,6 @@ python3Packages.buildPythonPackage {
     # the greeting, the capabilities handshake and the difference between
     # an event and a reply. Only the QEMU backend imports it.
     python3Packages.qemu-qmp
-    # The agent's init on a dinix guest. Only the agent's dinit calls use it.
-    dinit-client
   ];
 
   pythonImportsCheck = [ "vivarium_runner" ];

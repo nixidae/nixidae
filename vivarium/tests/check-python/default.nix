@@ -1,9 +1,10 @@
-# zuban, strict, over `runner`, `session` and `k8s` and their unit tests. Each
-# package's `mypy.ini` sets its own floor.
+# zuban, strict, over `agent`, `runner`, `session` and `k8s` and their unit
+# tests. Each package's `mypy.ini` sets its own floor.
 {
   hostPkgs,
   lib,
   nixvenv,
+  agent,
   runner,
   session,
   k8s,
@@ -13,6 +14,7 @@ let
   python = nixvenv {
     python = hostPkgs.python3;
     packages = ps: [
+      agent
       runner
       session
       k8s
@@ -30,7 +32,7 @@ let
     };
 in
 hostPkgs.runCommand "vivarium-check-python" { nativeBuildInputs = [ hostPkgs.zuban ]; } ''
-  for package in ${typed ../../pkgs/vivarium-runner} ${typed ../../pkgs/vivarium} ${typed ../../pkgs/vivarium-k8s}; do
+  for package in ${typed ../../pkgs/vivarium-agent} ${typed ../../pkgs/vivarium-runner} ${typed ../../pkgs/vivarium} ${typed ../../pkgs/vivarium-k8s}; do
     # Linux on any host: CI's verdict, and container.py is Linux only.
     (cd $package && zuban mypy --platform linux --python-executable ${python}/lib/venv/bin/python3)
   done

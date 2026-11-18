@@ -41,7 +41,14 @@ rec {
 
         nixvenv { python = pkgs.python3; packages = _: [ vivarium.runner ]; }
   */
-  runner = pkgs.callPackage ./pkgs/vivarium-runner {
+  runner = pkgs.callPackage ./pkgs/vivarium-runner { vivarium-agent = agent; };
+
+  /**
+    The guest's agent and the control channel's protocol, `vivarium_agent`.
+    Every guest runs it; `runner` speaks to it. A guest holds this and not
+    the runner, so a runner edit rebuilds no guest.
+  */
+  agent = pkgs.callPackage ./pkgs/vivarium-agent {
     dinit-client = pkgs.callPackage "${sources.dinix}/dinit-client/package.nix" { };
   };
 
@@ -51,7 +58,10 @@ rec {
     The session owns the sequence; `runner` above is the mechanism it
     drives. See `docs/design/runner.md`.
   */
-  session = pkgs.callPackage ./pkgs/vivarium { vivarium-runner = runner; };
+  session = pkgs.callPackage ./pkgs/vivarium {
+    vivarium-runner = runner;
+    vivarium-agent = agent;
+  };
 
   /**
     `vivarium_k8s`, the cluster library. `vivarium.recipes.kubernetes` puts

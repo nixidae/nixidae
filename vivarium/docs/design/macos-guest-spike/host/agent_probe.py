@@ -36,7 +36,7 @@ async def import_path(agent: str) -> None:
 
 async def from_snapshot(snap: Path, run: Path, agent: str) -> int:
     await import_path(agent)
-    from vivarium_runner import arpyc
+    from vivarium_agent import arpyc
 
     t0 = time.monotonic()
     async with db.started(snap, run):
@@ -60,7 +60,7 @@ async def main() -> int:
         sys.argv[3],
     )
     await import_path(agent)
-    from vivarium_runner import arpyc
+    from vivarium_agent import arpyc
 
     await anyio.Path(run).mkdir(parents=True)
     for name in ("overlay.qcow2", "aux.img"):

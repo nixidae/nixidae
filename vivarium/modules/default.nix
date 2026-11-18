@@ -256,7 +256,7 @@ in
         Serve vivarium's cloud API at `/run/vivarium/cloud.sock`: this
         guest launches, lists and terminates guests of the run's
         `templates`, over the host's control channel. No guest network
-        is needed. `vivarium_runner/cloud.py` holds the API.
+        is needed. `vivarium_agent/cloud.py` holds the API.
         nixidae/nixidae#1408.
       '';
     };
@@ -1035,7 +1035,7 @@ in
     # The UML kernel is built from the same source as the guest's own
     # kernel package, so the two always agree on module versions.
     system.build = {
-      vivariumRunnerPackage = pkgs.callPackage ../pkgs/vivarium-runner {
+      vivariumAgentPackage = pkgs.callPackage ../pkgs/vivarium-agent {
         dinit-client = pkgs.callPackage "${sources.dinix}/dinit-client/package.nix" { };
       };
 

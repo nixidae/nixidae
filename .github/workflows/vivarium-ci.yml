@@ -111,7 +111,7 @@ jobs:
         name: lillecarl
         useDaemon: false
     - name: Check the generated files, ruff, the scripts, the Python types, the docs, the images and the kubeadm config
-      run: nix build --no-link --print-build-logs --keep-going --file . checks.ruff checks.check-scripts checks.docs checks.check-python checks.check-k8s-images checks.check-k8s-config checks.ci-set
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.ruff checks.check-scripts checks.docs checks.check-python checks.check-k8s-images checks.check-k8s-config checks.ci-set packages.agent.tests
       timeout-minutes: 20
     timeout-minutes: 30
   direct-kernel:

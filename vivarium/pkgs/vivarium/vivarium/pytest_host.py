@@ -58,7 +58,7 @@ import coverage
 import pytest
 from anyio.abc import SocketAttribute
 from anyio.from_thread import start_blocking_portal
-from vivarium_runner.arpyc import AsyncConnection, connect
+from vivarium_agent.arpyc import AsyncConnection, connect
 
 from . import cli as runner_cli, control, monitor
 from .control import reachable

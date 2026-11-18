@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
-from vivarium_runner import agent
+from vivarium_agent import agent
 
 
 @pytest.fixture(autouse=True)

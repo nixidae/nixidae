@@ -344,7 +344,7 @@ in
       }
       // lib.optionalAttrs cfg.cloud { VIVARIUM_CLOUD = "1"; };
       serviceConfig = {
-        ExecStart = lib.getExe' config.system.build.vivariumRunnerPackage "vivarium-agent";
+        ExecStart = lib.getExe config.system.build.vivariumAgentPackage;
         StandardOutput = "journal+console";
         StandardError = "journal+console";
       };

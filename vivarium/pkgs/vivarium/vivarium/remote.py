@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Concatenate, Final, Literal, get_args
 
 import anyio
 from anyio.abc import SocketAttribute
-from vivarium_runner.arpyc import AsyncConnection, Service, listen
+from vivarium_agent.arpyc import AsyncConnection, Service, listen
 from vivarium_runner.machine import Machine, MachineError
 
 from .control import reachable

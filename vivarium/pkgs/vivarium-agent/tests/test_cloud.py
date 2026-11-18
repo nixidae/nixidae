@@ -5,7 +5,7 @@ from __future__ import annotations
 from http import HTTPStatus
 
 import pytest
-from vivarium_runner.cloud import Call, RouteError, route
+from vivarium_agent.cloud import Call, RouteError, route
 
 
 @pytest.mark.parametrize(

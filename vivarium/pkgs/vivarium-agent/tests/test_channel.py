@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import inspect
 
-from vivarium_runner.agent import Agent
-from vivarium_runner.channel import AgentRpc
+from vivarium_agent.agent import Agent
+from vivarium_agent.channel import AgentRpc
 
 PREFIX = "exposed_"
 

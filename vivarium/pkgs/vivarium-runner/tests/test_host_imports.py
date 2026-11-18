@@ -12,6 +12,6 @@ import sys
 
 
 def test_machine_imports_no_agent() -> None:
-    probe = "import sys, vivarium_runner.machine; print(sorted({'vivarium_runner.agent', 'dinit_client'} & set(sys.modules)))"
+    probe = "import sys, vivarium_runner.machine; print(sorted({'vivarium_agent.agent', 'dinit_client'} & set(sys.modules)))"
     out = subprocess.run([sys.executable, "-c", probe], check=True, capture_output=True, text=True).stdout
     assert out.strip() == "[]"

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vivarium-agent"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "The guest half of vivarium's control channel: the agent, arpyc and the cloud API socket"
+requires-python = ">=3.12"
+# dinit-client is not here: a host's Python set resolves this file against
+# nixpkgs, which has no dinit-client, and the host never imports `agent`.
+# `default.nix` adds it for the guest.
+dependencies = ["anyio", "rpyc"]
+
+[project.scripts]
+vivarium-agent = "vivarium_agent.agent:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vivarium_agent"]
+artifacts = ["vivarium_agent/py.typed"]

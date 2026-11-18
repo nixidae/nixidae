@@ -42,10 +42,10 @@ from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 import anyio
 from anyio.abc import UNIXSocketStream
+from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connect
+from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
-from .arpyc import AsyncConnection, ProtocolError, Service, connect
-from .channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 from .control import (
     AGENT,
     NONE,

@@ -4,7 +4,7 @@
 {
   lib,
   pkgs,
-  runner,
+  agent,
 }:
 let
   # What the agent's commands find on PATH: the distribution's own.
@@ -19,7 +19,7 @@ pkgs.linkFarm "vivarium-image-units" {
     [Service]
     Environment=VIVARIUM_AGENT_DEVICE=/dev/ttyS0
     Environment=VIVARIUM_GUEST_PATH=${guestPath}
-    ExecStart=${lib.getExe' runner "vivarium-agent"}
+    ExecStart=${lib.getExe agent}
     StandardOutput=journal+console
     StandardError=journal+console
   '';

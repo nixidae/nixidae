@@ -16,7 +16,7 @@ let
   inherit (lib) mkOption types;
   krun = config.vivarium.backend == "krun";
 
-  runner = config.system.build.vivariumRunnerPackage;
+  agent = config.system.build.vivariumAgentPackage;
   krunExit = pkgs.callPackage ../pkgs/krun-exit/package.nix { };
   kernel = pkgs.callPackage ../pkgs/direct-kernel { inherit (config.boot.kernelPackages) kernel; };
   vmlinux = pkgs.callPackage ../pkgs/vmlinux/package.nix { inherit kernel; };
@@ -48,7 +48,7 @@ let
           "VIVARIUM_GUEST_PATH=${guestPath}/bin"
           "VIVARIUM_INIT=dinit"
           "VIVARIUM_DINIT_SOCKET=${dinix.config.socketPath}"
-          (lib.getExe' runner "vivarium-agent")
+          (lib.getExe agent)
         ];
         dinix.critical = false;
       };
@@ -201,7 +201,7 @@ in
     vivarium.closure = pkgs.closureInfo {
       rootPaths = [
         dinix.config.systemWrapper
-        runner
+        agent
         guestPath
         pkgs.bash
       ]

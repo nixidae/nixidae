@@ -29,7 +29,8 @@ required-imports = ["from __future__ import annotations"]
 "pkgs/vivarium-eval/vivarium_eval/cli.py" = ["T201"]
 # The agent's ready line is its protocol; nixos_test is the
 # nixos-test script surface, which prints as a phase does.
-"pkgs/vivarium-runner/vivarium_runner/{agent,cli,nixos_test}.py" = ["T201"]
+"pkgs/vivarium-runner/vivarium_runner/{cli,nixos_test}.py" = ["T201"]
+"pkgs/vivarium-agent/vivarium_agent/agent.py" = ["T201"]
 
 [format]
 # The examples in the docs are short on purpose: a comment beside each

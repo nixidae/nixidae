@@ -1,6 +1,7 @@
 {
   lib,
   python3Packages,
+  vivarium-agent,
   vivarium-runner,
 }:
 
@@ -24,6 +25,8 @@ python3Packages.buildPythonPackage {
     # The mechanism: guests, backends, the agent channel. This package
     # owns the sequence and none of that.
     vivarium-runner
+    # The control channel's protocol: remote.py serves it to a run's clients.
+    vivarium-agent
     python3Packages.anyio
     # The spec is input, so it is validated rather than read
     # defensively at each point of use. See vivarium/spec.py.

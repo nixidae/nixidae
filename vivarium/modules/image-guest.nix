@@ -3,8 +3,8 @@
 #
 # The node is still a NixOS evaluation, for the options every guest has
 # (memory, interfaces, forwards). Its system is never built: the spec
-# names the image, a cloud-init seed, and the runner package the agent
-# comes from.
+# names the image, a cloud-init seed, and the package the agent comes
+# from.
 #
 # The seed's bootcmd mounts the host's store and the artifacts over
 # hostfs, then starts the same agent and journal stream a NixOS guest
@@ -25,14 +25,14 @@ let
     inherit lib;
   };
 
-  runner = config.system.build.vivariumRunnerPackage;
+  agent = config.system.build.vivariumAgentPackage;
 
   # What the guest's store view holds: the agent and its units. With a
   # writable store also every `extraRoots` path, as a NixOS guest has
   # them, and the Nix that registers a path after boot. A read-only view
   # leaves them out, for `add_closure` to bring in.
   roots = [
-    runner
+    agent
     units
   ]
   ++ lib.optionals cfg.writableStore (
@@ -103,7 +103,7 @@ let
         mountpoint -q /nix || mount -t hostfs none /nix -o "hostfs=$(arg VIVARIUM_STORE)"
       '';
 
-  units = import ./foreign-units.nix { inherit lib pkgs runner; };
+  units = import ./foreign-units.nix { inherit lib pkgs agent; };
 
   # The runner puts the store view and the artifacts directory on the
   # kernel command line, decided at run time; the seed is built before.

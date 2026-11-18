@@ -7,7 +7,8 @@ from collections.abc import Awaitable, Callable
 
 import anyio
 import pytest
-from vivarium_runner import GuestTimeout, Machine, arpyc, report
+from vivarium_agent import arpyc
+from vivarium_runner import GuestTimeout, Machine, report
 from vivarium_runner.machine import MachineError
 
 

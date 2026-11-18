@@ -251,11 +251,12 @@ socket to its segment on `vec1`, and a socketpair to the host runner on
 `ssl0`.
 
 **Control channel.** The host drives guests over `ssl0`, not ssh, so
-commands work before networking exists and inside a sandbox. `vivarium_runner.arpyc`
+commands work before networking exists and inside a sandbox. `vivarium_agent.arpyc`
 speaks rpyc's wire format (brine for values, vinegar for exceptions) over
 asyncio, with one handler that calls a method by name — so `await
 vm.succeed("...")` is a single round trip. The guest half is the
-`vivarium-agent` systemd unit.
+`vivarium-agent` systemd unit, from the `vivarium-agent` package: a guest
+holds that package and not the runner.
 
 **Root image.** Almost empty: busybox, an `/init`, and a symlink to the
 system's `init`. `/init` mounts the guest's store view over hostfs with a

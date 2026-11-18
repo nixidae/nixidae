@@ -8,8 +8,8 @@ from collections.abc import Awaitable, Callable
 
 import anyio
 import pytest
-from vivarium_runner import arpyc
-from vivarium_runner.arpyc import AsyncConnection, ProtocolError, Service
+from vivarium_agent import arpyc
+from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service
 
 
 class Echo(Service):

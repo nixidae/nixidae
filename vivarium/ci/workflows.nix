@@ -405,6 +405,7 @@ let
       "checks.check-k8s-images"
       "checks.check-k8s-config"
       "checks.ci-set"
+      "packages.agent.tests"
     ];
     sessions = [
       "checks.phase-rules"
