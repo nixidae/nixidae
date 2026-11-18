@@ -28,6 +28,15 @@ lib.mkIf (cfg.backend == "container") {
   # the host's /dev/kvm.
   vivarium.requiredSystemFeatures = [ "uid-range" ] ++ lib.optional cfg.nestedVirtualization "kvm";
 
+  assertions = [
+    {
+      # crun passes no /dev/fuse, and seccomp refuses the setuid bit that
+      # unprivileged mounts need (nixidae/nixidae#1498).
+      assertion = !config.programs.fuse.enable;
+      message = "vivarium: guest ${config.networking.hostName} enables programs.fuse, and a container guest has no FUSE. Use another backend for it.";
+    }
+  ];
+
   boot.isContainer = true;
   # isContainer shares the host's resolv.conf, which guest.nix's resolved
   # refuses. The guest resolves the way the other backends do.

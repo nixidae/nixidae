@@ -582,8 +582,8 @@ let
   /*
     The tests whose QEMU job above holds the backend contract -- a test
     never knows which backend it got -- with the other backends each runs
-    on. Not `fuse` on a container guest: it has no /dev/fuse
-    (nixidae/nixidae#1498).
+    on. Not `fuse` on a container guest: `modules/container.nix` refuses
+    FUSE there.
   */
   contract = {
     forward = [
