@@ -333,19 +333,20 @@ class Machine:
             self.say(note)
         self._log(f"exec: {' '.join(launch.argv)}")
 
-        self._process = await GuestProcess.spawn(launch)
+        process = self._process = await GuestProcess.spawn(launch)
         for fd in self._spare_fds:
             os.close(fd)
         self._spare_fds = []
         self.recorder.step(self.name, "launch", f"launch {self.name}", time.monotonic() - started)
-        if self._process.stdout is None:
+        if process.stdout is None:
             raise MachineError(f"[{self.name}] no guest process console to read")
-        self._console.start(self._tasks, self._process.stdout, f"console of {self.name}")
+        self._console.start(self._tasks, process.stdout, f"console of {self.name}")
         if launch.controls.power is not None:
             await self._run_cpus(launch.controls.power)
 
         if self.control_kind not in (AGENT, NONE):
             await self._start_console(find_dialect(self.name, self.spec.control), started)
+            self._watch_from_here()
             return
 
         none = NoneConfig.of(self.name, self.spec.control) if self.control_kind == NONE else None
@@ -354,7 +355,9 @@ class Machine:
         ready = none.ready if none else re.compile(re.escape(AGENT_READY))
         try:
             with anyio.fail_after(self.boot_timeout):
-                await self._wait_for_line(ready)
+                # This boot's process: a reset before the guest is up is
+                # `_boot`'s to handle, and the next process is not started.
+                await self._wait_for_line(ready, process.wait)
             elapsed = time.monotonic() - started
             self._log(f"up in {elapsed:.1f}s")
             self.recorder.booted(
@@ -390,6 +393,7 @@ class Machine:
 
         if none:
             # Nothing in the guest to connect to: tests reach it over the network.
+            self._watch_from_here()
             return
 
         if launch.agent_path is not None:
@@ -407,6 +411,10 @@ class Machine:
         # when the guest goes away rather than hanging on our own fd.
         self._guest_sock.close()
         self._guest_sock = None
+        self._watch_from_here()
+
+    def _watch_from_here(self) -> None:
+        """Hand the guest's exit to `_watch`, now that the guest is up."""
         self._watcher = hold(self._tasks, self._watch, name=f"watch {self.name}")
 
     async def _rebooted(self) -> bool:
@@ -488,6 +496,7 @@ class Machine:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+        await self._close_console()
         # The next boot's agent is a new one: until it is up, a command
         # reaches no guest, and says why.
         self._control = None
@@ -551,6 +560,16 @@ class Machine:
             {"backend": self.spec.backend, "cpus": self.spec.cpus, "memory": self.spec.memory},
         )
 
+    async def _close_console(self) -> None:
+        """The console login of a console guest, and its transcript."""
+        if isinstance(self._control, ConsoleControl):
+            with contextlib.suppress(OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
+                await self._control.aclose()
+            self._control = None
+        if self._transcript is not None:
+            await self._transcript.aclose()
+            self._transcript = None
+
     async def shutdown(self, *, kill: bool = False) -> None:
         """Ask the guest to power off, then make sure nothing is left.
 
@@ -566,13 +585,7 @@ class Machine:
             self._watcher = None
         # A console guest keeps nothing, so it is not asked: QEMU is
         # stopped below.
-        if isinstance(self._control, ConsoleControl):
-            with contextlib.suppress(OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
-                await self._control.aclose()
-            self._control = None
-        if self._transcript is not None:
-            await self._transcript.aclose()
-            self._transcript = None
+        await self._close_console()
         # `alive` first: a dead guest's agent does not refuse, it hangs,
         # and the request below waited out its full timeout after `crash`.
         asked = False
@@ -693,19 +706,21 @@ class Machine:
         else:
             self._log(text)
 
-    async def _wait_for_line(self, pattern: re.Pattern[str]) -> str:
-        """Match *pattern* against console output, past or future."""
+    async def _wait_for_line(self, pattern: re.Pattern[str], gone: Callable[[], Awaitable[object]]) -> str:
+        """Match *pattern* against console output, past or future, until *gone* returns."""
         try:
-            return await self._console.wait_for(
-                pattern, lambda: self._process is not None and self._process.returncode is not None
-            )
+            return await self._console.wait_for(pattern, gone)
         except GuestExited:
             raise MachineError(f"[{self.name}] guest exited while waiting for {pattern.pattern!r}") from None
 
     async def wait_for_console_text(self, pattern: str, timeout: float | None = None) -> str:
-        """Wait for a regex to appear on the guest's console."""
+        """Wait for a regex to appear on the guest's console.
+
+        The wait goes on across a reboot, and ends when the guest stops by
+        itself (`exited`).
+        """
         with anyio.fail_after(timeout or self.command_timeout):
-            return await self._wait_for_line(re.compile(pattern))
+            return await self._wait_for_line(re.compile(pattern), self._exited.wait)
 
     # ── commands ───────────────────────────────────────────────────
 

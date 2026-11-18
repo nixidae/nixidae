@@ -8,10 +8,10 @@ different thing: it logs in on a serial console and runs commands there.
 from __future__ import annotations
 
 import collections
-import math
 import re
 import socket
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 
 import anyio
 from anyio.abc import ByteReceiveStream, TaskGroup, UNIXSocketStream
@@ -27,9 +27,24 @@ HISTORY = 2000
 LINE_LIMIT = 65536
 """Bytes in one console line; a longer one is dropped."""
 
+EXIT_DRAIN = 0.5
+"""Seconds a wait still reads the console once the guest is gone.
+
+What the guest wrote just before it went can still be in the pipe. A
+bound and not a wait for the end of the pipe, because a process the
+guest started can hold the pipe open past the exit.
+"""
+
+
+@dataclass(eq=False, slots=True)
+class _Waiter:
+    pattern: re.Pattern[str]
+    matched: anyio.Event = field(default_factory=anyio.Event)
+    line: str | None = None
+
 
 class GuestExited(Exception):
-    """The guest's process ended before its console matched."""
+    """The guest was gone before its console matched."""
 
 
 class ConsoleLines:
@@ -43,7 +58,7 @@ class ConsoleLines:
     def __init__(self, on_line: Callable[[str], None] | None = None) -> None:
         self.on_line = on_line
         self.history: collections.deque[str] = collections.deque(maxlen=HISTORY)
-        self._send, self._recv = anyio.create_memory_object_stream[str](math.inf)
+        self._waiters: set[_Waiter] = set()
         self._stdout: Held | None = None
         self._serial: Held | None = None
         self._serial_stream: UNIXSocketStream | None = None
@@ -80,37 +95,44 @@ class ConsoleLines:
         """Drop every line, so a second boot does not match the first boot's.
 
         After `stop`: a pump still running can put a line of the old boot
-        back after the clear.
+        back after the clear. A wait goes on, on the next boot's lines.
         """
         self.history.clear()
-        while True:
-            try:
-                self._recv.receive_nowait()
-            except anyio.WouldBlock:
-                break
 
     def tail(self, lines: int = 15) -> list[str]:
         """The last *lines* lines, oldest first."""
         return list(self.history)[-lines:]
 
-    async def wait_for(self, pattern: re.Pattern[str], exited: Callable[[], bool]) -> str:
+    async def wait_for(self, pattern: re.Pattern[str], gone: Callable[[], Awaitable[object]]) -> str:
         """The first line, past or future, that *pattern* matches.
 
-        Raises `GuestExited` when *exited* says the guest's process ended.
+        *gone* returns when the guest is gone. The wait then reads for
+        `EXIT_DRAIN` more seconds, and raises `GuestExited`.
         """
         for line in self.history:
             if pattern.search(line):
                 return line
-        while True:
-            try:
-                with anyio.fail_after(0.5):
-                    line = await self._recv.receive()
-            except TimeoutError:
-                if exited():
-                    raise GuestExited from None
-                continue
-            if pattern.search(line):
-                return line
+        waiter = _Waiter(pattern)
+        self._waiters.add(waiter)
+        try:
+            async with anyio.create_task_group() as tasks:
+
+                async def on_gone() -> None:
+                    await gone()
+                    with anyio.move_on_after(EXIT_DRAIN):
+                        for task in (self._stdout, self._serial):
+                            if task is not None:
+                                await task.wait()
+                    tasks.cancel_scope.cancel()
+
+                tasks.start_soon(on_gone)
+                await waiter.matched.wait()
+                tasks.cancel_scope.cancel()
+        finally:
+            self._waiters.discard(waiter)
+        if waiter.line is None:
+            raise GuestExited
+        return waiter.line
 
     async def _pump(self, stream: ByteReceiveStream) -> None:
         buffered = BufferedByteReceiveStream(stream)
@@ -138,7 +160,10 @@ class ConsoleLines:
             return
         self._say(line)
         self.history.append(line)
-        self._send.send_nowait(line)
+        for waiter in [waiter for waiter in self._waiters if waiter.pattern.search(line)]:
+            waiter.line = line
+            waiter.matched.set()
+            self._waiters.discard(waiter)
 
     def _say(self, line: str) -> None:
         if self.on_line is not None:
