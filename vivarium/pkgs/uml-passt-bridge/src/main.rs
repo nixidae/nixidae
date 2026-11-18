@@ -61,51 +61,76 @@ fn read_exact(fd: i32, buf: &mut [u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+/// What passt and the kernel are started with.
+#[derive(Debug, PartialEq)]
+struct Command {
+    passt: Vec<String>,
+    kernel: String,
+    kernel_args: Vec<String>,
+}
+
+/// The command line, after the program name: the bridge's own flags, then
+/// the kernel and its arguments.
+fn parse(args: &[String]) -> Result<Command, String> {
     // Passed through to passt's -t and -u verbatim, so they carry a whole
     // port specifier -- an address, ranges, exclusions -- not just a port.
-    // The runner builds them; see uml_runner/forward.py.
+    // The runner builds them; see vivarium_runner/forward.py.
     let mut tcp_ports: Vec<String> = Vec::new();
     let mut udp_ports: Vec<String> = Vec::new();
     // Anything else passt should be told, one argument per flag, appended
     // verbatim. The runner owns the uplink's addressing for both backends
-    // -- see `uplink_args` in uml_runner/forward.py -- and this is how it
-    // reaches passt on the side that has a bridge in the way.
+    // -- see `uplink_args` in vivarium_runner/forward.py -- and this is how
+    // it reaches passt on the side that has a bridge in the way.
     let mut passt_extra: Vec<String> = Vec::new();
     let mut vec_arg = "vec0:transport=fd,fd=3,depth=512,gro=1".to_string();
 
-    let mut i = 1;
-    while i < args.len() {
-        let flag = args[i].as_str();
-        let target = match flag {
-            "--vec" | "--tcp-ports" | "--udp-ports" | "--passt" => {
-                i += 1;
-                if i >= args.len() {
-                    eprintln!("{} requires an argument", flag);
-                    exit(1);
-                }
-                flag
-            }
-            _ => break,
+    let mut rest = args.iter();
+    let kernel = loop {
+        let Some(flag) = rest.next() else {
+            return Err("Usage: uml-passt-bridge [--vec VEC_ARG] [--tcp-ports SPEC]... \
+                        [--udp-ports SPEC]... [--passt ARG]... UML_BINARY [UML_ARGS...]"
+                .into());
         };
-        match target {
-            "--vec" => vec_arg = args[i].clone(),
-            "--tcp-ports" => tcp_ports.push(args[i].clone()),
-            "--passt" => passt_extra.push(args[i].clone()),
-            _ => udp_ports.push(args[i].clone()),
+        if !matches!(flag.as_str(), "--vec" | "--tcp-ports" | "--udp-ports" | "--passt") {
+            break flag.clone();
         }
-        i += 1;
-    }
+        let value = rest
+            .next()
+            .ok_or_else(|| format!("{flag} requires an argument"))?
+            .clone();
+        match flag.as_str() {
+            "--vec" => vec_arg = value,
+            "--tcp-ports" => tcp_ports.push(value),
+            "--udp-ports" => udp_ports.push(value),
+            _ => passt_extra.push(value),
+        }
+    };
 
-    if i >= args.len() {
-        eprintln!(
-            "Usage: {} [--vec VEC_ARG] [--tcp-ports SPEC]... [--udp-ports SPEC]... \
-             UML_BINARY [UML_ARGS...]",
-            args[0]
-        );
-        exit(1);
+    // No --one-off: we kill passt ourselves when the bridge exits, and
+    // letting it linger keeps the uplink up across a guest's reboot.
+    let mut passt: Vec<String> = vec!["--foreground".into(), "--fd".into(), "4".into()];
+    passt.extend(passt_extra);
+    for (flag, specs) in [("-t", tcp_ports), ("-u", udp_ports)] {
+        for spec in specs {
+            passt.push(flag.into());
+            passt.push(spec);
+        }
     }
+    let mut kernel_args: Vec<String> = rest.cloned().collect();
+    kernel_args.push(vec_arg);
+    Ok(Command {
+        passt,
+        kernel,
+        kernel_args,
+    })
+}
+
+fn main() {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let command = parse(&args).unwrap_or_else(|why| {
+        eprintln!("{why}");
+        exit(1);
+    });
 
     let (uml_a, uml_b) = socket::socketpair(
         AddressFamily::Unix,
@@ -122,18 +147,6 @@ fn main() {
     )
     .expect("socketpair passt");
 
-    // No --one-off: we kill passt ourselves when the bridge exits, and
-    // letting it linger keeps the uplink up across a guest's reboot.
-    let mut passt_args: Vec<String> =
-        vec!["--foreground".into(), "--fd".into(), "4".into()];
-    passt_args.extend(passt_extra.iter().cloned());
-    for (flag, specs) in [("-t", &tcp_ports), ("-u", &udp_ports)] {
-        for spec in specs {
-            passt_args.push(flag.into());
-            passt_args.push(spec.clone());
-        }
-    }
-
     let bridge = unistd::getpid();
     let passt_pid = match unsafe { unistd::fork() }.expect("fork passt") {
         ForkResult::Child => {
@@ -143,8 +156,7 @@ fn main() {
             drop(passt_a);
             unistd::dup2(passt_b.as_raw_fd(), PASST_FD).expect("dup2 passt");
             drop(passt_b);
-            let passt_argv: Vec<&str> = passt_args.iter().map(|s| s.as_str()).collect();
-            let err = process::Command::new("passt").args(&passt_argv).exec();
+            let err = process::Command::new("passt").args(&command.passt).exec();
             eprintln!("exec passt: {}", err);
             exit(1);
         }
@@ -162,11 +174,10 @@ fn main() {
             fcntl::fcntl(UML_FD, fcntl::FcntlArg::F_SETFD(fcntl::FdFlag::empty()))
                 .expect("fcntl uml");
 
-            let kernel = &args[i];
-            let mut full_args: Vec<String> = args.iter().skip(i + 1).cloned().collect();
-            full_args.push(vec_arg.clone());
-            let err = process::Command::new(kernel).args(&full_args).exec();
-            eprintln!("exec uml {}: {}", kernel, err);
+            let err = process::Command::new(&command.kernel)
+                .args(&command.kernel_args)
+                .exec();
+            eprintln!("exec uml {}: {}", command.kernel, err);
             exit(1);
         }
         ForkResult::Parent { child } => child,
@@ -310,4 +321,50 @@ fn main() {
     let _ = kill(passt_pid, Signal::SIGKILL);
     let _ = kill(uml_pid, Signal::SIGKILL);
     exit(status);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Command, parse};
+
+    fn words(line: &str) -> Vec<String> {
+        line.split_whitespace().map(String::from).collect()
+    }
+
+    // What `forward.to_args` and `uplink_args` write ahead of the kernel.
+    #[test]
+    fn passt_gets_its_options_then_each_port_spec() {
+        let command = parse(&words(
+            "--tcp-ports 127.0.0.3/8080,14325:22 --passt --dns-forward --passt 10.0.2.3 \
+             --udp-ports 127.0.0.3/53 --tcp-ports 127.0.0.3/6443 /linux mem=512M",
+        ))
+        .unwrap();
+        assert_eq!(
+            command,
+            Command {
+                passt: words(
+                    "--foreground --fd 4 --dns-forward 10.0.2.3 -t 127.0.0.3/8080,14325:22 \
+                     -t 127.0.0.3/6443 -u 127.0.0.3/53"
+                ),
+                kernel: "/linux".into(),
+                kernel_args: words("mem=512M vec0:transport=fd,fd=3,depth=512,gro=1"),
+            }
+        );
+    }
+
+    #[test]
+    fn the_vec_argument_replaces_the_default_and_a_flag_after_the_kernel_is_its() {
+        let command = parse(&words("--vec vec0:transport=fd,fd=3 /linux --vec x")).unwrap();
+        assert_eq!(command.passt, words("--foreground --fd 4"));
+        assert_eq!(command.kernel_args, words("--vec x vec0:transport=fd,fd=3"));
+    }
+
+    #[test]
+    fn a_flag_without_its_value_or_no_kernel_is_refused() {
+        assert_eq!(
+            parse(&words("--tcp-ports")),
+            Err("--tcp-ports requires an argument".into())
+        );
+        assert!(parse(&words("--tcp-ports 127.0.0.3/22")).unwrap_err().starts_with("Usage:"));
+    }
 }
