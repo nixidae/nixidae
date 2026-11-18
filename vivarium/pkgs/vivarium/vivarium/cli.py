@@ -488,11 +488,15 @@ async def run(args: argparse.Namespace) -> int:
     except ValueError as error:
         raise SessionError(str(error)) from None
 
+    # What a signal cancels: the sequence, as `ctl stop` does. Not the
+    # drive: its task group holds each guest's agent connection, and with
+    # that cancelled the teardown cannot ask a guest to power off.
+    sequence = anyio.CancelScope()
     try:
         async with anyio.create_task_group() as group:
-            group.start_soon(_stop_on_signal, session, group.cancel_scope)
+            group.start_soon(_stop_on_signal, session, sequence)
             if parent_pid is not None:
-                group.start_soon(_stop_with_parent, session, group.cancel_scope, parent_pid)
+                group.start_soon(_stop_with_parent, session, sequence, parent_pid)
             await drive(
                 session,
                 breaks=before,
@@ -505,6 +509,7 @@ async def run(args: argparse.Namespace) -> int:
                 control=args.control,
                 origin=origin,
                 spec=args.spec,
+                sequence=sequence,
             )
             group.cancel_scope.cancel()
         if session.stopped is not None:
@@ -518,7 +523,7 @@ async def run(args: argparse.Namespace) -> int:
 
 
 async def _stop_on_signal(session: Session, scope: anyio.CancelScope) -> None:
-    """SIGTERM or SIGHUP ends the run the way ^C does: the drive is
+    """SIGTERM or SIGHUP ends the run the way ^C does: the sequence is
     cancelled, and its shielded teardown powers each guest off, then
     signals each guest's process group, SIGTERM and then SIGKILL."""
     with anyio.open_signal_receiver(signal.SIGTERM, signal.SIGHUP) as signals:
@@ -559,6 +564,7 @@ async def drive(
     control: bool = True,
     origin: Origin | None = None,
     spec: Path | None = None,
+    sequence: anyio.CancelScope | None = None,
 ) -> None:
     """Boot, run what is pending, write the evidence, put the guests down.
 
@@ -573,10 +579,11 @@ async def drive(
     never pauses.
     """
     wanted = control or breaks or break_on_failure or break_on_start or break_at_end or hold or interactive
-    # `ctl stop` cancels the sequence and nothing else: its shielded
-    # `finally` writes the evidence and puts the guests down, and the
-    # socket stays up until each watcher has the verdict.
-    sequence = anyio.CancelScope()
+    # `ctl stop` and *sequence*'s owner cancel the sequence and nothing
+    # else: its shielded `finally` writes the evidence and puts the guests
+    # down, and the socket stays up until each watcher has the verdict.
+    if sequence is None:
+        sequence = anyio.CancelScope()
     feed = Feed(session.out.name) if wanted else None
     if feed is not None:
         session.tap(feed)
