@@ -41,11 +41,12 @@ import traceback
 from dataclasses import asdict, dataclass, fields, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, get_args
 
 import anyio
 from pydantic import ValidationError
 from vivarium_runner import MachineError, unixpath
+from vivarium_runner.machine import SwitchAction
 
 from .events import Kind, Level
 from .exits import Exit
@@ -88,6 +89,9 @@ class Op(StrEnum):
     SEGMENT = "segment"
     """`NAME [ACTION [MEMBER]]`: cut, restore or capture one segment, or
     show it. `segment_request` reads the arg."""
+    SWITCH = "switch"
+    """A system the host built, into one guest and switched to: the arg is
+    a `SwitchRequest`. `vivarium switch` evaluates it and sends this."""
 
 
 class SegmentAction(StrEnum):
@@ -118,6 +122,37 @@ def segment_request(arg: str) -> SegmentRequest:
     if member is not None and action not in (SegmentAction.CUT, SegmentAction.RESTORE):
         raise ValueError(f"{action} takes no member")
     return SegmentRequest(words[0], action, member)
+
+
+SWITCH_ACTIONS: Final[tuple[SwitchAction, ...]] = get_args(SwitchAction.__value__)
+
+
+@dataclass(frozen=True, slots=True)
+class SwitchRequest:
+    """The arg of `switch`: `registration` into `node`'s store, then `system`."""
+
+    node: str
+    system: str
+    """The system's store path."""
+    registration: str
+    """The closure's registration, for `Machine.add_closure`."""
+    action: SwitchAction = "switch"
+
+    def encode(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def decode(cls, arg: str) -> SwitchRequest:
+        """Raises ValueError."""
+        raw = json.loads(arg)
+        if not isinstance(raw, dict) or not all(
+            isinstance(raw.get(key), str) for key in ("node", "system", "registration")
+        ):
+            raise ValueError(f"switch takes a node, a system and a registration, not {arg!r}")
+        action = next((known for known in SWITCH_ACTIONS if known == raw.get("action")), None)
+        if action is None:
+            raise ValueError(f"no switch action {raw.get('action')!r}; have {', '.join(SWITCH_ACTIONS)}")
+        return cls(raw["node"], raw["system"], raw["registration"], action)
 
 
 @dataclass
@@ -220,7 +255,7 @@ def parse_request(line: bytes) -> Request:
     arg = raw.get("arg", "")
     if not isinstance(arg, str):
         raise ValueError("arg is a string")
-    if op in (Op.EXEC, Op.INJECT, Op.RUN, Op.PYTEST, Op.RELOAD, Op.SEGMENT) and not arg:
+    if op in (Op.EXEC, Op.INJECT, Op.RUN, Op.PYTEST, Op.RELOAD, Op.SEGMENT, Op.SWITCH) and not arg:
         raise ValueError(f"{op} needs an arg")
     reload = raw.get("reload", [])
     if not isinstance(reload, list) or not all(isinstance(path, str) and Path(path).is_absolute() for path in reload):
@@ -604,7 +639,7 @@ class Controller:
     reentrant.
     """
 
-    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP, Op.WATCH, Op.SEGMENT})
+    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP, Op.WATCH, Op.SEGMENT, Op.SWITCH})
 
     def __init__(
         self,
@@ -787,10 +822,12 @@ class Controller:
             return Reply(ok=True, result="stopping")
         if op not in self.ANY_TIME and not self.paused:
             return Reply.refuse(f"{op} only while paused; the run is running")
-        if op in (Op.INJECT, Op.SEGMENT) and self.session.vms is None:
+        if op in (Op.INJECT, Op.SEGMENT, Op.SWITCH) and self.session.vms is None:
             return Reply.refuse("no guests are up yet")
         if op is Op.SEGMENT:
             return await self._segment(arg)
+        if op is Op.SWITCH:
+            return self._record("switch", await self._switch(arg))
         self._bind_guests()
         if op is Op.CONTINUE:
             self._continuing = True
@@ -806,6 +843,23 @@ class Controller:
         if op is Op.RELOAD:
             return await self._reload_spec(Path(arg))
         return await self._run(arg)
+
+    async def _switch(self, arg: str) -> Reply:
+        """The closure into the guest's store, then the switch."""
+        vms = self.session.vms
+        if vms is None:
+            return Reply.refuse("no guests are up yet")
+        try:
+            asked = SwitchRequest.decode(arg)
+            guest = vms[asked.node]
+        except (ValueError, KeyError) as error:
+            return Reply.refuse(f"switch: {error}")
+        try:
+            await guest.add_closure(asked.registration)
+            _, output = await guest.switch_to(asked.system, asked.action)
+        except MachineError as error:
+            return Reply(ok=False, error=str(error))
+        return Reply(ok=True, output=output)
 
     async def _segment(self, arg: str) -> Reply:
         """Cut, restore or capture a segment, then show it."""

@@ -277,6 +277,10 @@ class MachineError(Exception):
     """A guest failed to boot, or a command in it did not do as told."""
 
 
+type SwitchAction = Literal["switch", "boot", "test", "dry-activate"]
+"""What `switch-to-configuration` does with the new system."""
+
+
 class GuestTimeout(MachineError):
     """A command or agent call ran past its own timeout in the guest. The
     guest killed it, and still answers."""
@@ -1319,7 +1323,7 @@ class Machine:
     async def switch_to(
         self,
         name: str | None = None,
-        action: Literal["switch", "boot", "test", "dry-activate"] = "switch",
+        action: SwitchAction = "switch",
         *,
         check: bool = True,
         timeout: float = 300,

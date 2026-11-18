@@ -21,6 +21,7 @@ from vivarium.control import (
     SegmentAction,
     SegmentRequest,
     Subject,
+    SwitchRequest,
     Use,
     commands,
     forget,
@@ -297,3 +298,52 @@ async def test_segment_cuts_and_shows_through_the_socket(tmp_path: Path) -> None
         lan.detach()
         for port in lan._ports:
             port.sock.close()
+
+
+class TestSwitchRequest:
+    def test_it_reads_back_what_it_wrote(self) -> None:
+        asked = SwitchRequest("a", "/nix/store/s-system", "/nix/store/r-registration", "test")
+        assert SwitchRequest.decode(asked.encode()) == asked
+
+    @pytest.mark.parametrize(
+        ("arg", "message"),
+        [
+            ('{"node": "a", "system": "/s", "registration": "/r", "action": "reboot"}', "no switch action 'reboot'"),
+            ('{"node": "a", "system": "/s"}', "a node, a system and a registration"),
+            ("[]", "a node, a system and a registration"),
+        ],
+    )
+    def test_a_bad_arg_is_named(self, arg: str, message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            SwitchRequest.decode(arg)
+
+
+class FakeGuest:
+    def __init__(self) -> None:
+        self.done: list[str] = []
+
+    async def add_closure(self, info: str) -> list[str]:
+        self.done.append(f"closure {info}")
+        return []
+
+    async def switch_to(self, name: str | None = None, action: str = "switch") -> tuple[int, str]:
+        self.done.append(f"{action} {name}")
+        return 0, "activating\n"
+
+
+@pytest.mark.anyio
+async def test_switch_adds_the_closure_then_switches(tmp_path: Path) -> None:
+    def emit(*_: Any, **__: Any) -> None:
+        return None
+
+    guest = FakeGuest()
+    session = SimpleNamespace(out=tmp_path, state={}, errors={}, emit=emit, vms={"a": guest})
+    controller = Controller(cast("Session", session))
+    asked = SwitchRequest("a", "/nix/store/s", "/nix/store/r", "boot")
+    reply = await controller.handle(Request(Op.SWITCH, asked.encode()).encode())
+    assert (reply.ok, reply.output) == (True, "activating\n")
+    assert guest.done == ["closure /nix/store/r", "boot /nix/store/s"]
+    missing = await controller.handle(Request(Op.SWITCH, SwitchRequest("b", "/s", "/r").encode()).encode())
+    assert missing.refused
+    assert missing.error is not None
+    assert "'b'" in missing.error

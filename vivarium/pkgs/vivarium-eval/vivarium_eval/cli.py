@@ -38,7 +38,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 import anyio
 import huggorm
@@ -290,8 +290,6 @@ EXTENDED: Final = """session: node: module:
     { system = build.toplevel; registration = build.vivariumNixRegistration; }
 """
 
-Action = Literal["switch", "boot", "test", "dry-activate"]
-
 
 async def build_extended(file: Path, attr: list[str], node: str, module: Path) -> tuple[str, str]:
     """The node's system with *module* added, and its closure's registration."""
@@ -304,15 +302,6 @@ async def build_extended(file: Path, attr: list[str], node: str, module: Path) -
         system = await (await select_attr_path(state, extended, ["system"])).realise_string()
         registration = await (await select_attr_path(state, extended, ["registration"])).realise_string()
     return system, registration
-
-
-def switch_code(node: str, system: str, registration: str, action: Action) -> str:
-    """What the run executes: the closure into the guest, then the switch."""
-    return (
-        f"_guest = vms[{node!r}]\n"
-        f"await _guest.add_closure({registration!r})\n"
-        f"print((await _guest.switch_to({system!r}, {action!r}))[1], end='')\n"
-    )
 
 
 def add_switch(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -329,7 +318,7 @@ def add_switch(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     switching.add_argument("--out", type=Path, required=True, help="the running session's --out")
     switching.add_argument("--node", required=True, help="the guest to change")
     switching.add_argument("--module", type=Path, required=True, help="a NixOS module file")
-    switching.add_argument("--action", choices=["switch", "boot", "test", "dry-activate"], default="switch")
+    switching.add_argument("--action", choices=control.SWITCH_ACTIONS, default="switch")
 
 
 def add_reload(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -419,9 +408,9 @@ def switch(args: argparse.Namespace) -> Exit:
         say(f"evaluation failed: {explain(str(error))}")
         return Exit.FAILED
     say(f"built {system} in {time.monotonic() - started:.1f}s")
-    code = switch_code(args.node, system, registration, args.action)
+    asked = control.SwitchRequest(args.node, system, registration, args.action).encode()
     # Every argument given: zuban's TypeVarTuple does not count a defaulted parameter.
-    reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.EXEC, code, (), None)
+    reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.SWITCH, asked, (), None)
     if reply.output:
         print(reply.output, end="" if reply.output.endswith("\n") else "\n")
     if reply.error:
