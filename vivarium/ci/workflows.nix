@@ -121,6 +121,12 @@ let
       description = "RouterOS boots, applies its config disk and answers on its console";
       timeoutMinutes = 20;
     };
+    routeros-router = {
+      # CHR behind a QEMU router guest: ether1's default DHCP client is
+      # what makes RouterOS a guest the automatic router serves.
+      description = "RouterOS leases its uplink from the router and reaches the host";
+      timeoutMinutes = 20;
+    };
     routeros-bgp = {
       # eBGP between CHR and FRR, and two LANs that only BGP joins. It
       # covers routeros-route, which stays a local test.

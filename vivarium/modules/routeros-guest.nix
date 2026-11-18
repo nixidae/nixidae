@@ -98,6 +98,9 @@ in
     # at boot without a word: the console closes before login.
     vivarium.cpus = lib.mkDefault 2;
     vivarium.kind = "routeros";
+    # Measured: ether1's default DHCP client leases from the router
+    # (checks.routeros-router).
+    vivarium.uplink.wantsRouter = lib.mkDefault (config.vivarium.uplink.segment == null);
     vivarium.rootImage = cfg.disk;
     vivarium.closure = null;
     vivarium.nixDatabase.enable = false;
