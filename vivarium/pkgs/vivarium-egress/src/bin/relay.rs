@@ -32,6 +32,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
+use std::ffi::CString;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -40,12 +41,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, Ud
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
 use vivarium_egress::{
-    Activity, ICMP, REQUEST_LEN, Stream, TCP, TICK, UDP, bind, checksum, decode, encode, family,
-    from_sockaddr, owned, pump, setsockopt, sockaddr, splice_both, timed_out,
+    Activity, ICMP, REQUEST_LEN, Stream, TCP, TICK, UDP, bind, checksum, connect, decode, encode,
+    family, from_sockaddr, owned, pump, setsockopt, sockaddr, splice_both, timed_out,
 };
 
 /// `SO_ORIGINAL_DST` at `SOL_IP`, and `IP6T_SO_ORIGINAL_DST` at `SOL_IPV6`.
@@ -113,9 +114,45 @@ fn original_dst(fd: i32, v6: bool) -> io::Result<SocketAddr> {
     unsafe { from_sockaddr((&raw const addr).cast()) }
 }
 
+/// `RELAY_DEVICE`: the device, a VRF, that every IP socket binds to. A
+/// raw socket bound to no device reads every VRF's packets, so two relays
+/// would both answer one echo request.
+fn device() -> Option<&'static CString> {
+    static DEVICE: OnceLock<Option<CString>> = OnceLock::new();
+    DEVICE
+        .get_or_init(|| {
+            env::var("RELAY_DEVICE")
+                .ok()
+                .filter(|name| !name.is_empty())
+                .and_then(|name| CString::new(name).ok())
+        })
+        .as_ref()
+}
+
+/// An IP socket, bound to `RELAY_DEVICE` if it names one.
+fn ip_socket(domain: libc::c_int, kind: libc::c_int, proto: libc::c_int) -> io::Result<OwnedFd> {
+    let fd = unsafe { owned(libc::socket(domain, kind | libc::SOCK_CLOEXEC, proto))? };
+    if let Some(name) = device() {
+        let bytes = name.as_bytes_with_nul();
+        let rc = unsafe {
+            libc::setsockopt(
+                fd.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
+                bytes.as_ptr().cast(),
+                bytes.len() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(fd)
+}
+
 /// A socket of `addr`'s family, IPv6 only if it is IPv6.
 fn socket(addr: SocketAddr, kind: libc::c_int, proto: libc::c_int) -> io::Result<OwnedFd> {
-    let fd = unsafe { owned(libc::socket(family(addr), kind | libc::SOCK_CLOEXEC, proto))? };
+    let fd = ip_socket(family(addr), kind, proto)?;
     if addr.is_ipv6() {
         setsockopt(fd.as_raw_fd(), libc::SOL_IPV6, libc::IPV6_V6ONLY, &1i32)?;
     }
@@ -229,18 +266,15 @@ fn inbound(from: Endpoint) -> io::Result<()> {
                 let (proto, dst) = decode(&raw)?;
                 if proto == UDP {
                     // No status byte: the first datagram follows at once.
-                    let unspecified = match dst {
-                        SocketAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                        SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-                    };
-                    let socket = UdpSocket::bind((unspecified, 0))?;
-                    socket.connect(dst)?;
-                    return pump(host, socket);
+                    let socket = socket(dst, libc::SOCK_DGRAM, 0)?;
+                    connect(&socket, dst)?;
+                    return pump(host, UdpSocket::from(socket));
                 }
-                match std::net::TcpStream::connect(dst) {
-                    Ok(guest) => {
+                let guest = socket(dst, libc::SOCK_STREAM, 0)?;
+                match connect(&guest, dst) {
+                    Ok(()) => {
                         host.write_all(&[0])?;
-                        splice_both(host, Stream::from(guest))
+                        splice_both(host, Stream::new(guest))
                     }
                     Err(err) => {
                         host.write_all(&[1])?;
@@ -511,20 +545,8 @@ fn echo_request(
 }
 
 fn icmp_echo(egress: Endpoint, echoes: Echoes) -> io::Result<()> {
-    let requests = unsafe {
-        owned(libc::socket(
-            libc::AF_INET,
-            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-            libc::IPPROTO_ICMP,
-        ))?
-    };
-    let raw = Arc::new(unsafe {
-        owned(libc::socket(
-            libc::AF_INET,
-            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-            libc::IPPROTO_RAW,
-        ))?
-    });
+    let requests = ip_socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_ICMP)?;
+    let raw = Arc::new(ip_socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_RAW)?);
     let mut buf = vec![0u8; 65536];
     loop {
         let n = unsafe { libc::recv(requests.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
@@ -545,13 +567,7 @@ fn icmp_echo(egress: Endpoint, echoes: Echoes) -> io::Result<()> {
 }
 
 fn icmp6_echo(egress: Endpoint, echoes: Echoes) -> io::Result<()> {
-    let fd = unsafe {
-        owned(libc::socket(
-            libc::AF_INET6,
-            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-            libc::IPPROTO_ICMPV6,
-        ))?
-    };
+    let fd = ip_socket(libc::AF_INET6, libc::SOCK_RAW, libc::IPPROTO_ICMPV6)?;
     let mut filter = [u32::MAX; 8];
     filter[usize::from(ICMP6_ECHO_REQUEST) >> 5] &= !(1 << (ICMP6_ECHO_REQUEST & 31));
     setsockopt(fd.as_raw_fd(), libc::SOL_ICMPV6, ICMP6_FILTER, &filter)?;
