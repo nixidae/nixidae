@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from vivarium.control import RUN_FILE, Op, Origin, run_file
 from vivarium.exits import Exit
+from vivarium_eval import cli as cli_module
 from vivarium_eval.cli import child_args, entry, main, not_ready, origin_of, parse, parser, split_attr
 
 
@@ -63,10 +64,52 @@ class TestParse:
     def test_until_pause_starts_the_run_without_the_flag(self) -> None:
         assert child_args(["run", "x", "--until-pause", "--out", "/o"]) == ["run", "x", "--out", "/o"]
 
+    def test_the_attribute_may_come_after_the_runners_options(self) -> None:
+        request = parse(["run", "--out", "o", "lan"])
+        assert request.attr == ["lan"]
+        assert request.rest == ["--out", "o"]
+
+    def test_an_option_value_like_the_attribute_stays_with_its_option(self) -> None:
+        request = parse(["run", "lan", "--only", "lan", "-q", "--out", "o"])
+        assert request.attr == ["lan"]
+        assert request.rest == ["--only", "lan", "-q", "--out", "o"]
+
+    def test_the_runner_reads_the_words_as_they_were_written(self) -> None:
+        request = parse(["run", "x", "--out=o", "-vv", "--cpus", "2", "--cpus", "one=4", "--no-control"])
+        assert request.out == Path("o").absolute()
+        assert request.rest == ["--out", "o", "-v", "-v", "--cpus", "2", "--cpus", "one=4", "--no-control"]
+
+    def test_an_option_this_cli_does_not_know_goes_on_to_the_runner(self) -> None:
+        """The exec'd runner is the evaluated library's, which can be newer."""
+        assert parse(["run", "x", "--out", "o", "--newer"]).rest == ["--out", "o", "--newer"]
+
+    @pytest.mark.parametrize(
+        "argv",
+        [["run", "x"], ["up", "x"], ["run", "x", "--until-pause"], ["run", "x", "--out", "o", "--cpus", "many"]],
+    )
+    def test_a_bad_runner_option_fails_before_an_evaluation(
+        self, argv: list[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def evaluated(*_: object) -> None:
+            raise AssertionError("evaluated with a bad runner option")
+
+        monkeypatch.setattr(cli_module, "resolve", evaluated)
+        with pytest.raises(SystemExit) as exited:
+            main(argv)
+        assert exited.value.code == Exit.USAGE
+
+    def test_help_lists_the_runners_options(self, capsys: pytest.CaptureFixture[str]) -> None:
+        for command in ("run", "up"):
+            with pytest.raises(SystemExit):
+                main([command, "--help"])
+            shown = capsys.readouterr().out
+            assert "--break-on-failure" in shown
+            assert "--cpus" in shown
+
     def test_an_option_after_dashdash_is_pytests_not_ours(self) -> None:
-        request = parse(["run", "x", "--", "--file", "t.py"])
+        request = parse(["run", "x", "--out", "o", "--", "--file", "t.py"])
         assert request.file == Path(".")
-        assert request.rest == ["--", "--file", "t.py"]
+        assert request.rest == ["--out", "o", "--", "--file", "t.py"]
 
 
 class TestRunnerCommands:

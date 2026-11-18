@@ -38,7 +38,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
 
 import anyio
 import huggorm
@@ -51,7 +51,7 @@ from vivarium.exits import Exit, describe
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable, Sequence
 
     from huggorm import AsyncEvalState, AsyncStore, AsyncValue
 
@@ -66,7 +66,7 @@ class Request:
     pytest's arguments after it."""
     out: Path | None = None
     """The runner's `--out`, read and left in `rest`: the build log and the
-    first `run.json` go there."""
+    first `run.json` go there. `run` and `up` take it; `phases` does not."""
     until_pause: bool = False
 
 
@@ -88,6 +88,39 @@ def entry(file: Path) -> Path:
 EVALUATE: Final = frozenset({"run", "phases", "up"})
 """The commands that evaluate an attribute and exec what it builds."""
 
+RUNS: Final = frozenset({"run", "up"})
+"""The commands that take the runner's `run` options."""
+
+TAKES_NO_VALUE: Final = frozenset({"store_true", "store_false", "count"})
+
+
+class Forward(argparse.Action):
+    """Keeps a runner option as the caller wrote it, in `forward`. The exec'd
+    runner reads the words again, and a parsed value such as `--cpus`'s does
+    not turn back into them."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,  # Any: what argparse hands an action
+        option_string: str | None = None,
+    ) -> None:
+        words = [] if values is None else [values] if isinstance(values, str) else [str(value) for value in values]
+        namespace.forward = [*namespace.forward, option_string, *words]
+
+
+def forwarding(words: argparse.ArgumentParser) -> Callable[..., argparse.Action]:
+    """An `add_argument` for `add_run_options` that records each option's
+    words in `forward` and checks nothing: `parser` checks them. The caller
+    gives `words` the default `forward=[]`."""
+
+    def add(*flags: str, **options: Any) -> argparse.Action:  # Any: add_argument's own keywords
+        nargs = 0 if options.get("action") in TAKES_NO_VALUE else None
+        return words.add_argument(*flags, action=Forward, nargs=nargs, dest="forward")
+
+    return add
+
 
 def parser() -> argparse.ArgumentParser:
     """Every command. `ctl` and `monitor` come from the runner's parser,
@@ -95,7 +128,10 @@ def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
         prog="vivarium",
         description="Evaluate a run, build it and run it; reach into a run; follow it",
-        epilog="run and phases hand anything else to the runner: `vivarium run x --out o -v -- -k name`.",
+        epilog=(
+            "run and up take the runner's options; run, up and phases hand an option they do not know"
+            " to the runner: `vivarium run x --out o -v -- -k name`."
+        ),
     )
     sub = top.add_subparsers(dest="command", required=True)
     for command, what in (
@@ -112,6 +148,8 @@ def parser() -> argparse.ArgumentParser:
             default=Path(),
             help="the file or directory to evaluate, as `nix build --file` takes it",
         )
+        if command in RUNS:
+            runner_cli.add_run_options(evaluate.add_argument)
         if command == "run":
             evaluate.add_argument(
                 "--until-pause",
@@ -147,25 +185,33 @@ def split_dashdash(argv: list[str]) -> tuple[list[str], list[str]]:
 
 
 def parse(argv: list[str]) -> Request:
-    """`run` or `phases`: our two options, and the rest untouched for the runner."""
+    """`run`, `up` or `phases`: our options, and the runner's words as the
+    caller wrote them. The runner's options are checked here, before an
+    evaluation; one this copy of them does not know goes on unchecked, for
+    the runner the evaluation builds."""
     head, tail = split_dashdash(argv)
     top = parser()
-    args, rest = top.parse_known_args(head)
+    args, unknown = top.parse_known_args(head)
     if args.command not in EVALUATE:
         top.error(f"{args.command} does not evaluate")
     try:
         attr = split_attr(args.attr)
     except ValueError as error:
         top.error(str(error))
-    peek = argparse.ArgumentParser(add_help=False)
-    peek.add_argument("--out", type=Path)
-    out = peek.parse_known_args(rest)[0].out
+    words = argparse.ArgumentParser(add_help=False)
+    words.add_argument("command")
+    words.add_argument("attr")
+    words.add_argument("--file", "-f")
+    words.add_argument("--until-pause", action="store_true")
+    words.set_defaults(forward=[])
+    if args.command in RUNS:
+        runner_cli.add_run_options(forwarding(words))
     return Request(
         args.command,
         args.file,
         attr,
-        [*rest, *tail],
-        None if out is None else out.absolute(),
+        [*words.parse_known_args(head)[0].forward, *unknown, *tail],
+        args.out if args.command in RUNS else None,
         until_pause=args.command == "up" or (args.command == "run" and args.until_pause),
     )
 
@@ -473,8 +519,7 @@ def until_pause(argv: list[str], request: Request) -> int:
     becomes the runner as any `vivarium run` does. It outlives this
     process: the point is to return at a pause with the guests up."""
     if request.out is None:
-        say(f"{'up' if request.command == 'up' else '--until-pause'} needs --out")
-        return Exit.USAGE
+        raise RuntimeError(f"{request.command}: argparse lets no run start without --out")
     request.out.mkdir(parents=True, exist_ok=True)
     child_argv = [str(this_cli()), *child_args(argv)]
     with (request.out / LOG).open("wb") as log:

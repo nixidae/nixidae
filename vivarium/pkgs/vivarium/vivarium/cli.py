@@ -132,20 +132,36 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
 
     run = sub.add_parser("run", help="boot the guests and run every phase")
     run.add_argument("--spec", type=_absolute, required=True, help="the spec Nix wrote")
-    run.add_argument(
+    add_run_options(run.add_argument)
+
+    phases = sub.add_parser("phases", help="list the phases and exit")
+    phases.add_argument("--spec", type=_absolute, required=True)
+
+    add_ctl(sub)
+    add_monitor(sub)
+    args = parser.parse_args(argv)
+    args.pytest_args = extra
+    return args
+
+
+def add_run_options(add: Callable[..., argparse.Action]) -> None:
+    """What `run` takes besides `--spec`, through `add`, an `add_argument`.
+    `vivarium run` and `vivarium up` take the same, so `--help` lists them
+    and a missing `--out` fails before an evaluation."""
+    add(
         "--out",
         type=_absolute,
         required=True,
         help="where the run's evidence goes: artifacts, log, report, status",
     )
-    run.add_argument(
+    add(
         "--only",
         action="append",
         default=[],
         metavar="PHASE",
         help="run only this phase and the phases it runs after; repeatable",
     )
-    run.add_argument(
+    add(
         "--break",
         dest="breaks",
         action="append",
@@ -157,7 +173,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " with the guests up; repeatable. `vivarium ctl` reaches in"
         ),
     )
-    run.add_argument(
+    add(
         "--kernel",
         type=_absolute,
         metavar="PATH",
@@ -168,7 +184,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " a Nix build per change; never the check's kernel"
         ),
     )
-    run.add_argument(
+    add(
         "--cpus",
         type=_cpus_value(int),
         action="append",
@@ -176,7 +192,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="[GUEST=]N",
         help="N processors for GUEST, or for every guest not named; in place of `vivarium.cpus`; repeatable",
     )
-    run.add_argument(
+    add(
         "--cpu-scale",
         type=_cpus_value(float),
         action="append",
@@ -184,12 +200,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="[GUEST=]S",
         help="the host's cores times S (0.5 is half) for GUEST, or for every guest not named; repeatable",
     )
-    run.add_argument(
+    add(
         "--break-on-start",
         action="store_true",
         help="pause before the first phase, with the guests up",
     )
-    run.add_argument(
+    add(
         "--interactive",
         action="store_true",
         help=(
@@ -198,12 +214,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " phase; ^D tears the run down"
         ),
     )
-    run.add_argument(
+    add(
         "--break-on-failure",
         action="store_true",
         help="pause when a phase fails, with the guests up and the state intact",
     )
-    run.add_argument(
+    add(
         "--hold",
         action="store_true",
         help=(
@@ -212,7 +228,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " A failure pauses, as --break-on-failure does"
         ),
     )
-    run.add_argument(
+    add(
         "--no-control",
         dest="control",
         action="store_false",
@@ -221,22 +237,22 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " can reach in and a socket left by a killed run fails the output"
         ),
     )
-    run.add_argument(
+    add(
         "--serial",
         action="store_true",
         help=("one phase at a time, in the order Nix sorted them, even where `nodes` would let phases run at once"),
     )
-    run.add_argument(
+    add(
         "--offline",
         action="store_true",
         help=("give the guests no way off this host, the way a sandboxed check has none"),
     )
-    run.add_argument(
+    add(
         "--keep",
         action="store_true",
         help="remove nothing at the end: guest disks, sockets, the run directory",
     )
-    run.add_argument(
+    add(
         "--verbose",
         "-v",
         action="count",
@@ -246,21 +262,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
             " consoles. Both are written to the output directory either way"
         ),
     )
-    run.add_argument(
+    add(
         "--quiet",
         "-q",
         action="store_true",
         help="only failures and the verdict",
     )
-
-    phases = sub.add_parser("phases", help="list the phases and exit")
-    phases.add_argument("--spec", type=_absolute, required=True)
-
-    add_ctl(sub)
-    add_monitor(sub)
-    args = parser.parse_args(argv)
-    args.pytest_args = extra
-    return args
 
 
 def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
