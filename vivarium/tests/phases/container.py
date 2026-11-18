@@ -75,7 +75,7 @@ async def test(vms: Machines) -> None:
         print("[test] skipped: a writable store (this store is one bind per input)")
 
     # The runner's own answer, so the phase and the launcher cannot disagree.
-    if tap_fails() is None:
+    if await tap_fails() is None:
         await _uplink(one)
     else:
         print("[test] skipped: the uplink and forwards (no tap device here)")

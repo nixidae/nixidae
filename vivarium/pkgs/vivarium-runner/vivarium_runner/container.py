@@ -41,6 +41,8 @@ from pathlib import Path
 from types import FrameType
 from typing import TypedDict, cast
 
+import anyio
+
 from . import storeview
 from .lifetime import die_with_parent
 
@@ -327,8 +329,12 @@ class Missing:
         return f"{self.what}: {self.why}\n    fix: {self.remedy}"
 
 
-def _unshare_user() -> None:
-    os.unshare(os.CLONE_NEWUSER)
+_USERNS_PROBE = "import os; os.unshare(os.CLONE_NEWUSER)"
+"""A child that makes a user namespace of its own. In the child's own code
+and not a `preexec_fn`: `anyio.run_process` takes none."""
+
+_USERNS_HOLD = "import os, sys; os.unshare(os.CLONE_NEWUSER); print(flush=True); sys.stdin.read()"
+"""`_USERNS_PROBE`, then a line once the namespace exists, then alive until stdin closes."""
 
 
 class Host:
@@ -337,33 +343,46 @@ class Host:
     A probe is a process or two, and a run asked them again for every
     guest: 140-175 ms of each container launch (measured). What the host
     can do does not change while a run goes on.
+
+    Guests launch at once, so each answer has a lock: the first launch
+    probes, and the others wait for its answer. One lock for each answer,
+    because `probe` asks for `tap_failure` and `scope` while it holds
+    `missing`'s, and an anyio lock is not reentrant.
     """
 
     def __init__(self) -> None:
         self._missing: dict[bool, list[Missing]] = {}
+        self._tap_failure: list[str | None] = []
         self._scopes: dict[int | None, tuple[str, ...] | None] = {}
+        self._missing_lock = anyio.Lock()
+        self._tap_lock = anyio.Lock()
+        self._scope_lock = anyio.Lock()
 
-    def missing(self, *, tun: bool) -> list[Missing]:
+    async def missing(self, *, tun: bool) -> list[Missing]:
         """`probe` of this host."""
-        if tun not in self._missing:
-            self._missing[tun] = probe(tun=tun, host=self)
+        async with self._missing_lock:
+            if tun not in self._missing:
+                self._missing[tun] = await probe(tun=tun, host=self)
         return list(self._missing[tun])
 
-    @functools.cached_property
-    def tap_failure(self) -> str | None:
+    async def tap_failure(self) -> str | None:
         """`tap_fails` of this host."""
-        return tap_fails()
+        async with self._tap_lock:
+            if not self._tap_failure:
+                self._tap_failure.append(await tap_fails())
+        return self._tap_failure[0]
 
-    def scope(self, memory_max: int | None = None) -> list[str] | None:
+    async def scope(self, memory_max: int | None = None) -> list[str] | None:
         """`scope` of this host, by *memory_max*."""
-        if memory_max not in self._scopes:
-            found = scope(memory_max)
-            self._scopes[memory_max] = None if found is None else tuple(found)
+        async with self._scope_lock:
+            if memory_max not in self._scopes:
+                found = await scope(memory_max)
+                self._scopes[memory_max] = None if found is None else tuple(found)
         prefix = self._scopes[memory_max]
         return None if prefix is None else list(prefix)
 
 
-def probe(
+async def probe(
     user: str | None = None, uid: int | None = None, *, tun: bool = False, host: Host | None = None
 ) -> list[Missing]:
     """What this host lacks for a container guest; empty when nothing.
@@ -380,7 +399,7 @@ def probe(
     missing: list[Missing] = []
 
     if tun:
-        why = host.tap_failure
+        why = await host.tap_failure()
         if why:
             missing.append(
                 Missing(
@@ -390,11 +409,7 @@ def probe(
                 )
             )
 
-    try:
-        subprocess.run([sys.executable, "-c", ""], preexec_fn=_unshare_user, check=True)
-        userns = True
-    except (OSError, subprocess.SubprocessError):
-        userns = False
+    userns = (await anyio.run_process([sys.executable, "-c", _USERNS_PROBE], check=False)).returncode == 0
     if not userns:
         missing.append(
             Missing(
@@ -408,9 +423,9 @@ def probe(
     # In the uid-range sandbox the runner is root already, with the ids a
     # guest needs, and there is no /etc/subuid or newuidmap to ask.
     if not owns_ids():
-        _probe_ranges(user, uid, userns, missing)
+        await _probe_ranges(user, uid, userns, missing)
 
-    if not cgroup_works() and host.scope() is None:
+    if not await cgroup_works() and await host.scope() is None:
         missing.append(
             Missing(
                 "a cgroup systemd can write in",
@@ -561,24 +576,20 @@ and make a tap. The file existing is not the answer; the device cgroup or
 a missing node both show only here."""
 
 
-def tap_fails() -> str | None:
+async def tap_fails() -> str | None:
     """Why no tap can be made here, or ``None`` when one can."""
-    done = subprocess.run(
-        [sys.executable, "-c", _TAP_PROBE],
-        capture_output=True,
-        text=True,
-    )
+    done = await anyio.run_process([sys.executable, "-c", _TAP_PROBE], check=False)
     if done.returncode == 0:
         return None
-    return (done.stderr.strip().splitlines() or ["failed"])[-1]
+    return (done.stderr.decode(errors="replace").strip().splitlines() or ["failed"])[-1]
 
 
-def cgroup_works(prefix: list[str] | None = None) -> bool:
-    done = subprocess.run([*(prefix or []), sys.executable, "-c", _CGROUP_PROBE], capture_output=True)
+async def cgroup_works(prefix: list[str] | None = None) -> bool:
+    done = await anyio.run_process([*(prefix or []), sys.executable, "-c", _CGROUP_PROBE], check=False)
     return done.returncode == 0
 
 
-def _probe_ranges(user: str, uid: int, userns: bool, missing: list[Missing]) -> None:
+async def _probe_ranges(user: str, uid: int, userns: bool, missing: list[Missing]) -> None:
     ranges = {}
     for name, path in (("subuid", Path("/etc/subuid")), ("subgid", Path("/etc/subgid"))):
         found = subordinate(path, user, uid)
@@ -598,7 +609,7 @@ def _probe_ranges(user: str, uid: int, userns: bool, missing: list[Missing]) -> 
             ("newuidmap", uid, ranges["subuid"]),
             ("newgidmap", os.getgid(), ranges["subgid"]),
         ):
-            why = _try_map(helper, host, extra)
+            why = await _try_map(helper, host, extra)
             if why:
                 missing.append(
                     Missing(
@@ -613,7 +624,7 @@ def _probe_ranges(user: str, uid: int, userns: bool, missing: list[Missing]) -> 
 SCOPE = ["--user", "--scope", "--quiet", "--collect", "-p", "Delegate=yes"]
 
 
-def scope(memory_max: int | None = None) -> list[str] | None:
+async def scope(memory_max: int | None = None) -> list[str] | None:
     """A command prefix that runs its command in a delegated cgroup, or
     ``None`` when the user's systemd will not make one.
 
@@ -629,10 +640,10 @@ def scope(memory_max: int | None = None) -> list[str] | None:
     if path is None:
         return None
     prefix = [path, *SCOPE, *(["-p", f"MemoryMax={memory_max}"] if memory_max else [])]
-    return prefix if cgroup_works(prefix) else None
+    return prefix if await cgroup_works(prefix) else None
 
 
-def _try_map(helper: str, host: int, extra: Range) -> str | None:
+async def _try_map(helper: str, host: int, extra: Range) -> str | None:
     """Map one subordinate id into a fresh user namespace with *helper*.
 
     Tried, not read: NixOS' wrappers carry file capabilities and no setuid
@@ -641,24 +652,20 @@ def _try_map(helper: str, host: int, extra: Range) -> str | None:
     path = shutil.which(helper)
     if path is None:
         return "not on PATH"
-    # A child in a user namespace of its own, alive until its stdin closes.
-    child = subprocess.Popen(
-        [sys.executable, "-c", "import sys; sys.stdin.read()"],
-        stdin=subprocess.PIPE,
-        preexec_fn=_unshare_user,
-    )
-    try:
-        done = subprocess.run(
-            [path, str(child.pid), "0", str(host), "1", "1", str(extra.start), "1"],
-            capture_output=True,
-            text=True,
+    async with await anyio.open_process([sys.executable, "-c", _USERNS_HOLD]) as child:
+        if child.stdin is None or child.stdout is None:
+            raise RuntimeError("open_process gave no pipes")
+        try:
+            await child.stdout.receive()
+        except anyio.EndOfStream:
+            return "a child could not make a user namespace"
+        done = await anyio.run_process(
+            [path, str(child.pid), "0", str(host), "1", "1", str(extra.start), "1"], check=False
         )
-    finally:
-        if child.stdin is not None:
-            child.stdin.close()
-        child.wait()
+        await child.stdin.aclose()
     if done.returncode != 0:
-        return f"{path} failed: {(done.stderr or done.stdout).strip()}"
+        said = (done.stderr or done.stdout).decode(errors="replace").strip()
+        return f"{path} failed: {said}"
     return None
 
 
@@ -935,7 +942,7 @@ def _split_cgroup(bundle: Path) -> bool:
 
 def _report(tun: bool) -> int:
     """The probe as a program: what a derivation runs to fail early."""
-    missing = probe(tun=tun)
+    missing = anyio.run(functools.partial(probe, tun=tun))
     for item in missing:
         print(f"missing {item}", flush=True)  # noqa: T201 -- the probe's program output
     if missing:
@@ -943,7 +950,7 @@ def _report(tun: bool) -> int:
         return 1
     ids = "the build's own (uid-range)" if owns_ids() else "subordinate ids"
     store = "overlay" if store_is_one_mount("/nix") else "read-only bind"
-    uplink = "yes" if tap_fails() is None else "no (no tap device)"
+    uplink = "yes" if anyio.run(tap_fails) is None else "no (no tap device)"
     print(f"ok: user namespace, cgroup, ids: {ids}, store: {store}, uplink: {uplink}")  # noqa: T201 -- the probe's program output
     return 0
 
