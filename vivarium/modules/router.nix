@@ -10,7 +10,9 @@
   A guest with `vivarium.uplink.proxy = "vsock"` is its own router: the
   same ruleset and relay in a network namespace, behind a veth pair whose
   guest end is `vec0`. AF_VSOCK works from that namespace: the kernel's
-  `net.vsock.ns_mode` is `global`.
+  `net.vsock.ns_mode` is `global`. A container has no vsock device: its
+  relay uses two unix sockets in the directory the runner binds at
+  /run/host/agent (nixidae/nixidae#1522).
 */
 {
   config,
@@ -91,6 +93,14 @@ let
     }
   '';
 
+  # The egress's end and the forwards' end. The runner's container backend
+  # names the same two sockets.
+  hostEnds =
+    if config.vivarium.backend == "container" then
+      "unix:/run/host/agent/egress.sock 9001 unix:/run/host/agent/relay.sock"
+    else
+      "5000 9001 5001";
+
   relayService = {
     wantedBy = [ "multi-user.target" ];
     environment = {
@@ -99,7 +109,7 @@ let
       RELAY_YIELD = "1";
     };
     serviceConfig = {
-      ExecStart = "${relay}/bin/relay 9000 5000 9001 5001";
+      ExecStart = "${relay}/bin/relay 9000 ${hostEnds}";
       Restart = "always";
     };
   };
@@ -308,16 +318,6 @@ in
     # An uplink segment takes precedence: `MachineSpec.vsock` reads the same.
     (lib.mkIf (config.vivarium.uplink.proxy == "vsock" && config.vivarium.uplink.segment == null) {
       vivarium.launch.config.egress = "${egress}/bin/egress";
-      assertions = [
-        {
-          assertion = lib.elem config.vivarium.backend [
-            "uml"
-            "qemu"
-            "krun"
-          ];
-          message = "a vsock uplink needs UML, QEMU or krun; this guest is ${config.vivarium.backend}.";
-        }
-      ];
 
       # passt's addresses, fixed: nothing in the namespace serves DHCP.
       networking.interfaces.vec0 = {

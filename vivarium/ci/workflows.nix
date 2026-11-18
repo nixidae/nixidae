@@ -243,6 +243,13 @@ let
       description = "two libkrun guests on vsock uplinks hold lan's contract";
       timeoutMinutes = 30;
     };
+    lan-vsock-container = {
+      # No vsock device: the relay and the egress share unix sockets.
+      test = "lan-vsock";
+      backend = "container";
+      description = "two container guests on vsock uplinks hold lan's contract";
+      timeoutMinutes = 30;
+    };
     pytest-coverage = {
       # 100% of `sample` only if a guest's coverage data reached the host.
       attr = "checks.pytest-coverage";

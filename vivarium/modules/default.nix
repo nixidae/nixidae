@@ -1026,21 +1026,22 @@ in
           && lib.elem config.vivarium.backend [
             "qemu"
             "krun"
+            "container"
           ]
         then
           "vsock"
         else
           "passt";
-      defaultText = lib.literalMD "`vsock` for a NixOS guest on QEMU or krun, else `passt`";
+      defaultText = lib.literalMD "`vsock` for a NixOS guest on QEMU, krun or a container, else `passt`";
       description = ''
         What serves the uplink (`vec0`).
 
         `passt` and `gvproxy` are deprecated: `vsock` replaces them
         (nixidae/nixidae#1404). Choosing either where `vsock` serves the
-        guest, a NixOS guest on QEMU or krun, is a warning. passt stays
-        the default where `vsock` does not serve the guest yet: UML, a
-        container (pasta) and a guest that is not NixOS. It goes once
-        `vsock` serves those and works on macOS (nixidae/nixidae#1163).
+        guest, a NixOS guest on QEMU, krun or a container, is a warning.
+        passt stays the default where `vsock` does not serve the guest
+        yet: UML and a guest that is not NixOS. It goes once `vsock`
+        serves those and works on macOS (nixidae/nixidae#1163).
 
         An `uplink.segment` takes precedence over `vsock`.
         `gvproxy`, deprecated, is gvisor-tap-vsock's,
@@ -1056,7 +1057,8 @@ in
         `vsock` is the router's data path inside the guest, with no router
         guest: the relay runs in a network namespace of its own, behind a
         veth pair whose guest end is `vec0`, and reaches an egress on the
-        host over vsock. The guest has passt's addresses. UML, QEMU or krun.
+        host over vsock, or over unix sockets in a container. The guest has
+        passt's addresses.
       '';
     };
 
@@ -1163,6 +1165,7 @@ in
           && lib.elem config.vivarium.backend [
             "qemu"
             "krun"
+            "container"
           ]
           && !config.vivarium.router.enable;
       in
