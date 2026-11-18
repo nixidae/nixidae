@@ -7,8 +7,9 @@ import json
 import shlex
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
+import anyio
 import pytest
 from vivarium.control import (
     Console,
@@ -36,6 +37,9 @@ from vivarium.phases import PhaseState
 from vivarium.session import Session
 from vivarium_runner import Lan, Machines
 from vivarium_runner.control import CommandResult
+
+if TYPE_CHECKING:
+    from anyio.abc import ByteStream
 
 
 class TestSplitLastExpression:
@@ -277,6 +281,54 @@ class TestSegmentRequest:
     def test_a_bad_arg_is_named(self, arg: str, message: str) -> None:
         with pytest.raises(ValueError, match=message):
             segment_request(arg)
+
+
+class Gone:
+    """A client that sends one line and leaves before its reply."""
+
+    def __init__(self, line: bytes) -> None:
+        self._line = line
+
+    async def receive(self, max_bytes: int = 65536) -> bytes:
+        if not self._line:
+            raise anyio.BrokenResourceError
+        line, self._line = self._line, b""
+        return line
+
+    async def send(self, item: bytes) -> None:
+        raise anyio.BrokenResourceError
+
+    async def aclose(self) -> None:
+        pass
+
+    async def __aenter__(self) -> Gone:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        pass
+
+
+@pytest.mark.anyio
+class TestAClientThatLeaves:
+    """Measured (nixidae/nixidae#1166): `vivarium ctl ... | head` closed
+    the pipe, and the failed reply ended the run."""
+
+    async def test_before_its_reply_still_stops_the_run(self, tmp_path: Path) -> None:
+        stopped: list[bool] = []
+        notes: list[str] = []
+
+        def emit(_kind: object, text: str, **__: Any) -> None:
+            notes.append(text)
+
+        session = SimpleNamespace(out=tmp_path, state={}, errors={}, emit=emit, vms=None, stopped=None)
+        controller = Controller(cast("Session", session), stop=lambda: stopped.append(True))
+        await controller._client(cast("ByteStream", Gone(Request(Op.STOP, "").encode())))
+        assert stopped == [True]
+        assert "control: the client left before its reply" in notes
+
+    async def test_before_its_request_is_no_error(self, tmp_path: Path) -> None:
+        session = SimpleNamespace(out=tmp_path, state={}, errors={}, emit=lambda *_, **__: None, vms=None)
+        await Controller(cast("Session", session))._client(cast("ByteStream", Gone(b"")))
 
 
 @pytest.mark.anyio

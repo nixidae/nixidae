@@ -381,13 +381,20 @@ def reachable(path: Path) -> Iterator[str]:
         os.close(directory)
 
 
+_GONE: Final = (anyio.BrokenResourceError, anyio.ClosedResourceError)
+"""What a stream raises when its client left. Never the run's error."""
+
+
 async def _receive_line(stream: ByteStream) -> bytes:
+    """The request line, or nothing when the client left before it."""
     buffer = b""
     while b"\n" not in buffer:
         try:
             buffer += await stream.receive()
         except anyio.EndOfStream:
             break
+        except _GONE:
+            return b""
     return buffer.split(b"\n", 1)[0]
 
 
@@ -749,7 +756,12 @@ class Controller:
                 reply = await self._streamed(stream, line)
             else:
                 reply = await self.handle(line)
-            await stream.send(reply.encode())
+            try:
+                await stream.send(reply.encode())
+            except _GONE:
+                # Measured (nixidae/nixidae#1166): `ctl ... | head` closed
+                # the pipe, and the send error ended the run.
+                self.session.emit(Kind.NOTE, "control: the client left before its reply", level=Level.DETAIL)
         # After the reply, not in `handle`: resuming lets the drive
         # finish, and a finished drive cancels this server -- measured,
         # the client of a `continue` got no reply at all.
@@ -777,7 +789,7 @@ class Controller:
                 async for chunk in receive:
                     try:
                         await stream.send(json.dumps({"chunk": chunk}).encode() + b"\n")
-                    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                    except _GONE:
                         # The client left; the code it sent runs to its end.
                         continue
 
@@ -794,7 +806,7 @@ class Controller:
             async for item in events:
                 try:
                     await stream.send(json.dumps(item).encode() + b"\n")
-                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                except _GONE:
                     return
 
     async def handle(self, line: bytes, chunk: Callable[[str], None] | None = None) -> Reply:
