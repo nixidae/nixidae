@@ -14,11 +14,8 @@ file does not know which kind of machine it started.
 
 from __future__ import annotations
 
-import asyncio
-import collections
 import contextlib
 import json
-import math
 import os
 import re
 import shlex
@@ -47,6 +44,7 @@ from . import backends, display, forward, ocr, report, storeview
 from .backends.host import memory_bytes
 from .boot import Boot, BootspecJson
 from .capability import ControlError, Controls, Framebuffer, Power, Screen
+from .consolelines import ConsoleLines, GuestExited
 from .control import (
     AGENT,
     NONE,
@@ -64,9 +62,6 @@ from .held import Held, hold
 from .lifetime import die_with_parent
 from .machine_spec import Interface, MachineSpec, Systems
 from .store import Store, StoreError
-
-_ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
-_CONSOLE_HISTORY = 2000
 
 POWEROFF_GRACE = 20
 """Seconds a guest has to power itself off before the runner signals it."""
@@ -215,13 +210,8 @@ class Machine:
 
         self._rundir: Path | None = None
         self._process: subprocess.Process | None = None
-        # One boot's console pump: started in `_boot`, stopped in `_stop_process`.
-        self._monitor: Held | None = None
-        self._serial: asyncio.StreamWriter | None = None
-        self._serial_monitor: Held | None = None
-        """A guest with no control channel: its serial line, read as console."""
-        self._console_send, self._console_recv = anyio.create_memory_object_stream[str](math.inf)
-        self._history: collections.deque[str] = collections.deque(maxlen=_CONSOLE_HISTORY)
+        # Pumped from `_boot` to `_stop_process`, kept across both.
+        self._console = ConsoleLines(self._log)
         self._agent_sock: socket.socket | None = None
         self._guest_sock: socket.socket | None = None
         self._conn: AsyncConnection | None = None
@@ -396,7 +386,9 @@ class Machine:
             os.close(fd)
         self._spare_fds = []
         self.recorder.step(self.name, "launch", f"launch {self.name}", time.monotonic() - started)
-        self._monitor = hold(self._tasks, self._pump_console, None, name=f"console of {self.name}")
+        if self._process.stdout is None:
+            raise MachineError(f"[{self.name}] no guest process console to read")
+        self._console.start(self._tasks, self._process.stdout, f"console of {self.name}")
         if launch.controls.power is not None:
             await self._run_cpus(launch.controls.power)
 
@@ -492,8 +484,7 @@ class Machine:
         if self._process is None:
             raise MachineError(f"[{self.name}] no guest process to wait for")
         await self._process.wait()
-        if self._monitor is not None:
-            await self._monitor.wait()
+        await self._console.drained()
         if self._stopping:
             return
         if await self._rebooted():
@@ -550,12 +541,7 @@ class Machine:
         self._control = None
         await self._stop_process()
         # A second boot must not match the first boot's ready line.
-        self._history.clear()
-        while True:
-            try:
-                self._console_recv.receive_nowait()
-            except anyio.WouldBlock:
-                break
+        self._console.reset()
         self._process = None
         self.lan_fds = dict(self._lan_kept)
         await self._boot(boot)
@@ -563,18 +549,14 @@ class Machine:
     async def _read_serial(self) -> None:
         """Read the serial line as console, for a guest with no control channel.
 
-        The serial line is the socket the agent would get. It is read to the
-        end, or the guest stalls once the socket buffer is full.
+        The serial line is the socket the agent would get.
         """
         if self._agent_sock is None or self._guest_sock is None:
             raise MachineError(f"[{self.name}] no serial socket")
         sock, self._agent_sock = self._agent_sock, None
         self._guest_sock.close()
         self._guest_sock = None
-        # asyncio's StreamReader, so one pump reads both kinds of console:
-        # the guest process's stdout is one, as `subprocess` above says.
-        reader, self._serial = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251 -- see above
-        self._serial_monitor = hold(self._tasks, self._pump_console, reader, name=f"serial of {self.name}")
+        await self._console.read_serial(self._tasks, sock, f"serial of {self.name}")
 
     async def _start_console(self, dialect: Dialect, started: float) -> None:
         """Log in on the guest's console and apply its config disk.
@@ -696,13 +678,7 @@ class Machine:
                 helper.wait()
         self._helpers = []
 
-        for task in (self._monitor, self._serial_monitor):
-            if task is not None:
-                await task.stop()
-        self._monitor = self._serial_monitor = None
-        if self._serial is not None:
-            self._serial.close()
-            self._serial = None
+        await self._console.stop()
 
         channel, self._controls = self._controls.channel, Controls()
         if channel is not None:
@@ -826,47 +802,14 @@ class Machine:
         else:
             self._log(text)
 
-    async def _pump_console(self, reader: asyncio.StreamReader | None = None) -> None:
-        """Console lines from *reader*, by default the guest process's stdout."""
-        if reader is None:
-            if self._process is None or self._process.stdout is None:
-                raise MachineError(f"[{self.name}] no guest process console to read")
-            reader = self._process.stdout
-        while True:
-            try:
-                raw = await reader.readline()
-            except ValueError:
-                # Line longer than the stream limit; skip it rather than die.
-                continue
-            except OSError as error:
-                # The guest's end went away mid-read: the console ends, and
-                # the guest's exit says the rest. Raised, it ends the run.
-                self._log(f"the console ended: {error}")
-                return
-            if not raw:
-                return
-            line = _ANSI.sub("", raw.decode(errors="replace").rstrip())
-            if not line:
-                continue
-            self._log(line)
-            self._history.append(line)
-            self._console_send.send_nowait(line)
-
     async def _wait_for_line(self, pattern: re.Pattern[str]) -> str:
         """Match *pattern* against console output, past or future."""
-        for line in self._history:
-            if pattern.search(line):
-                return line
-        while True:
-            try:
-                with anyio.fail_after(0.5):
-                    line = await self._console_recv.receive()
-            except TimeoutError:
-                if self._process is not None and self._process.returncode is not None:
-                    raise MachineError(f"[{self.name}] guest exited while waiting for {pattern.pattern!r}") from None
-                continue
-            if pattern.search(line):
-                return line
+        try:
+            return await self._console.wait_for(
+                pattern, lambda: self._process is not None and self._process.returncode is not None
+            )
+        except GuestExited:
+            raise MachineError(f"[{self.name}] guest exited while waiting for {pattern.pattern!r}") from None
 
     async def wait_for_console_text(self, pattern: str, timeout: float | None = None) -> str:
         """Wait for a regex to appear on the guest's console."""
@@ -957,7 +900,7 @@ class Machine:
 
     def console_tail(self, lines: int = 15) -> list[str]:
         """The guest's last *lines* console lines, oldest first."""
-        return list(self._history)[-lines:]
+        return self._console.tail(lines)
 
     def _console_tail(self, lines: int = 15) -> str:
         """The last thing the guest said, for an error that has no other

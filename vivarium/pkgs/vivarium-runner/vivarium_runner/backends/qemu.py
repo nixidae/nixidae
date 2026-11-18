@@ -407,7 +407,7 @@ class Qemu:
             "-object",
             f"memory-backend-memfd,id=guest-memory,size={spec.memory},share=on",
             *_drive_args(disk_fds, drives),
-            # The console, read by Machine._pump_console.
+            # The console, read by ConsoleLines.
             "-serial",
             "stdio",
             "-chardev",

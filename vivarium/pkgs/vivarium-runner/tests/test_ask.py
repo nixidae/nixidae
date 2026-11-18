@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import collections
 from collections.abc import Awaitable, Callable
 
 import anyio
 import pytest
 from vivarium_agent import arpyc
 from vivarium_runner import GuestTimeout, Machine, report
+from vivarium_runner.consolelines import ConsoleLines
 from vivarium_runner.machine import MachineError
 
 
@@ -17,7 +17,8 @@ class Asked(Machine):
 
     def __init__(self) -> None:
         self.recorder = report.Report()
-        self._history = collections.deque(["last console line"])
+        self._console = ConsoleLines()
+        self._console.history.append("last console line")
         self.events: list[dict[str, object]] = []
         self.on_command = lambda _name, _what, _took, data: self.events.append(data)
 

@@ -9,7 +9,6 @@ that owns it, the way a real one does.
 from __future__ import annotations
 
 import asyncio
-import collections
 import json
 import shlex
 import sys
@@ -25,6 +24,7 @@ from vivarium.phases import PhaseState
 from vivarium.session import CasesFailed, Session
 from vivarium.spec import PhaseSpec, PytestSpec, Spec
 from vivarium_runner import Machine, Machines
+from vivarium_runner.consolelines import ConsoleLines
 from vivarium_runner.control import CommandResult
 
 if TYPE_CHECKING:
@@ -42,8 +42,8 @@ class FakeMachine(Machine):
         self._fake_name = name
         self.loop = asyncio.get_running_loop()
         self.said: list[str] = []
-        # What `console_tail` reads; a real Machine keeps its console here.
-        self._history: collections.deque[str] = collections.deque()
+        # What `console_tail` reads.
+        self._console = ConsoleLines()
 
     @property
     def name(self) -> str:
