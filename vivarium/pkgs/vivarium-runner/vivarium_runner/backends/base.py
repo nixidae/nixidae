@@ -45,7 +45,7 @@ def launch_config(
     return spec.launch.config
 
 
-def _section(
+def config_section(
     owner: str, value: object, fields: frozenset[str], optional: frozenset[str] = frozenset()
 ) -> Mapping[str, Any]:
     """A table inside `launch.config`, checked as `launch_config` checks the whole."""
@@ -69,18 +69,18 @@ def with_boot_image(spec: MachineSpec, kernel: Path) -> MachineSpec:
         raise BackendError(f"{spec.name}: {error}") from error
 
 
-def _path(config: Mapping[str, object], key: str) -> Path:
+def config_path(config: Mapping[str, object], key: str) -> Path:
     return Path(str(config[key]))
 
 
-def _list(owner: str, value: object) -> list[object]:
+def config_list(owner: str, value: object) -> list[object]:
     if not isinstance(value, list):
         raise BackendError(f"{owner} is not a list")
     return value
 
 
-def _maybe(config: Mapping[str, object], key: str) -> Path | None:
-    return _path(config, key) if key in config else None
+def config_maybe_path(config: Mapping[str, object], key: str) -> Path | None:
+    return config_path(config, key) if key in config else None
 
 
 @dataclass(frozen=True)

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from .. import container, forward
 from ..store import ContainerStore
-from .base import BackendError, Launch, Stop, _path, launch_config
+from .base import BackendError, Launch, Stop, config_path, launch_config
 from .host import memory_bytes, processes_pss_kib, socket_dir
 
 if TYPE_CHECKING:
@@ -35,7 +35,9 @@ class ContainerConfig:
     @classmethod
     def of(cls, spec: MachineSpec) -> ContainerConfig:
         config = launch_config(spec, "container", frozenset({"crun", "setpriv", "passt"}))
-        return cls(crun=_path(config, "crun"), setpriv=_path(config, "setpriv"), passt=_path(config, "passt"))
+        return cls(
+            crun=config_path(config, "crun"), setpriv=config_path(config, "setpriv"), passt=config_path(config, "passt")
+        )
 
 
 class Container:

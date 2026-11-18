@@ -18,15 +18,15 @@ from .. import forward, unixpath
 from ..lifetime import die_with_parent
 from ..spec import UplinkProxy
 from ..store import AllowList
-from .base import BackendError, Launch, Stop, _maybe, _path, launch_config
+from .base import BackendError, Launch, Stop, config_maybe_path, config_path, launch_config
 from .host import (
     RELAY_IN_PORT,
-    _abandon,
-    _require_ids,
-    _tail,
+    abandon,
     egress_args,
+    log_tail,
     memory_bytes,
     processes_pss_kib,
+    require_ids,
     scratch_disk,
     socket_dir,
     start_egress,
@@ -66,12 +66,12 @@ class KrunConfig:
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
-            krun=_path(config, "krun"),
-            qemu_img=_path(config, "qemuImg"),
-            passt=_maybe(config, "passt"),
-            gvproxy=_maybe(config, "gvproxy"),
+            krun=config_path(config, "krun"),
+            qemu_img=config_path(config, "qemuImg"),
+            passt=config_maybe_path(config, "passt"),
+            gvproxy=config_maybe_path(config, "gvproxy"),
             acpi=bool(config["acpi"]),
-            egress=_maybe(config, "egress"),
+            egress=config_maybe_path(config, "egress"),
         )
 
 
@@ -236,7 +236,7 @@ class Krun:
             # `opened` owns the fd: a close here as well would close
             # whatever reused its number.
             client.detach()
-        raise BackendError(f"{spec.name}: gvproxy did not serve {sock} (exit {proc.poll()}):\n{_tail(log)}")
+        raise BackendError(f"{spec.name}: gvproxy did not serve {sock} (exit {proc.poll()}):\n{log_tail(log)}")
 
     async def launch(
         self,
@@ -250,7 +250,7 @@ class Krun:
         # macOS has no user namespaces, and its libkrun keeps a file's
         # owner in an xattr.
         if sys.platform == "linux":
-            _require_ids(machine.spec.name, "krun")
+            require_ids(machine.spec.name, "krun")
         spec = machine.spec
         config = KrunConfig.of(spec)
         boot, kernel, vmlinux = Krun._kernel(spec, boot or spec.boot)
@@ -299,7 +299,7 @@ class Krun:
                 passt_fds = (passt_fd,)
                 uplink = [f"--uplink={passt_fd},{spec.mac(0)}"]
         except BaseException:
-            _abandon(helpers, opened)
+            abandon(helpers, opened)
             raise
         # libkrun opens the disk by path, and only the fd keeps the unlinked
         # file alive. It opens it read-write and needs no read-only twin.

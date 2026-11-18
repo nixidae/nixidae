@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ..machine import Machine
 
 
-def _tail(path: Path, lines: int = 20) -> str:
+def log_tail(path: Path, lines: int = 20) -> str:
     """The end of *path*, for a helper that has already exited.
 
     The end and not the start: passt names the port it could not bind
@@ -105,7 +105,7 @@ def socket_dir(rundir: Path, name: str, fallback: str | None) -> tuple[Path, lis
     return made, [made]
 
 
-def _require_ids(name: str, kind: str) -> None:
+def require_ids(name: str, kind: str) -> None:
     """Refuse a guest whose file server needs the namespace's subordinate ids.
 
     virtiofsd and libkrun's virtio-fs serve a file as the guest user that
@@ -121,7 +121,7 @@ def _require_ids(name: str, kind: str) -> None:
         )
 
 
-def _abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) -> None:
+def abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) -> None:
     """Kill the helpers and close the fds of a launch that failed part way.
 
     Nothing owns these until a Launch carries them back, so a failure
@@ -200,10 +200,10 @@ async def start_egress(
     with anyio.move_on_after(10):
         while not ready.exists():
             if proc.poll() is not None:
-                raise BackendError(f"the egress exited ({proc.returncode}):\n{_tail(log)}")
+                raise BackendError(f"the egress exited ({proc.returncode}):\n{log_tail(log)}")
             await anyio.sleep(0.02)
         return
-    raise BackendError(f"the egress did not listen on {ready}:\n{_tail(log)}")
+    raise BackendError(f"the egress did not listen on {ready}:\n{log_tail(log)}")
 
 
 async def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
@@ -302,6 +302,6 @@ async def start_passt(
         )
     helpers.append(proc)
     if not await alive(proc):
-        raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{_tail(log)}")
+        raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{log_tail(log)}")
     # Kept open until the guest has spawned; Machine closes it after.
     return qemu_fd

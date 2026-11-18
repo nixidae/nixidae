@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 import anyio
-from vivarium_runner.backends.host import _abandon, start_egress
+from vivarium_runner.backends.host import abandon, start_egress
 
 EGRESS = f"""#!{sys.executable}
 import sys, time
@@ -47,7 +47,7 @@ def test_another_task_runs_while_the_egress_starts(tmp_path: Path) -> None:
                     await anyio.lowlevel.checkpoint()
                     await anyio.Path(go).touch()
         finally:
-            _abandon(helpers, ())
+            abandon(helpers, ())
 
     anyio.run(main)
     assert ready.exists()
@@ -64,5 +64,5 @@ def test_a_cancelled_start_leaves_its_helper_to_the_launch(tmp_path: Path) -> No
     anyio.run(main)
     [helper] = helpers
     assert helper.poll() is None
-    _abandon(helpers, ())
+    abandon(helpers, ())
     assert helper.poll() is not None

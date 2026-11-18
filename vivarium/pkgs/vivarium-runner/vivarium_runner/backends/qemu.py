@@ -17,15 +17,25 @@ from ..boot import RootFormat
 from ..capability import Controls, Screen
 from ..lifetime import die_with_parent
 from ..store import BoundStore
-from .base import BackendError, Launch, Stop, _list, _maybe, _path, _section, launch_config, with_boot_image
+from .base import (
+    BackendError,
+    Launch,
+    Stop,
+    config_list,
+    config_maybe_path,
+    config_path,
+    config_section,
+    launch_config,
+    with_boot_image,
+)
 from .host import (
     RELAY_IN_PORT,
-    _abandon,
-    _require_ids,
-    _tail,
+    abandon,
     alive,
     egress_args,
+    log_tail,
     memory_file_kib,
+    require_ids,
     scratch_disk,
     socket_dir,
     start_egress,
@@ -50,7 +60,7 @@ class BlankDisk:
 
     @classmethod
     def of(cls, owner: str, value: object) -> BlankDisk:
-        disk = _section(owner, value, frozenset({"name", "size"}))
+        disk = config_section(owner, value, frozenset({"name", "size"}))
         return cls(name=str(disk["name"]), size=int(disk["size"]))
 
 
@@ -85,23 +95,23 @@ class QemuConfig:
         )
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
-        tesseract, magick = _maybe(config, "tesseract"), _maybe(config, "magick")
+        tesseract, magick = config_maybe_path(config, "tesseract"), config_maybe_path(config, "magick")
         if (tesseract is None) != (magick is None):
             raise BackendError(f"{spec.name}: vivarium.launch.config names one of tesseract and magick; OCR needs both")
         disks = f"{spec.name}: vivarium.launch.config.disks"
         return cls(
-            qemu=_path(config, "qemu"),
-            qemu_img=_path(config, "qemuImg"),
-            virtiofsd=_path(config, "virtiofsd"),
-            passt=_path(config, "passt"),
+            qemu=config_path(config, "qemu"),
+            qemu_img=config_path(config, "qemuImg"),
+            virtiofsd=config_path(config, "virtiofsd"),
+            passt=config_path(config, "passt"),
             ocr=(tesseract, magick) if tesseract is not None and magick is not None else None,
-            config_disk=_maybe(config, "configDisk"),
+            config_disk=config_maybe_path(config, "configDisk"),
             uplink=bool(config.get("uplink", True)),
-            egress=_maybe(config, "egress"),
-            swtpm=_maybe(config, "swtpm"),
+            egress=config_maybe_path(config, "egress"),
+            swtpm=config_maybe_path(config, "swtpm"),
             disks=tuple(
                 BlankDisk.of(f"{disks}.{index}", disk)
-                for index, disk in enumerate(_list(disks, config.get("disks", [])))
+                for index, disk in enumerate(config_list(disks, config.get("disks", [])))
             ),
         )
 
@@ -244,7 +254,7 @@ class Qemu:
         disk_boot = machine.spec.boot is not None and machine.spec.boot.root is not None
         # A disk boot has no virtiofsd.
         if not disk_boot:
-            _require_ids(machine.spec.name, "QEMU")
+            require_ids(machine.spec.name, "QEMU")
         helpers: list[subprocess.Popen[bytes]] = []
         opened: list[int] = []
         try:
@@ -252,7 +262,7 @@ class Qemu:
                 return await self._launch_disk(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
             return await self._launch(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
         except BaseException:
-            _abandon(helpers, opened)
+            abandon(helpers, opened)
             raise
 
     async def _uplink_netdev(
@@ -719,5 +729,5 @@ class Qemu:
             )
         helpers.append(proc)
         if not await alive(proc):
-            raise BackendError(f"swtpm exited ({proc.returncode}) instead of serving the TPM:\n{_tail(log)}")
+            raise BackendError(f"swtpm exited ({proc.returncode}) instead of serving the TPM:\n{log_tail(log)}")
         return qemu_fd

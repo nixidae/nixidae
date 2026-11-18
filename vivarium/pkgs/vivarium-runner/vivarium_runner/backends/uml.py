@@ -16,8 +16,8 @@ from .. import forward, mconsole
 from ..boot import RootFormat
 from ..capability import Controls
 from ..store import BoundStore
-from .base import BackendError, Launch, Stop, _maybe, _path, launch_config, with_boot_image
-from .host import RELAY_IN_PORT, _abandon, egress_args, memory_bytes, memory_file_kib, socket_dir, start_egress
+from .base import BackendError, Launch, Stop, config_maybe_path, config_path, launch_config, with_boot_image
+from .host import RELAY_IN_PORT, abandon, egress_args, memory_bytes, memory_file_kib, socket_dir, start_egress
 
 if TYPE_CHECKING:
     from ..boot import Boot, Kernel, Root
@@ -46,11 +46,11 @@ class UmlConfig:
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
-            bridge=_path(config, "bridge"),
-            passt=_path(config, "passt"),
-            qemu_img=_maybe(config, "qemuImg"),
-            seed=_maybe(config, "seed"),
-            egress=_maybe(config, "egress"),
+            bridge=config_path(config, "bridge"),
+            passt=config_path(config, "passt"),
+            qemu_img=config_maybe_path(config, "qemuImg"),
+            seed=config_maybe_path(config, "seed"),
+            egress=config_maybe_path(config, "egress"),
         )
 
 
@@ -266,7 +266,7 @@ class Uml:
                     config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args, helpers
                 )
             except BaseException:
-                _abandon(helpers, ())
+                abandon(helpers, ())
                 raise
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
