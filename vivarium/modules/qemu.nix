@@ -271,6 +271,9 @@ lib.mkIf
       # find a label.
       device = "/dev/vda";
       fsType = "ext4";
+      # mkfs made it at build time and every run gets a new overlay, so a
+      # check finds nothing. The kernel replays the journal at mount.
+      noCheck = true;
     };
 
     /*
