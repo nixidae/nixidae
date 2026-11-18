@@ -405,6 +405,42 @@ def memory_bytes(memory: str) -> int:
     return int(memory)
 
 
+def memory_file_kib(pid: int, memory: str) -> int:
+    """Kibibytes allocated to the guest's RAM file, which process *pid* holds open.
+
+    Unlinked and exactly *memory* long. QEMU also holds its scratch disk
+    by fd and unlinked, so a `memfd:` target wins over a bare size match
+    -- a qcow2 that happened to be exactly this long would otherwise be
+    read as the guest's memory.
+    """
+    want = memory_bytes(memory)
+    found: int | None = None
+    for entry in (Path("/proc") / str(pid) / "fd").iterdir():
+        try:
+            target = str(entry.readlink())
+            if not target.endswith("(deleted)"):
+                continue
+            stat = entry.stat()
+        except OSError:
+            continue
+        if stat.st_size != want:
+            continue
+        if "memfd:" in target:
+            return stat.st_blocks // 2
+        found = stat.st_blocks // 2
+    if found is not None:
+        return found
+    raise BackendError(f"found no memory file under /proc/{pid}/fd")
+
+
+def processes_pss_kib(pid: int) -> int:
+    """`container.tree_pss_kib`, raising `BackendError`."""
+    try:
+        return container.tree_pss_kib(pid)
+    except RuntimeError as error:
+        raise BackendError(str(error)) from error
+
+
 def _fstype(path: str) -> str | None:
     """What kind of filesystem *path* is on, from ``/proc/self/mountinfo``.
 
@@ -655,6 +691,10 @@ class Backend(Protocol):
         """Whether a guest process that ended asked for a reboot."""
         ...
 
+    def host_memory_kib(self, spec: MachineSpec, pid: int) -> int:
+        """Kibibytes of host memory the guest whose own process is *pid* costs now."""
+        ...
+
     def validate(self, spec: MachineSpec) -> None:
         """Raise `BackendError` when `spec.launch` is wrong for this backend."""
         ...
@@ -746,6 +786,11 @@ class Uml:
     @staticmethod
     def rebooted(stop: Stop) -> bool:
         return False
+
+    @staticmethod
+    def host_memory_kib(spec: MachineSpec, pid: int) -> int:
+        # The kernel maps an unlinked temporary file as the guest's RAM.
+        return memory_file_kib(pid, spec.memory)
 
     @staticmethod
     def validate(spec: MachineSpec) -> None:
@@ -938,6 +983,11 @@ class Qemu:
         # A reset with `-no-reboot` ends QEMU. Linux's reboot is one, and
         # so is a reset the firmware or the bootloader makes before Linux.
         return stop.cause == "guest-reset"
+
+    @staticmethod
+    def host_memory_kib(spec: MachineSpec, pid: int) -> int:
+        # The guest's RAM is a `memory-backend-memfd`.
+        return memory_file_kib(pid, spec.memory)
 
     def validate(self, spec: MachineSpec) -> None:
         if QemuConfig.of(spec).disk is None and (spec.boot is None or spec.boot.kernel is None):
@@ -1567,6 +1617,13 @@ class Krun:
         return stop.returncode == KrunExit.REBOOT
 
     @staticmethod
+    def host_memory_kib(spec: MachineSpec, pid: int) -> int:
+        # libkrun's RAM is anonymous, so there is no file to count. PSS
+        # also holds this guest's share of the host page cache it maps
+        # through the DAX window, which is the store pages it reads.
+        return processes_pss_kib(pid)
+
+    @staticmethod
     def validate(spec: MachineSpec) -> None:
         KrunConfig.of(spec)
         Krun._kernel(spec, spec.boot)
@@ -1801,6 +1858,13 @@ class Container:
     @staticmethod
     def rebooted(stop: Stop) -> bool:
         return False
+
+    @staticmethod
+    def host_memory_kib(spec: MachineSpec, pid: int) -> int:
+        # Its own cgroup's count where it has one; the processes' PSS
+        # where it has none, which is every uid-range build.
+        own = container.own_cgroup_memory_kib(pid)
+        return own if own is not None else processes_pss_kib(pid)
 
     def launch(
         self,

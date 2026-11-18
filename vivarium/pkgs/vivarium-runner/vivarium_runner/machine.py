@@ -1563,10 +1563,11 @@ class Machine:
     def host_memory_kib(self) -> int:
         """Kibibytes of host memory this guest's RAM costs right now.
 
-        A guest's memory is one sparse file on both backends -- UML maps
-        an unlinked temporary file, QEMU a ``memory-backend-memfd`` -- so
-        the host pays for the blocks that file has allocated and nothing
-        else. A guest starts near zero however large its memory is, grows
+        Each backend counts its own way (`Backend.host_memory_kib`). Under
+        UML and QEMU a guest's memory is one sparse file, so the host pays
+        for the blocks that file has allocated and nothing else. A krun or
+        container guest costs what its processes map. A guest starts near
+        zero however large its memory is, grows
         towards it as it touches pages, and falls again as it reports the
         pages it has freed.
 
@@ -1576,56 +1577,15 @@ class Machine:
         """
         if self._process is None:
             raise MachineError(f"[{self.name}] is not running")
-        if self.spec.backend == BackendName.CONTAINER:
-            # Its own cgroup's count where it has one; the processes'
-            # PSS where it has none, which is every uid-range build.
-            own = container.own_cgroup_memory_kib(self._process.pid)
-            if own is not None:
-                return own
-            try:
-                return container.tree_pss_kib(self._process.pid)
-            except RuntimeError as error:
-                raise MachineError(f"[{self.name}] {error}") from error
-        if self.spec.backend == BackendName.KRUN:
-            # libkrun's RAM is anonymous, so there is no file to count. PSS
-            # also holds this guest's share of the host page cache it maps
-            # through the DAX window, which is the store pages it reads.
-            try:
-                return container.tree_pss_kib(self._process.pid)
-            except RuntimeError as error:
-                raise MachineError(f"[{self.name}] {error}") from error
-        if self._pid_file is None:
-            pid = str(self._process.pid)
-        else:
-            # UML forks the kernel from the passt bridge, so the process
-            # the runner spawned is the bridge and its pid is the wrong
-            # one. The kernel writes its own beside the console socket.
-            try:
-                pid = self._pid_file.read_text().strip()
-            except OSError as error:
-                raise MachineError(f"[{self.name}] no pid file: {error}") from error
-        want = backends.memory_bytes(self.spec.memory)
-        # Unlinked and exactly the guest's memory long. QEMU also holds
-        # its scratch disk by fd and unlinked, so a `memfd:` target wins
-        # over a bare size match -- a qcow2 that happened to be exactly
-        # this long would otherwise be read as the guest's memory.
-        found: int | None = None
-        for entry in (Path("/proc") / pid / "fd").iterdir():
-            try:
-                target = str(entry.readlink())
-                if not target.endswith("(deleted)"):
-                    continue
-                stat = entry.stat()
-            except OSError:
-                continue
-            if stat.st_size != want:
-                continue
-            if "memfd:" in target:
-                return stat.st_blocks // 2
-            found = stat.st_blocks // 2
-        if found is not None:
-            return found
-        raise MachineError(f"[{self.name}] found no memory file under /proc/{pid}/fd")
+        # UML forks the kernel from the passt bridge, so the process the
+        # runner spawned is the bridge. The kernel writes its own pid.
+        pid = self._guest_pid()
+        if pid is None:
+            raise MachineError(f"[{self.name}] no pid file: {self._pid_file}")
+        try:
+            return self.backend.host_memory_kib(self.spec, pid)
+        except backends.BackendError as error:
+            raise MachineError(f"[{self.name}] {error}") from error
 
     async def drop_caches(self) -> None:
         """Free the guest's page cache.
