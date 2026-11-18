@@ -49,8 +49,9 @@ lib.types.submodule {
               example = "10.9.0.1/24";
               description = ''
                 The router's IPv4 address on this segment, with its prefix
-                length. The prefix is the network: no two router networks
-                and not the uplink's 10.0.2.0/24 may overlap.
+                length. The prefix is the network: the run refuses two
+                router networks that overlap, or one that overlaps the
+                uplink's 10.0.2.0/24.
               '';
             };
             address6 = lib.mkOption {
@@ -60,7 +61,9 @@ lib.types.submodule {
               description = ''
                 The router's IPv6 address on this segment, with its prefix
                 length. The router advertises the prefix. Null gives the
-                network no IPv6 beyond link-local addresses.
+                network no IPv6 beyond link-local addresses. As with
+                `address`, the run refuses an overlap, here with the
+                uplink's fd00:10:0:2::/64.
               '';
             };
             dhcp = lib.mkOption {

@@ -458,9 +458,9 @@ nodes.d.vivarium.interfaces.lab.segment = "lab";
   network's relay.
 - The router names its interface after the segment, and its VRF
   `vrf-<segment>`: a segment name is at most 11 characters.
-- Keep the networks' subnets apart, and apart from the uplink's
-  `10.0.2.0/24`; nothing checks this yet. No forward reaches a router
-  network's guest.
+- The networks' subnets stay apart, and apart from the uplink's
+  `10.0.2.0/24` and `fd00:10:0:2::/64`: the run refuses an overlap when it
+  evaluates. No forward reaches a router network's guest.
 - A lab guest reaches the host's loopback through the gateway `10.0.2.2`,
   as an uplink guest does. The egress knows each flow's network by its
   vsock port, and refuses a lab's flow to a host port that a forward

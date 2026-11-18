@@ -538,6 +538,39 @@ rec {
 
       routerNetworks = lib.attrNames (lib.filterAttrs (_: segment: segment.router != null) cfg.segments);
 
+      # A router network's subnet and the uplink's: no two may overlap.
+      prefixes = import ./nix/prefixes.nix lib;
+      uplinkSpec = import ./nix/uplink.nix;
+      unparsed = lib.filter (
+        name: prefixes.fromIPv4 cfg.segments.${name}.router.address == null
+      ) routerNetworks;
+      overlapping =
+        family: uplinkPrefix: parse: address:
+        map
+          (pair: "${family} ${lib.concatMapStringsSep " and " (entry: "${entry.name} (${entry.text})") pair}")
+          (
+            prefixes.overlaps (
+              map (entry: entry // { prefix = parse entry.text; }) (
+                [
+                  {
+                    name = "the uplink";
+                    text = uplinkPrefix;
+                  }
+                ]
+                ++ lib.concatMap (
+                  name:
+                  let
+                    text = address cfg.segments.${name}.router;
+                  in
+                  lib.optional (text != null) { inherit name text; }
+                ) (lib.subtractLists unparsed routerNetworks)
+              )
+            )
+          );
+      overlaps =
+        overlapping "IPv4" uplinkSpec.subnet prefixes.fromIPv4 (router: router.address)
+        ++ overlapping "IPv6" "${uplinkSpec.prefix6}/64" prefixes.fromIPv6 (router: router.address6);
+
       # A NixOS guest's toplevel checks its own assertions and warnings.
       # A guest of another kind never builds one, so the run checks them.
       unbuilt = lib.filter (node: node.vivarium.kind != "nixos") (
@@ -561,6 +594,14 @@ rec {
           {
             assertion = routerEnabled || routerNetworks == [ ];
             message = "segments: ${lib.concatStringsSep ", " routerNetworks} names a router, and router.enable is false.";
+          }
+          {
+            assertion = unparsed == [ ];
+            message = "segments: the router.address of ${lib.concatStringsSep ", " unparsed} is no IPv4 address with a prefix length, such as 10.9.0.1/24.";
+          }
+          {
+            assertion = overlaps == [ ];
+            message = "segments: these router networks overlap: ${lib.concatStringsSep "; " overlaps}.";
           }
         ]
         ++ guestAssertions
