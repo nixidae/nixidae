@@ -62,7 +62,8 @@ class TestResolveMemory:
 
 
 def test_the_spec_holds_the_resolved_memory() -> None:
+    """At the floor: a share of what the host has free moves between two reads of it."""
     data = machine_json("one")
-    data["memory"] = {"scale": 1}
+    data["memory"] = {"scale": 1e-9}
     spec = MachineSpec.from_json(data)
-    assert spec.memory == f"{max(MEMORY_SCALE_FLOOR_MIB, host_available_mib())}M"
+    assert spec.memory == f"{MEMORY_SCALE_FLOOR_MIB}M"
