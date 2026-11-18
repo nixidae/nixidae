@@ -17,10 +17,28 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 DIRECTORY: Final = "junit"
 """Under each guest's `/artifacts`, so `artifacts/<machine>/junit/`."""
+
+
+def written(artifacts: Path) -> list[tuple[Path, int]]:
+    """Every guest's JUnit file under `artifacts`, with its mtime in ns.
+
+    The pair names one write: a suite that writes the file again gives
+    a new pair. A file removed while this lists it is left out.
+    """
+    found = []
+    for path in sorted(artifacts.glob(f"*/{DIRECTORY}/*.xml")):
+        try:
+            found.append((path, path.stat().st_mtime_ns))
+        except OSError:
+            continue
+    return found
 
 
 @dataclass(frozen=True)

@@ -273,7 +273,10 @@ class Session:
         # at once hands the same lines to both.
         self._draining = anyio.Lock()
         self._settled: set[str] = set()
-        self._junit_seen: set[tuple[Path, int]] = set()
+        # A second run into the same `--out` finds the last run's files,
+        # and their cases are not this run's. Not removed: a container
+        # guest's files can belong to a sub-uid (nixidae/nixidae#1064).
+        self._junit_seen: set[tuple[Path, int]] = set(junit_in.written(self.artifacts))
         # Process-wide, like `_capture`: one session per process, which
         # the CLI and the MCP server's child processes both are.
         for path in reversed(spec.pythonPath):
@@ -685,12 +688,9 @@ class Session:
         read once is not read twice. Only `nodes` when given, so a file
         another phase is still writing is not read half-written.
         """
-        for path in sorted(self.artifacts.glob(f"*/{junit_in.DIRECTORY}/*.xml")):
+        for key in junit_in.written(self.artifacts):
+            path = key[0]
             if nodes is not None and path.parent.parent.name not in nodes:
-                continue
-            try:
-                key = (path, path.stat().st_mtime_ns)
-            except OSError:
                 continue
             if key in self._junit_seen:
                 continue

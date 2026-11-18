@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+import os
+from typing import TYPE_CHECKING
+
 import pytest
-from vivarium.junit_in import Case, parse
+from vivarium.events import Event, Kind
+from vivarium.junit_in import DIRECTORY, Case, parse
+from vivarium.session import Session
+from vivarium.sinks import Broadcast
+from vivarium.spec import Spec
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # The shape pytest's --junitxml writes, trimmed.
 PYTEST = """<?xml version="1.0" encoding="utf-8"?>
@@ -55,3 +65,38 @@ class TestParse:
     def test_not_xml_says_so(self) -> None:
         with pytest.raises(ValueError, match="not JUnit XML"):
             parse("<testsuite><testcase")
+
+
+class Collect:
+    def __init__(self) -> None:
+        self.events: list[Event] = []
+
+    def emit(self, event: Event) -> None:
+        self.events.append(event)
+
+    def close(self) -> None:
+        pass
+
+
+def write_suite(out: Path, name: str, mtime_ns: int) -> None:
+    directory = out / "artifacts" / "one" / DIRECTORY
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.xml"
+    path.write_text(f'<testsuite><testcase name="{name}" time="0"/></testsuite>')
+    os.utime(path, ns=(mtime_ns, mtime_ns))
+
+
+class TestASecondRunIntoTheSameOut:
+    def test_reads_only_its_own_files(self, tmp_path: Path) -> None:
+        """Measured 2026-11-07 (nixidae/nixidae#1201): a run into an
+        `--out` two days old reported 2025 of the old run's cases, one of
+        them a failure of a test deleted since."""
+        out = tmp_path / "out"
+        write_suite(out, "old", 1_000)
+        write_suite(out, "rewritten", 1_000)
+        sink = Collect()
+        session = Session(Spec(machines=[], phases=[]), out, sink=Broadcast([sink]))
+        write_suite(out, "new", 2_000)
+        write_suite(out, "rewritten", 2_000)
+        session._cases_from_guests("boot")
+        assert sorted(e.text for e in sink.events if e.kind is Kind.CASE) == ["new", "rewritten"]
