@@ -9,10 +9,10 @@ Claude Code hears about it without polling:
     <channel source="vivarium" run="vivarium-pytest-x1" event="paused" reason="after cases failed">...
 
 **The run is a child process, never this one.** MCP's stdio transport
-is this process's stdout, and a session writes to stdout -- the terminal
-sink, and a phase's captured `print`. One stray line there corrupts the
-protocol. So a run is `vivarium run ...` (or `python -m vivarium.cli run`
-for a spec) with its output in `<out>/terminal.log`, and this process
+is this process's stdout, and one stray line there corrupts the
+protocol: a print from a phase, a library or the runner itself. So a
+run is `vivarium run ...` (or `python -m vivarium.cli run` for a spec)
+with its output in `<out>/terminal.log`, and this process
 is one more client of `<out>/control.sock`, as `vivarium ctl` is.
 
 Channels are a Claude Code research preview. The server declares the

@@ -313,6 +313,11 @@ class TestTerminal:
         Terminal(Level.INFO, stream).emit(event(Kind.NOTE, "hello"))
         assert stream.getvalue() == "[vivarium] hello\n"
 
+    def test_it_writes_to_stderr_by_default(self, capsys: pytest.CaptureFixture[str]) -> None:
+        Terminal(Level.INFO).emit(event(Kind.NOTE, "hello"))
+        captured = capsys.readouterr()
+        assert (captured.out, captured.err) == ("", "[vivarium] hello\n")
+
     def test_it_obeys_the_level(self) -> None:
         stream = io.StringIO()
         term = Terminal(Level.INFO, stream)

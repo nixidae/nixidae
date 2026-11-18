@@ -62,11 +62,12 @@ def _report(machine: Machine, ports: list[int]) -> None:
     """Say what the guest is listening on, and where that answers."""
     if not ports:
         return
-    print("[vivarium] listening in guest:", flush=True)
+    print("[vivarium] listening in guest:", file=sys.stderr, flush=True)
     for port in ports:
         where = machine.reachable(port)
         print(
             f"[vivarium]     {port:<6}-> {', '.join(where) if where else 'not forwarded'}",
+            file=sys.stderr,
             flush=True,
         )
 
@@ -116,7 +117,7 @@ async def _run(args: argparse.Namespace) -> int:
                 "uml", {"kernel": str(args.kernel), "bridge": str(args.bridge), "passt": str(args.passt)}
             ),
         ),
-        on_console=lambda name, line: print(f"[{name}] {line}", flush=True),
+        on_console=lambda name, line: print(f"[{name}] {line}", file=sys.stderr, flush=True),
     )
     machine.resolve_forward(set())
     await machine.start()
@@ -130,10 +131,11 @@ async def _run(args: argparse.Namespace) -> int:
         where = machine.reachable(args.ssh_port)
         if where:
             address, _, port = where[0].rpartition(":")
-            print(f"[vivarium] up; ssh -p {port} root@{address}, ^C to stop", flush=True)
+            print(f"[vivarium] up; ssh -p {port} root@{address}, ^C to stop", file=sys.stderr, flush=True)
         else:
             print(
                 f"[vivarium] up; guest port {args.ssh_port} is not forwarded, ^C to stop",
+                file=sys.stderr,
                 flush=True,
             )
         async with anyio.create_task_group() as group:

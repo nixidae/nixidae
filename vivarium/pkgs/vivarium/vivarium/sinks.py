@@ -40,11 +40,14 @@ class Terminal:
     Nothing is lost by that -- the console is always written to its own
     file, and `Session` replays the tail of it when a phase fails. So
     the quiet case is quiet and the interesting case is loud.
+
+    It writes to stderr: progress is not a result, and stdout belongs to
+    whatever a run prints as one.
     """
 
     def __init__(self, level: Level = Level.INFO, stream: TextIO | None = None) -> None:
         self.level = level
-        self._stream = stream if stream is not None else sys.stdout
+        self._stream = stream if stream is not None else sys.stderr
 
     def emit(self, event: Event) -> None:
         if not wanted(event, self.level):
