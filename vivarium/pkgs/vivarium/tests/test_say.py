@@ -9,7 +9,7 @@ import anyio
 from vivarium.events import Event, Kind, Level
 from vivarium.session import Session
 from vivarium.spec import Spec
-from vivarium_runner import Machine
+from vivarium_runner import Machine, Machines
 
 
 class Collect:
@@ -43,7 +43,9 @@ def session(tmp_path: Path, sink: Collect) -> Session:
 
 def test_a_guest_that_does_not_shut_down_cleanly_is_an_error_by_name(tmp_path: Path) -> None:
     sink = Collect()
-    anyio.run(session(tmp_path, sink)._shutdown, Stuck(), False)
+    run = session(tmp_path, sink)
+    run.vms = Machines({"cp": Stuck()})
+    anyio.run(run.teardown)
     [event] = sink.events
     assert (event.kind, event.level, event.machine) == (Kind.ERROR, Level.ERROR, "cp")
     assert event.text == "cp did not shut down cleanly: the agent hung up"

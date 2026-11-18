@@ -25,7 +25,6 @@ from vivarium.phases import (
     passed,
     ready,
     reloaded,
-    required,
     runnable,
     selected,
     skipped_by,
@@ -280,12 +279,6 @@ class TestGuests:
         phases = [self.BOOTS, self.A, self.C, anywhere]
         state = {"boot": PhaseState.PENDING, "a": PhaseState.PENDING, "c": PhaseState.DESELECTED}
         assert guests(self.BOOTS, phases, {**state, "anywhere": PhaseState.PENDING}, self.ALL) == self.ALL
-
-    def test_requires_is_transitive(self) -> None:
-        assert required(["a"], {"a": ["b"], "b": ["cache"]}) == {"a", "b", "cache"}
-
-    def test_requires_survives_a_cycle(self) -> None:
-        assert required(["a"], {"a": ["b"], "b": ["a"]}) == {"a", "b"}
 
 
 class TestPassed:

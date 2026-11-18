@@ -228,18 +228,6 @@ def guests(
     return frozenset(wanted) or every
 
 
-def required(names: Iterable[str], requires: dict[str, list[str]]) -> frozenset[str]:
-    """*names* and every guest they name in `vivarium.requires`, transitively."""
-    found: set[str] = set()
-    todo = list(names)
-    while todo:
-        name = todo.pop()
-        if name not in found:
-            found.add(name)
-            todo.extend(requires.get(name, ()))
-    return frozenset(found)
-
-
 def launchable(
     ready: Iterable[PhaseSpec],
     running: Iterable[PhaseSpec],

@@ -32,11 +32,9 @@ import importlib.util
 import io
 import json
 import math
-import shutil
 import sys
 import time
 import traceback
-from collections import defaultdict
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,9 +46,9 @@ import pytest
 from anyio.from_thread import BlockingPortal
 from vivarium_runner import Machine, MachineError, Machines, MachineSpec, backends
 from vivarium_runner.backends import BackendError
-from vivarium_runner.instances import InstanceError, free_index, instance_spec, seed
-from vivarium_runner.net import build_lans
+from vivarium_runner.instances import seed
 from vivarium_runner.report import Report
+from vivarium_runner.run import Run, RunError, Segment, shut_down
 
 from . import access, journal, junit_in
 from .cloud import Cloud, CloudService
@@ -66,7 +64,6 @@ from .phases import (
     guests,
     passed,
     reloaded,
-    required,
     runnable,
     skipped_by,
 )
@@ -267,19 +264,10 @@ class Session:
         # Per session: a process may hold several, and their timings are
         # not one run's.
         self.report = Report()
-        self._lans: list[Any] = []
-        # Every guest's `Machine`, up or not; `vms` holds the ones up.
-        self._all: Machines | None = None
-        self._requires: dict[str, list[str]] = {}
-        self._templates: dict[str, MachineSpec] = {}
-        # The first index an instance may take: the nodes' and the templates' own come before it.
-        self._instance_base = 0
+        # The guests, from `prepare` to `teardown`; `vms` is its guests that are up.
+        self._run: Run | None = None
         self.cloud = Cloud(self)
         self._tasks: TaskGroup | None = None
-        # Set when a guest's boot has ended, either way.
-        self._starting: dict[str, anyio.Event] = {}
-        # Every guest whose boot began, so a failed one is torn down too.
-        self._attempts: set[str] = set()
         self._journals: dict[str, journal.Tail] = {}
         # `follow` and a phase boundary both drain, and a Tail read twice
         # at once hands the same lines to both.
@@ -477,7 +465,7 @@ class Session:
     async def prepare(self) -> None:
         """What the whole run needs before any guest starts: the segments,
         each guest's forwards, the `Machine` of each guest. No guest boots."""
-        if self._all is not None:
+        if self._run is not None:
             raise SessionError("already prepared")
         specs, templates = self.specs()
         kernels = self.kernel or PerGuest[Path]()
@@ -490,18 +478,7 @@ class Session:
                     machine=one.name,
                     kernel=str(kernel),
                 )
-        self._requires = {one.name: list(one.requires) for one in specs}
-
-        # A segment's members are `<machine>/<interface>`: neither name
-        # can hold a slash.
-        segments: dict[str, list[str]] = defaultdict(list)
         for one in specs:
-            # A guest whose uplink joins a management segment instead of
-            # passt (nixidae/nixidae#958): vec0 is a member of that segment.
-            if one.uplink is not None:
-                segments[one.uplink].append(f"{one.name}/vec0")
-            for nic in one.interfaces:
-                segments[nic.segment].append(f"{one.name}/{nic.name}")
             if one.interfaces:
                 self.emit(
                     Kind.BOOT,
@@ -512,30 +489,27 @@ class Session:
                     ),
                     machine=one.name,
                 )
-        # A second run into the same `--out` would otherwise keep the last
-        # run's captures beside its own.
-        shutil.rmtree(self.out / "pcap", ignore_errors=True)
-        self._lans = build_lans(
-            segments,
-            hubs={name for name, one in self.spec.segments.items() if one.hub},
-            pcap_dir=self.out / "pcap",
-            # The phase that cut or captured, so `jq` finds it by phase.
-            on_change=lambda text: self.emit(Kind.NOTE, text, phase=_PRINTING.get()),
-        )
-        lan_fds: dict[str, dict[str, int]] = defaultdict(dict)
-        for lan in self._lans:
-            for member, fd in lan.fds.items():
-                machine_name, nic_name = member.split("/")
-                lan_fds[machine_name][nic_name] = fd
-
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self._journals = {}
-        self._all = Machines((one.name, self._machine(one, lan_fds.get(one.name))) for one in specs)
-        self._templates = {one.name: one for one in templates}
-        self._instance_base = len(specs) + len(self._templates)
+        run = Run(
+            specs,
+            templates,
+            machine=self._machine,
+            on_stop_error=self._stop_failed,
+            segments={
+                name: Segment(hub=one.hub, capture=one.capture, instance_addresses=tuple(one.instanceAddresses))
+                for name, one in self.spec.segments.items()
+            },
+            pcap=self.out / "pcap",
+            # The phase that cut or captured, so `jq` finds it by phase.
+            on_segment=lambda text: self.emit(Kind.NOTE, text, phase=_PRINTING.get()),
+            on_boot=lambda names: self.emit(Kind.BOOT, f"booting {', '.join(names)}"),
+        )
+        self._run = run
+        await run.prepare()
         # Only the guests that are up. `exec` and a phase's `vms` never
         # see a guest that has not booted, which would hang them.
-        vms = Machines()
+        vms = run.up
         vms.settings = self.spec.settings
         vms.artifacts = self.artifacts
         # A phase reads `vms.knobs["name"]` and gets the value, not the
@@ -545,34 +519,15 @@ class Session:
         # One phase's findings for a later one -- a process census taken
         # before the suites, read by the phase that looks for leaks.
         vms.shared = {}
-        vms.segments = {lan.name: lan for lan in self._lans}
+        vms.segments = run.lans
         vms.launcher = self
         vms.cloud = self.cloud
         vms.phase = None
         vms.pytest_args = self.pytest_args
-
-        # Serially, and before anything spawns: picking a free host
-        # address means binding a port and letting go of it again, so two
-        # guests doing it at once would both be told the same address is
-        # free. **This set is per session**, which is right for one CLI
-        # run and wrong for an MCP server holding several -- see the
-        # design, area 0d.
-        taken: set[str] = set()
-        for vm in self._all.values():
-            vm.resolve_forward(taken)
-        routed = tuple(vm for vm in self._all.values() if vm.spec.uplink_address is not None)
-        for vm in self._all.values():
-            if vm.spec.router:
-                vm.routed = routed
         vms.access = access.write(
-            {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in self._all.items()},
+            {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in run.machines.items()},
             self.out,
         )
-
-        for lan in self._lans:
-            lan.start()
-            if lan.name in self.spec.segments and self.spec.segments[lan.name].capture:
-                await lan.capture()
         self.vms = vms
 
     def _machine(self, one: MachineSpec, lan_fds: dict[str, int] | None) -> Machine:
@@ -602,59 +557,32 @@ class Session:
         It gets the lowest free index, so a terminated instance's MACs and
         addresses come back. nixidae/nixidae#1408.
         """
-        if self._all is None or self.vms is None:
+        if self._run is None or self.vms is None:
             raise SessionError("launch before prepare")
-        if template not in self._templates:
-            raise InstanceError(f"no template {template!r}; the templates are {', '.join(self._templates) or 'none'}")
-        if name in self._all or name in self._templates:
-            raise InstanceError(f"a guest or template is already called {name!r}")
-        index = free_index({vm.spec.index for vm in self._all.values()}, self._instance_base)
-        addresses = {lan: segment.instanceAddresses for lan, segment in self.spec.segments.items()}
-        one = instance_spec(self._templates[template], name, index, addresses, index - self._instance_base)
-        lans = {lan.name: lan for lan in self._lans}
-        members = [(nic.name, nic.segment) for nic in one.interfaces]
-        if one.uplink is not None:
-            members.append(("vec0", one.uplink))
-        lan_fds = {nic: lans[segment].add_member(f"{name}/{nic}") for nic, segment in members}
-        artifacts = self._guest_artifacts(name)
-        (artifacts / "instance.json").write_text(json.dumps(seed(one, template, user_data)))
-        self._all[name] = self._machine(one, lan_fds)
-        self._requires[name] = []
-        self.emit(Kind.BOOT, f"launching {name} from {template}, index {index}", machine=name, template=template)
+        one = self._run.add(template, name)
+        (self._guest_artifacts(name) / "instance.json").write_text(json.dumps(seed(one, template, user_data)))
+        self.emit(Kind.BOOT, f"launching {name} from {template}, index {one.index}", machine=name, template=template)
         await self.ensure([name])
         return self.vms[name]
 
     @property
     def templates(self) -> Mapping[str, MachineSpec]:
         """The run's templates by name, once prepared."""
-        return MappingProxyType(self._templates)
+        return MappingProxyType({}) if self._run is None else self._run.templates
 
     def holds(self, name: str) -> bool:
         """Whether *name* is a launched guest the session still holds, booted or not."""
-        vm = None if self._all is None else self._all.get(name)
-        return vm is not None and vm.spec.index >= self._instance_base
+        return self._run is not None and self._run.holds(name)
 
     async def terminate(self, name: str) -> None:
         """Power off an instance `launch` started and unplug it; its index is free again."""
-        if self._all is None or self.vms is None:
+        if self._run is None or self.vms is None:
             raise SessionError("terminate before prepare")
-        if not self.holds(name):
-            raise InstanceError(f"{name!r} is no instance; only a launched guest is terminated")
-        vm = self._all[name]
+        self._run.instance(name)
         self.emit(Kind.BOOT, f"terminating {name}", machine=name)
         await self.drain()
-        # Shielded: a terminate that a cancel cuts short leaves a guest running and its ports plugged.
-        with anyio.CancelScope(shield=True):
-            await self._shutdown(vm)
-        for lan in self._lans:
-            for member in [m for m in lan.members if m.startswith(f"{name}/")]:
-                lan.remove_member(member)
-        self.vms.pop(name, None)
-        del self._all[name]
-        self._attempts.discard(name)
-        self._starting.pop(name, None)
+        await self._run.terminate(name)
         self._journals.pop(name, None)
-        self._requires.pop(name, None)
 
     async def ensure(self, names: Collection[str]) -> None:
         """Boot *names* and the guests they `require`, unless they are up.
@@ -665,41 +593,19 @@ class Session:
         needed it, so that phase fails and its dependents are skipped.
         """
         vms = self.vms_up
-        if self._all is None:
+        if self._run is None:
             # A session whose guests were handed in, as the unit tests do.
             missing = [name for name in names if name not in vms]
             if missing:
                 raise SessionError(f"no guest {', '.join(missing)}, and nothing to boot it from")
             return
-        wanted = sorted(required(names, self._requires))
-        unknown = [name for name in wanted if name not in self._all]
-        if unknown:
-            raise SessionError(f"no such guest: {', '.join(unknown)}; the guests are {', '.join(self._all)}")
-        mine = [name for name in wanted if name not in self._starting]
-        for name in mine:
-            self._starting[name] = anyio.Event()
-        if mine:
-            self.emit(Kind.BOOT, f"booting {', '.join(mine)}")
-            self._attempts.update(mine)
-            try:
-                # Captured too: passt and the forward resolver say useful
-                # things on the way up, and they say them with `print`.
-                with self._capture():
-                    failures = await _start_all(Machines((name, self._all[name]) for name in mine))
-            finally:
-                for lan in self._lans:
-                    lan.detach([f"{name}/" for name in mine])
-            for name in mine:
-                if name not in failures:
-                    vms[name] = self._all[name]
-                self._starting[name].set()
-            if failures:
-                raise next(iter(failures.values()))
-        for name in wanted:
-            await self._starting[name].wait()
-        down = [name for name in wanted if name not in vms]
-        if down:
-            raise MachineError(f"{', '.join(down)} did not boot")
+        try:
+            # Captured: passt and the forward resolver say useful things
+            # on the way up, and they say them with `print`.
+            with self._capture():
+                await self._run.ensure(names)
+        except RunError as error:
+            raise SessionError(str(error)) from error
 
     async def drain(self) -> None:
         """Emit every journal entry the guests have written since last asked.
@@ -1125,18 +1031,8 @@ class Session:
         """A stopped run has no verdict, so it never passes."""
         return self.stopped is None and passed(self.state)
 
-    async def _shutdown(self, machine: Machine, kill: bool = False) -> None:
-        """Teardown must not fail: a guest that will not stop cleanly is not
-        a reason to leave the others running."""
-        try:
-            await machine.shutdown(kill=kill)
-        except Exception as error:  # noqa: BLE001 -- reported, and the other guests still go down
-            self.emit(
-                Kind.ERROR,
-                f"{machine.name} did not shut down cleanly: {error}",
-                level=Level.ERROR,
-                machine=machine.name,
-            )
+    def _stop_failed(self, name: str, error: Exception) -> None:
+        self.emit(Kind.ERROR, f"{name} did not shut down cleanly: {error}", level=Level.ERROR, machine=name)
 
     async def teardown(self, *, kill: bool = False) -> None:
         """Guests down. Safe to call twice; never called for you.
@@ -1145,22 +1041,16 @@ class Session:
         `Machine.shutdown`.
         """
         await self.cloud.close()
-        async with anyio.create_task_group() as group:
-            for machine in self._attempted().values():
-                group.start_soon(self._shutdown, machine, kill)
+        if self._run is None:
+            await shut_down(self._attempted().values(), self._stop_failed, kill=kill)
+        else:
+            await self._run.teardown(kill=kill)
+            self._run = None
         self.vms = None
-        self._all = None
-        self._attempts = set()
-        self._starting = {}
-        for lan in self._lans:
-            lan.close()
-        self._lans = []
 
     def _attempted(self) -> dict[str, Machine]:
         """Every guest whose boot began, a failed one included."""
-        if self._all is None:
-            return dict(self.vms or {})
-        return {name: vm for name, vm in self._all.items() if name in self._attempts}
+        return dict(self.vms or {}) if self._run is None else self._run.attempted
 
     # ── helpers ────────────────────────────────────────────────────
 
@@ -1178,24 +1068,3 @@ class Session:
         path.mkdir(parents=True, exist_ok=True)
         path.chmod(0o1777)
         return path
-
-
-async def _start_all(vms: Machines) -> dict[str, BaseException]:
-    """Start every guest, and let each settle even if another fails.
-
-    A task group cancels its siblings when one raises, which would leave
-    a guest half-spawned for the teardown to trip over. So each failure
-    is caught where it happens and reported after all of them are done.
-    """
-    failures: dict[str, BaseException] = {}
-
-    async def start(machine: Machine) -> None:
-        try:
-            await machine.start()
-        except BaseException as error:  # noqa: BLE001 -- recorded, then re-raised by the caller
-            failures[machine.name] = error
-
-    async with anyio.create_task_group() as group:
-        for machine in vms.values():
-            group.start_soon(start, machine)
-    return failures
