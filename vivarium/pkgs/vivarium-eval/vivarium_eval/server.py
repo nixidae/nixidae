@@ -46,7 +46,7 @@ from vivarium.control import PARENT, SOCKET, Op, Reply, WatchRefused, request, w
 from vivarium.events import Event, Kind, NotAnEvent
 from vivarium.exits import describe
 from vivarium.journal import Tail
-from vivarium.monitor import LIVE, channel_event, paused_now
+from vivarium.monitor import LIVE, Channel, channel_event, paused_now
 
 from .cli import split_attr
 
@@ -302,7 +302,7 @@ class Runs:
                 async for event in watch(run.socket):
                     if event == LIVE:
                         continue
-                    run.finished = run.finished or event.get("event") == "finished"
+                    run.finished = run.finished or event.get("event") == Channel.FINISHED
                     meta = {key: value for key, value in event.items() if key != "text"}
                     await self.push(event.get("text", ""), meta)
         except WatchRefused:
@@ -317,7 +317,7 @@ class Runs:
             tail = why_it_exited(_read(run.out / "terminal.log"))
             await self.push(
                 f"run exited {run.process.returncode} without a verdict:\n{tail}",
-                {"run": run.id, "event": "exited"},
+                {"run": run.id, "event": Channel.EXITED},
             )
 
     async def _tail(self, run: Run) -> None:

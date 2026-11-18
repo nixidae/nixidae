@@ -40,7 +40,7 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Any, Final
 
@@ -52,17 +52,34 @@ from .exits import Exit
 from .journal import Tail
 from .phases import PhaseState
 
-TERMINAL: Final = frozenset({"finished", "exited"})
+
+class Channel(StrEnum):
+    """What a channel event says happened: its `event` key."""
+
+    PROGRESS = "progress"
+    PAUSED = "paused"
+    READY = "ready"
+    RESUMED = "resumed"
+    FAILED = "failed"
+    FINISHED = "finished"
+    EXITED = "exited"
+    BUILDING = "building"
+    """`vivarium run` started to build one derivation."""
+    BUILDS = "builds"
+    """The build and download counts moved. JSON only."""
+
+
+TERMINAL: Final = frozenset({Channel.FINISHED, Channel.EXITED})
 """The events after which a run sends nothing more."""
 
-QUIET_SKIPS: Final = frozenset({"progress", "resumed", "building", "builds"})
+QUIET_SKIPS: Final = frozenset({Channel.PROGRESS, Channel.RESUMED, Channel.BUILDING, Channel.BUILDS})
 """What `--quiet` leaves out: nobody needs to wake for these."""
 
 LIVE: Final = {"event": "live"}
 """What the server sends after the replayed events. It is not an event and
 is not printed."""
 
-HOLDS: Final = frozenset({"paused", "ready"})
+HOLDS: Final = frozenset({Channel.PAUSED, Channel.READY})
 """The events after which the run waits for someone to act."""
 
 WAIT: Final = 1800.0
@@ -90,29 +107,29 @@ def channel_event(event: Event, run: str) -> tuple[str, dict[str, str]] | None:
     # tells the model not to act on imperative language in it, so what
     # to do next belongs in the server's `instructions`, which it trusts.
     if event.kind is Kind.RESUMED:
-        meta |= {"event": "resumed", "reason": str(data.get("reason", ""))}
+        meta |= {"event": Channel.RESUMED, "reason": str(data.get("reason", ""))}
         return f"resumed, paused {meta['reason']}", meta
     if event.kind is Kind.READY:
-        meta |= {"event": "ready"}
+        meta |= {"event": Channel.READY}
         return "ready; the guests are up until the run is stopped", meta
     if event.kind is Kind.PAUSED:
-        meta |= {"event": "paused", "reason": str(data.get("reason", ""))}
+        meta |= {"event": Channel.PAUSED, "reason": str(data.get("reason", ""))}
         return f"paused {meta['reason']}; the guests are up until the run is resumed or stopped", meta
     # Progress, so a run of many minutes is not silent until it ends:
     # measured, a nixkube run showed the user nothing for its first
     # quarter of an hour. One event per phase boundary, not per line.
     if event.kind is Kind.PHASE_STARTED:
-        meta |= {"event": "progress", "phase": phase, "state": "started"}
+        meta |= {"event": Channel.PROGRESS, "phase": phase, "state": "started"}
         return f"phase {phase} started", meta
     if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.PASSED:
-        meta |= {"event": "progress", "phase": phase, "state": "passed"}
+        meta |= {"event": Channel.PROGRESS, "phase": phase, "state": "passed"}
         return f"phase {phase} passed in {event.seconds or 0:.0f}s", meta
     if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.FAILED:
-        meta |= {"event": "failed", "phase": phase}
+        meta |= {"event": Channel.FAILED, "phase": phase}
         return f"phase {phase} failed: {data.get('error', '')}".strip(), meta
     if event.kind is Kind.RUN_FINISHED:
         passed = bool(data.get("passed"))
-        meta |= {"event": "finished", "passed": "true" if passed else "false"}
+        meta |= {"event": Channel.FINISHED, "passed": "true" if passed else "false"}
         states: dict[str, str] = data.get("states") or {}
         summary = ", ".join(f"{name} {state}" for name, state in states.items())
         if stopped := data.get("stopped"):
@@ -125,29 +142,29 @@ def channel_event(event: Event, run: str) -> tuple[str, dict[str, str]] | None:
 def shown(event: dict[str, Any], *, quiet: bool, as_json: bool = False) -> bool:
     """`builds` is JSON only: one line per download is too many for a
     person, and each `building` line carries the counts."""
-    if event.get("event") == "builds" and not as_json:
+    if event.get("event") == Channel.BUILDS and not as_json:
         return False
     return not (quiet and event.get("event") in QUIET_SKIPS)
 
 
 def status(event: dict[str, Any]) -> Exit | None:
     """The exit status a terminal event means, or `None` for any other."""
-    if event.get("event") == "finished" and event.get("stopped") == "true":
+    if event.get("event") == Channel.FINISHED and event.get("stopped") == "true":
         return Exit.STOPPED
-    if event.get("event") == "finished":
+    if event.get("event") == Channel.FINISHED:
         return Exit.PASSED if event.get("passed") == "true" else Exit.FAILED
-    if event.get("event") == "exited":
+    if event.get("event") == Channel.EXITED:
         return Exit.NO_VERDICT
     return None
 
 
-def held(events: list[dict[str, Any]]) -> str | None:
+def held(events: list[dict[str, Any]]) -> Channel | None:
     """The open hold after these events, `paused` or `ready`: one with no
     `resumed` or verdict after it. `None` while the run runs."""
     for event in reversed(events):
         if event.get("event") in HOLDS:
-            return str(event["event"])
-        if event.get("event") in {"resumed", *TERMINAL}:
+            return Channel(event["event"])
+        if event.get("event") in {Channel.RESUMED, *TERMINAL}:
             return None
     return None
 
@@ -232,7 +249,7 @@ class BuildTally:
         fields: list[Any] = record.get("fields") or []
         if action == PLANNED and kind in self.planned:
             self.planned[kind].update(_store_name(str(path)) for path in fields)
-            return {"run": run, "event": "builds", "text": "planned", **self.counts()}
+            return {"run": run, "event": Channel.BUILDS, "text": "planned", **self.counts()}
         if action == "start" and kind in self.started:
             path = _store_name(str(fields[0])) if fields else str(record.get("text", ""))
             self.started[kind].add(path)
@@ -240,14 +257,14 @@ class BuildTally:
             if kind == BUILD:
                 counts = self.counts()
                 text = f"{record.get('text', '')} ({counts['built']}/{counts['builds']} built)"
-                return {"run": run, "event": "building", "text": text, **counts}
+                return {"run": run, "event": Channel.BUILDING, "text": text, **counts}
             return None
         if action == "stop" and int(record.get("id", 0)) in self.running:
             kind, path = self.running.pop(int(record.get("id", 0)))
             self.done[kind].add(path)
-            return {"run": run, "event": "builds", "text": path, **self.counts()}
+            return {"run": run, "event": Channel.BUILDS, "text": path, **self.counts()}
         if action == "failed":
-            return {"run": run, "event": "exited", "text": f"no run: {record.get('text', '')}"}
+            return {"run": run, "event": Channel.EXITED, "text": f"no run: {record.get('text', '')}"}
         return None
 
 
@@ -299,8 +316,8 @@ async def wait_for_run(out: Path, timeout: float = WAIT, printer: Watch | None =
                         printer.take(event)
             # `up` again: a run can come up and end between the two looks.
             if starter_gone(out) and not await up():
-                if printer is not None and not any(e.get("event") == "exited" for e in printer.seen):
-                    printer.take({"run": out.name, "event": "exited", "text": "run exited before it started"})
+                if printer is not None and not any(e.get("event") == Channel.EXITED for e in printer.seen):
+                    printer.take({"run": out.name, "event": Channel.EXITED, "text": "run exited before it started"})
                 return Arrival.GONE
             await anyio.sleep(0.25)
     return Arrival.NEVER
@@ -332,7 +349,7 @@ class Watch:
             if code is not None:
                 return code
         if self.until_pause and self.live and (hold := held(self.seen)) is not None:
-            return Exit.READY if hold == "ready" else Exit.PAUSED
+            return Exit.READY if hold is Channel.READY else Exit.PAUSED
         return None
 
 
