@@ -41,6 +41,7 @@ of passt and gvproxy. Target: some Gbit/s on dynhetz, unloaded.
 | E7 | our own vhost-user vsock device in the egress, UML router on the stock kernel | works; one flow 13.2-15.3/10.9-12.7 Gbit/s at MTU 65000. Below |
 | E8 | what limits the leg into the guest | the guest's 256 KiB vsock window, not libkrun's muxer; on UML, wakeup preemption, which the relay's yield fixes. Below |
 | E10 | the router as a NixOS guest | UML: 6.4 s and 129 MiB slimmed, against 1.0 s and 36 MiB for busybox. Below |
+| E11 | one VRF per router network, a relay bound to each (nixidae/nixidae#1523) | works; no leak through the router. On macOS the host's shared 127.0.0.1 still joins two networks. Below |
 
 ## E1, 2026-11-16
 
@@ -610,6 +611,55 @@ guest `passt`, two rounds, host load 8-9:
 - On QEMU and krun the vsock uplink is the fastest measured: out of a
   guest about twice passt on QEMU and four times on krun.
 - On UML it is faster out of the guest and slower into it.
+
+## E11, 2026-11-18
+
+`lab/router/vrf.py`, in an unprivileged user and network namespace on
+dynhetz (kernel 7.2.4): the namespace is the router. Two networks, a and
+b, each a VRF with a bridge, one guest namespace on a veth port, its own
+relay and its own egress on unix sockets. The outside (192.0.2.1) is a
+namespace of its own behind `out0` in the main table. The relay takes
+`RELAY_DEVICE` and binds every IP socket to that device
+(`SO_BINDTODEVICE`). Logs: one JSON document per arm.
+
+| probe from guest a | no VRF | VRF, relay bound |
+| --- | --- | --- |
+| TCP, UDP, ICMP echo to the outside | works | works |
+| TCP to its gateway (the host's loopback) | works | works |
+| forward from a's relay to guest a | works | works |
+| TCP to guest b | reaches b | reset |
+| UDP to guest b | reaches b | no answer |
+| ICMP echo to guest b | answered | no answer |
+| forward from a's relay to guest b | reaches b | refused |
+| TCP to its gateway, at b's host forward port on 127.0.0.1 | reaches b | reaches b |
+
+- A VRF runs the prerouting hook a second time, with the VRF as the input
+  device. `redirect` matches on the bridge (`iifname "br-a"`) and works.
+  `tproxy` on the bridge loses its socket: `UdpNoPorts` counts each
+  datagram. `tproxy` on the VRF's pass (`iifname "vrf-a"`) works. One
+  `fwmark 1` rule to one table with `local 0.0.0.0/0 dev lo` serves every
+  VRF, at priority 500 or 2000 (the VRFs' own rule is at 1000). A rule
+  and table per VRF works too. A local route per VRF device in one table
+  does not: the second one is refused ("File exists").
+- A relay bound to no device, with `tcp`, `udp` and `raw_l3mdev_accept`
+  set: its UDP replies and its forwards fail with "Network is
+  unreachable", because their sockets route in the main table. Every
+  socket of the relay must bind to its VRF. `ip vrf exec` would do the
+  same through a cgroup BPF program; not measured, and a container router
+  cannot load one.
+- The last row is the host, not the router. The lab's forwards bind
+  127.0.0.1, and a's egress maps a's gateway to 127.0.0.1, so a reaches
+  b's forward. On Linux the runner gives each guest's forwards their own
+  127.0.0.x: in `checks.router` by hand, `a` to the gateway at `b`'s port
+  got a reset, because `b`'s forward is on 127.0.0.2. On macOS every
+  forward shares 127.0.0.1 (`SHARED_LOOPBACK`), and the path is open.
+  Only the egress can refuse it.
+- Lab traps: `br_netfilter` was loaded on the host, so a new namespace
+  starts with `bridge-nf-call-iptables=1`; with it, `tproxy` loses its
+  socket even with no VRF. The router guest sets it to 0. An outside
+  address local to the router made the relay's per-flow UDP bind fail.
+- Not measured here: IPv6, and networkd's DHCP server and router
+  advertisements on a bridge inside a VRF. Both need the guest.
 
 ## Also measured
 
