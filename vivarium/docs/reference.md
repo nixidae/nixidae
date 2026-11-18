@@ -502,6 +502,55 @@ variants are deliberately **not** checks, until we know whether our CI
 runners have `/dev/kvm`: a builder without it does not fail such a test,
 it refuses to build it — which would stop CI rather than report anything.
 
+### Where each backend and uplink runs
+
+A run starts in one of two ways. **By hand** is a `.driver` or
+`vivarium run`, as the user who runs it. **In a build** is
+`nix build` of a check: the attempt derivation, in the daemon's sandbox,
+with no network. A cell says "yes" only where a check passed that way.
+Each other cell names what stops the run.
+
+| backend | Linux, by hand | Linux, in a build | macOS, by hand | macOS, in a build |
+| --- | --- | --- | --- | --- |
+| `uml` | yes, needs nothing | yes, asks for no feature | no: UML is Linux | no |
+| `qemu` | `/dev/kvm` | `kvm`, and `uid-range` for a NixOS guest | no: `accel=kvm` only | no |
+| `krun` | `/dev/kvm` | `kvm`, and `uid-range` for a NixOS guest | yes, on HVF (an M-series Mac) | `apple-virt`; not measured |
+| `container` | a user namespace, 65536 subordinate ids, a delegable cgroup (`container.probe()`) | `uid-range`, and `/dev/net` in `extra-sandbox-paths` | no | no |
+
+**No check has run in a build on macOS yet.** There a krun check asks
+the daemon for `apple-virt`, which Nix offers on a Mac that can run
+virtual machines, and the attempt may bind 127.0.0.1. Every macOS
+result here comes from a run by hand (nixidae/nixidae#1163).
+
+The uplink is the guest's `vec0` (`vivarium.uplink.proxy`):
+
+| uplink | backends | Linux, by hand | Linux, in a build | macOS, by hand |
+| --- | --- | --- | --- | --- |
+| `passt`, deprecated | `uml`, `qemu`, `krun`; pasta on `container` | yes | yes | no: macOS has no passt |
+| `gvproxy`, deprecated | `krun` | yes | yes (`uplink-iperf`) | yes |
+| `vsock` | `uml`, `qemu`, `krun`; two unix sockets on `container` | yes | yes (`lan-vsock` on `uml`, `krun` and `container`) | yes (`lan-vsock`, `forward-vsock`) |
+| `router` | guests on any backend; the router on `uml`, `qemu` or `krun` | yes | yes (`router`, `lan-router`, `forward-router`) | yes, a krun router |
+| `uplink.segment` | `uml`, `qemu` | yes | yes (`oob`, `oob-uml`) | not measured |
+
+What a guest gets when its run sets nothing:
+
+- A NixOS guest on `qemu`, `krun` or `container`: `vsock`.
+- A NixOS guest on `uml`: `passt`.
+- A guest that is not NixOS: `passt`, unless its run has a router.
+- A run gets a router when one of its guests asks for one
+  (`vivarium.uplink.wantsRouter`), and then every guest of the run goes
+  behind it. A cloud image (`vivarium.kinds.image`) and RouterOS ask,
+  unless `uplink.segment` puts their uplink elsewhere; `checks.suse` and
+  `checks.routeros-router` measure them. VyOS, dinix, SONiC and an
+  appliance do not ask.
+- On macOS, a krun run gets a router. With `router.enable = false`, each
+  guest takes `vsock`.
+
+A run by hand reaches the internet; a run in a build does not
+(see "Running with no internet"). A container guest's `vsock` uplink
+needs the host to load nftables' tproxy and socket modules on demand
+(nixidae/nixidae#1524).
+
 ### A guest's screen
 
 `vivarium.display.enable` gives a QEMU guest a `virtio-gpu` screen, an

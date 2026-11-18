@@ -53,6 +53,9 @@ skill, `share/skills/vivarium/vivarium`.
 
 ## Run a test on macOS
 
+The reference's "Where each backend and uplink runs" says what runs on
+macOS and on Linux, by hand and in a build.
+
 A Mac runs krun guests behind a router guest: on macOS, a run that
 leaves `router.enable` null gets one. A run that sets `router.enable = false` gives each
 guest a vsock uplink of its own instead. The guests are Linux on the
