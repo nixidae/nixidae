@@ -451,6 +451,7 @@ let
       "checks.nixos-tests.oh-my-zsh"
       "checks.nixos-tests.systemd-no-tainted"
       "checks.suse"
+      "checks.suse-router"
     ];
     backends = [
       "checks.store-view"
