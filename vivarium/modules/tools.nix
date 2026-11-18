@@ -21,6 +21,7 @@ in
     }
   );
   crun = lib.getExe pkgs.crun;
+  swtpm = lib.getExe pkgs.swtpm;
   setpriv = "${lib.getBin pkgs.util-linux}/bin/setpriv";
   # nixos-test's OCR packages, for the same reading of the same screens.
   tesseract = "${pkgs.tesseract4}/bin/tesseract";

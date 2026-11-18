@@ -37,7 +37,9 @@ let
   # libkrun 2.0 describes an x86 guest's devices in ACPI on request, and
   # ends on the guest's S5. Its ACPI tables are x86 only.
   krunAcpi = krun && pkgs.stdenv.hostPlatform.isx86_64;
-  ovmf = if cfg.secureBoot then pkgs.OVMFFull else pkgs.OVMF;
+  # OVMF measures the boot into a TPM only when built with `tpmSupport`,
+  # and OVMFFull is the build with it that the binary cache holds.
+  ovmf = if cfg.secureBoot || cfg.tpm.enable then pkgs.OVMFFull else pkgs.OVMF;
 
   hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
 
@@ -100,7 +102,8 @@ lib.mkIf
               passt
               ;
           }
-          // lib.optionalAttrs cfg.display.enable { inherit (tools) tesseract magick; };
+          // lib.optionalAttrs cfg.display.enable { inherit (tools) tesseract magick; }
+          // lib.optionalAttrs cfg.tpm.enable { inherit (tools) swtpm; };
         };
 
     /*

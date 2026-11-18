@@ -202,6 +202,8 @@ class QemuConfig:
     """None boots the NixOS system through virtiofs."""
     egress: Path | None = None
     """The router's host half, which serves its vhost-user vsock device."""
+    swtpm: Path | None = None
+    """A TPM 2.0 for the guest: `vivarium.tpm`."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> QemuConfig:
@@ -209,7 +211,7 @@ class QemuConfig:
             spec,
             "qemu",
             frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}),
-            frozenset({"tesseract", "magick", "disk", "egress"}),
+            frozenset({"tesseract", "magick", "disk", "egress", "swtpm"}),
         )
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
@@ -224,6 +226,7 @@ class QemuConfig:
             ocr=(tesseract, magick) if tesseract is not None and magick is not None else None,
             disk=QemuDisk.of(f"{spec.name}: vivarium.launch.config.disk", config["disk"]) if "disk" in config else None,
             egress=_maybe(config, "egress"),
+            swtpm=_maybe(config, "swtpm"),
         )
 
 
@@ -1013,6 +1016,12 @@ class Qemu:
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
 
+        tpm_fd: int | None = None
+        if config.swtpm is not None:
+            tpm_fd, swtpm = self._swtpm(config.swtpm, rundir)
+            helpers.append(swtpm)
+            opened.append(tpm_fd)
+
         passt_fd: int | None = None
         if spec.vsock:
             # No vec0 from the host: the guest reaches it over vsock, a
@@ -1132,6 +1141,15 @@ class Qemu:
         if firmware is not None and firmware.smm:
             argv[argv.index("-machine") + 1] += ",smm=on"
             argv += ["-global", "driver=cfi.pflash01,property=secure,value=on"]
+        if tpm_fd is not None:
+            argv += [
+                "-chardev",
+                f"socket,id=tpm,fd={tpm_fd}",
+                "-tpmdev",
+                "emulator,id=tpm,chardev=tpm",
+                "-device",
+                "tpm-tis,tpmdev=tpm",
+            ]
         if art_fd is not None:
             argv += [
                 "-chardev",
@@ -1143,7 +1161,7 @@ class Qemu:
 
         pass_fds = tuple(
             fd
-            for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, monitor_fd, *disk_fds)
+            for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, tpm_fd, monitor_fd, *disk_fds)
             if fd is not None
         )
         return Launch(
@@ -1420,6 +1438,44 @@ class Qemu:
             qemu_end.close()
             raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{_tail(log)}")
         # Kept open until the guest has spawned; Machine closes it after.
+        return qemu_end.detach(), proc
+
+    @staticmethod
+    def _swtpm(swtpm: Path, rundir: Path) -> tuple[int, subprocess.Popen[bytes]]:
+        """Start a TPM 2.0 on one end of a socketpair; return QEMU's end.
+
+        One swtpm for each boot, over a state directory that lasts the run.
+        So a reboot resets the PCRs and keeps the TPM's NV storage, as a
+        power cycle does. swtpm ends when QEMU closes its end.
+        """
+        state = rundir / "tpm"
+        state.mkdir(mode=0o700, exist_ok=True)
+        qemu_end, tpm_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        log = rundir / "swtpm.log"
+        with log.open("ab") as handle:
+            proc = subprocess.Popen(
+                [
+                    str(swtpm),
+                    "socket",
+                    "--tpm2",
+                    "--tpmstate",
+                    f"dir={state}",
+                    "--ctrl",
+                    f"type=unixio,clientfd={tpm_end.fileno()},terminate",
+                ],
+                stdin=subprocess.DEVNULL,
+                pass_fds=(tpm_end.fileno(),),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                preexec_fn=die_with_parent,
+            )
+        tpm_end.close()
+        # As passt above: swtpm fails at startup or not at all.
+        time.sleep(0.05)
+        if proc.poll() is not None:
+            qemu_end.close()
+            raise BackendError(f"swtpm exited ({proc.returncode}) instead of serving the TPM:\n{_tail(log)}")
         return qemu_end.detach(), proc
 
 

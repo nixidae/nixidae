@@ -482,6 +482,19 @@ in
       '';
     };
 
+    tpm.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Give the guest a TPM 2.0: swtpm, as a `tpm-tis` device. QEMU
+        backend only.
+
+        The TPM's state lasts as long as the run: a reboot resets its
+        PCRs and keeps what the guest stored in it. With `vivarium.efi`,
+        the guest gets OVMFFull, which measures the boot into the TPM.
+      '';
+    };
+
     display = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -1119,6 +1132,11 @@ in
           vivarium.efi needs `backend = "qemu"`: OVMF is QEMU's firmware, and a
           ${config.vivarium.backend} guest boots without firmware.
         '';
+      }
+      {
+        assertion =
+          config.vivarium.tpm.enable -> config.vivarium.backend == "qemu" && config.vivarium.kind == "nixos";
+        message = "vivarium.tpm needs `backend = \"qemu\"` and a NixOS guest: swtpm is a QEMU device.";
       }
       {
         assertion = config.vivarium.secureBoot -> config.vivarium.efi;
