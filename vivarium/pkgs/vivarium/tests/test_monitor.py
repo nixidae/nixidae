@@ -12,6 +12,7 @@ from typing import Any
 import anyio
 import pytest
 from vivarium.control import RUN_FILE, SOCKET, reachable
+from vivarium.events import Event, Kind, Level
 from vivarium.exits import Exit
 from vivarium.monitor import (
     BUILD,
@@ -31,6 +32,10 @@ from vivarium.monitor import (
     status,
     wait_for_run,
 )
+
+
+def _event(kind: Kind, **data: object) -> Event:
+    return Event(at=2.0, kind=kind, level=Level.INFO, text=str(kind), data=data)
 
 
 class TestLine:
@@ -65,7 +70,7 @@ class TestStatus:
         assert status(event) == code
 
     def test_a_stopped_run_reads_stopped_not_failed(self) -> None:
-        verdict = {"kind": "run_finished", "data": {"passed": False, "stopped": "ctl stop", "states": {"x": "pending"}}}
+        verdict = _event(Kind.RUN_FINISHED, passed=False, stopped="ctl stop", states={"x": "pending"})
         pushed = channel_event(verdict, "r")
         assert pushed is not None
         text, meta = pushed
@@ -80,9 +85,8 @@ PASSED = {"run": "r", "event": "finished", "passed": "true", "text": "run passed
 READY_EVENT = {"run": "r", "event": "ready", "text": "ready; the guests are up until the run is stopped"}
 
 
-def test_a_ready_note_is_the_ready_event() -> None:
-    note = {"kind": "note", "data": {"reason": "ready", "ready": True}}
-    assert channel_event(note, "r") == (
+def test_ready_is_the_ready_event() -> None:
+    assert channel_event(_event(Kind.READY, socket="/o/control.sock"), "r") == (
         "ready; the guests are up until the run is stopped",
         {"run": "r", "event": "ready"},
     )
@@ -313,10 +317,12 @@ def _write(out: Path, *events: dict[str, Any]) -> None:
             file.write(json.dumps(event) + "\n")
 
 
-STARTED = {"kind": "phase_started", "phase": "boot"}
-NOTE_PAUSED = {"kind": "note", "data": {"reason": "after boot failed"}}
-NOTE_RESUMED = {"kind": "note", "data": {"resumed": "after boot failed"}}
-VERDICT = {"kind": "run_finished", "data": {"passed": False, "states": {"boot": "failed"}}}
+STARTED = Event(at=1.0, kind=Kind.PHASE_STARTED, level=Level.INFO, text="boot started", phase="boot").as_dict()
+PAUSED = _event(Kind.PAUSED, reason="after boot failed").as_dict()
+RESUMED_LINE = _event(Kind.RESUMED, reason="after boot failed").as_dict()
+VERDICT = _event(Kind.RUN_FINISHED, passed=False, states={"boot": "failed"}).as_dict()
+NOTE_PAUSED = {"at": 2.0, "kind": "note", "level": 40, "text": "paused", "data": {"reason": "after boot failed"}}
+"""A pause as a runner before `Kind.PAUSED` wrote it."""
 
 
 class TestFollowFile:
@@ -343,7 +349,7 @@ class TestFollowFile:
     @pytest.mark.anyio
     async def test_it_waits_while_the_run_is_up(self, tmp_path: Path) -> None:
         (tmp_path / "control.sock").touch()
-        _write(tmp_path, STARTED, NOTE_PAUSED)
+        _write(tmp_path, STARTED, PAUSED)
         async with anyio.create_task_group() as group:
             codes: list[int] = []
 
@@ -354,7 +360,7 @@ class TestFollowFile:
             await anyio.sleep(0.8)
             # The pause alone ends nothing with --through-pauses.
             assert codes == []
-            _write(tmp_path, NOTE_RESUMED, VERDICT)
+            _write(tmp_path, RESUMED_LINE, VERDICT)
             (tmp_path / "control.sock").unlink()
             with anyio.fail_after(5):
                 while not codes:
@@ -364,14 +370,28 @@ class TestFollowFile:
     @pytest.mark.anyio
     async def test_it_exits_at_an_open_pause_by_default(self, tmp_path: Path) -> None:
         (tmp_path / "control.sock").touch()
+        _write(tmp_path, STARTED, PAUSED)
+        with anyio.fail_after(5):
+            assert await follow_file(tmp_path, grace=0) == Exit.PAUSED
+
+    @pytest.mark.anyio
+    async def test_an_older_runs_pause_still_counts(self, tmp_path: Path) -> None:
+        (tmp_path / "control.sock").touch()
         _write(tmp_path, STARTED, NOTE_PAUSED)
         with anyio.fail_after(5):
             assert await follow_file(tmp_path, grace=0) == Exit.PAUSED
 
     @pytest.mark.anyio
+    async def test_a_line_it_cannot_read_is_passed_over(self, tmp_path: Path) -> None:
+        """A newer runner's kind, or a damaged line, does not end the monitor."""
+        _write(tmp_path, STARTED, {**STARTED, "kind": "from_the_future"}, {"kind": "phase_started"}, VERDICT)
+        with anyio.fail_after(5):
+            assert await follow_file(tmp_path, grace=0) == Exit.FAILED
+
+    @pytest.mark.anyio
     async def test_until_pause_runs_on_past_a_closed_pause(self, tmp_path: Path) -> None:
         (tmp_path / "control.sock").touch()
-        _write(tmp_path, STARTED, NOTE_PAUSED, NOTE_RESUMED)
+        _write(tmp_path, STARTED, PAUSED, RESUMED_LINE)
         with anyio.move_on_after(0.8) as scope:
             await follow_file(tmp_path, grace=0, until_pause=True)
         assert scope.cancelled_caught

@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 
 import anyio
 
-from .events import Kind
 from .monitor import LIVE, channel_event
 
 if TYPE_CHECKING:
@@ -32,9 +31,6 @@ if TYPE_CHECKING:
 
 Item = dict[str, str]
 """One channel event as the monitor reads it: its meta keys and `text`."""
-
-KINDS = frozenset({Kind.NOTE, Kind.PHASE_STARTED, Kind.PHASE_FINISHED, Kind.RUN_FINISHED})
-"""The kinds `channel_event` can pick; the rest cost nothing here."""
 
 
 class Feed:
@@ -51,9 +47,7 @@ class Feed:
         self._thread = threading.get_ident()
 
     def emit(self, event: Event) -> None:
-        if event.kind not in KINDS:
-            return
-        pushed = channel_event(event.as_dict(), self.run)
+        pushed = channel_event(event, self.run)
         if pushed is None:
             return
         item = {**pushed[1], "text": pushed[0]}

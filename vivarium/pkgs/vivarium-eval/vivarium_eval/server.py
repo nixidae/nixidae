@@ -43,6 +43,7 @@ from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
 from vivarium.control import PARENT, SOCKET, Op, Reply, WatchRefused, request, watch
+from vivarium.events import Event, Kind, NotAnEvent
 from vivarium.exits import describe
 from vivarium.journal import Tail
 from vivarium.monitor import LIVE, channel_event, paused_now
@@ -96,7 +97,7 @@ tears the guests down.
 # ── pure ────────────────────────────────────────────────────────────
 
 
-class Event(TypedDict, total=False):
+class EventLine(TypedDict, total=False):
     """One line of `events.jsonl`. `data` has a different shape for each kind."""
 
     kind: str
@@ -116,12 +117,12 @@ def select(
     case: str | None = None,
     contains: str | None = None,
     limit: int = 50,
-) -> list[Event]:
+) -> list[EventLine]:
     """The last `limit` events that match every filter given."""
-    found: list[Event] = []
+    found: list[EventLine] = []
     for line in lines:
         try:
-            event: Event = json.loads(line)
+            event: EventLine = json.loads(line)
         except json.JSONDecodeError:
             continue
         data = event.get("data") or {}
@@ -326,10 +327,10 @@ class Runs:
         while True:
             for line in await tail.read():
                 try:
-                    event: dict[str, Any] = json.loads(line)
-                except json.JSONDecodeError:
+                    event = Event.from_dict(json.loads(line))
+                except (json.JSONDecodeError, NotAnEvent):
                     continue
-                run.finished = run.finished or event.get("kind") == "run_finished"
+                run.finished = run.finished or event.kind is Kind.RUN_FINISHED
                 pushed = channel_event(event, run.id)
                 if pushed is not None:
                     await self.push(*pushed)
@@ -663,7 +664,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         case: str | None = None,
         contains: str | None = None,
         limit: int = 50,
-    ) -> dict[str, list[Event]]:
+    ) -> dict[str, list[EventLine]]:
         """The run's events, newest last, filtered. `kind="journal", machine="cp",
         unit="kubelet.service"` is one service on one guest; `kind="case"` is
         each pytest test; `kind="error"` is every traceback."""

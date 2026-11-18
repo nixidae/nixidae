@@ -47,8 +47,10 @@ from typing import Any, Final
 import anyio
 
 from .control import RUN_FILE, SOCKET, watch
+from .events import Event, Kind, NotAnEvent
 from .exits import Exit
 from .journal import Tail
+from .phases import PhaseState
 
 TERMINAL: Final = frozenset({"finished", "exited"})
 """The events after which a run sends nothing more."""
@@ -73,7 +75,7 @@ GRACE: Final = 10.0
 the run as gone. The run binds it moments after `events.jsonl` starts."""
 
 
-def channel_event(event: dict[str, Any], run: str) -> tuple[str, dict[str, str]] | None:
+def channel_event(event: Event, run: str) -> tuple[str, dict[str, str]] | None:
     """What of the run's event stream is worth interrupting Claude for.
 
     A pause, a failed phase and the verdict. Everything else stays in
@@ -81,37 +83,34 @@ def channel_event(event: dict[str, Any], run: str) -> tuple[str, dict[str, str]]
     context in the conversation, and a journal line each is a flood.
     Meta keys are identifiers only; Claude Code drops any other key.
     """
-    kind = event.get("kind")
-    data: dict[str, Any] = event.get("data") or {}
+    data = event.data
+    phase = event.phase or ""
     meta = {"run": run}
     # Facts only. Claude Code frames channel content as untrusted and
     # tells the model not to act on imperative language in it, so what
     # to do next belongs in the server's `instructions`, which it trusts.
-    if kind == "note" and "resumed" in data:
-        meta |= {"event": "resumed", "reason": str(data["resumed"])}
-        return f"resumed, paused {data['resumed']}", meta
-    if kind == "note" and data.get("ready"):
+    if event.kind is Kind.RESUMED:
+        meta |= {"event": "resumed", "reason": str(data.get("reason", ""))}
+        return f"resumed, paused {meta['reason']}", meta
+    if event.kind is Kind.READY:
         meta |= {"event": "ready"}
         return "ready; the guests are up until the run is stopped", meta
-    if kind == "note" and "reason" in data:
-        meta |= {"event": "paused", "reason": str(data["reason"])}
-        return f"paused {data['reason']}; the guests are up until the run is resumed or stopped", meta
+    if event.kind is Kind.PAUSED:
+        meta |= {"event": "paused", "reason": str(data.get("reason", ""))}
+        return f"paused {meta['reason']}; the guests are up until the run is resumed or stopped", meta
     # Progress, so a run of many minutes is not silent until it ends:
     # measured, a nixkube run showed the user nothing for its first
     # quarter of an hour. One event per phase boundary, not per line.
-    if kind == "phase_started":
-        phase = str(event.get("phase", ""))
+    if event.kind is Kind.PHASE_STARTED:
         meta |= {"event": "progress", "phase": phase, "state": "started"}
         return f"phase {phase} started", meta
-    if kind == "phase_finished" and data.get("state") == "passed":
-        phase = str(event.get("phase", ""))
+    if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.PASSED:
         meta |= {"event": "progress", "phase": phase, "state": "passed"}
-        return f"phase {phase} passed in {event.get('seconds', 0):.0f}s", meta
-    if kind == "phase_finished" and data.get("state") == "failed":
-        phase = str(event.get("phase", ""))
+        return f"phase {phase} passed in {event.seconds or 0:.0f}s", meta
+    if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.FAILED:
         meta |= {"event": "failed", "phase": phase}
         return f"phase {phase} failed: {data.get('error', '')}".strip(), meta
-    if kind == "run_finished":
+    if event.kind is Kind.RUN_FINISHED:
         passed = bool(data.get("passed"))
         meta |= {"event": "finished", "passed": "true" if passed else "false"}
         states: dict[str, str] = data.get("states") or {}
@@ -366,8 +365,8 @@ async def follow_file(out: Path, *, grace: float = GRACE, **options: bool) -> Ex
         was_up = was_up or up
         for raw in await tail.read():
             try:
-                pushed = channel_event(json.loads(raw), out.name)
-            except json.JSONDecodeError:
+                pushed = channel_event(Event.from_dict(json.loads(raw)), out.name)
+            except (json.JSONDecodeError, NotAnEvent):
                 continue
             if pushed is not None:
                 code = printer.take({**pushed[1], "text": pushed[0]})

@@ -667,16 +667,14 @@ class Controller:
         self._bind_guests()
         if reason == READY:
             self.session.emit(
-                Kind.NOTE,
+                Kind.READY,
                 "ready; the guests stay up until the run is stopped",
                 level=Level.ERROR,
-                reason=reason,
-                ready=True,
                 socket=str(self.path),
             )
         else:
             self.session.emit(
-                Kind.NOTE,
+                Kind.PAUSED,
                 f"paused {reason}; the guests stay up until the run is resumed",
                 level=Level.ERROR,
                 reason=reason,
@@ -689,7 +687,7 @@ class Controller:
         finally:
             self._resume = None
             self._pause = None
-        self.session.emit(Kind.NOTE, f"resumed, paused {reason}", resumed=reason)
+        self.session.emit(Kind.RESUMED, f"resumed, paused {reason}", reason=reason)
 
     def announce(self, level: Level = Level.INFO) -> None:
         """The command lines that reach this run, one event each."""

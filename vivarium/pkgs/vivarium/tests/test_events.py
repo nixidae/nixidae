@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
-from vivarium.events import Event, Kind, Level, junit, render, wanted
+from vivarium.events import Event, Kind, Level, NotAnEvent, junit, render, wanted
 from vivarium.sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 
 if TYPE_CHECKING:
@@ -112,6 +112,50 @@ class TestAnEventIsNotALogLine:
         one = event(Kind.NOTE)
         with pytest.raises(dataclasses.FrozenInstanceError):
             one.text = "tampered"  # type: ignore[misc]  # frozen on purpose: this test checks the freeze
+
+
+class TestFromDict:
+    def test_it_reads_what_as_dict_wrote(self) -> None:
+        written = Event(
+            at=1.5, kind=Kind.PAUSED, level=Level.ERROR, text="paused", phase="p", seconds=0.25, data={"reason": "x"}
+        )
+        assert Event.from_dict(json.loads(written.as_json())) == written
+
+    @pytest.mark.parametrize(
+        ("data", "kind", "read"),
+        [
+            (
+                {"reason": "after boot failed", "socket": "s"},
+                Kind.PAUSED,
+                {"reason": "after boot failed", "socket": "s"},
+            ),
+            ({"resumed": "after boot failed"}, Kind.RESUMED, {"reason": "after boot failed"}),
+            ({"reason": "ready", "ready": True, "socket": "s"}, Kind.READY, {"socket": "s"}),
+            ({"op": "exec"}, Kind.NOTE, {"op": "exec"}),
+        ],
+    )
+    def test_an_older_runs_hold_reads_as_its_kind(self, data: dict[str, Any], kind: Kind, read: dict[str, Any]) -> None:
+        """A runner before `Kind.PAUSED` wrote each hold as a note."""
+        event = Event.from_dict({"at": 1.0, "kind": "note", "level": 40, "text": "t", "data": data})
+        assert (event.kind, event.data) == (kind, read)
+
+    def test_only_a_note_is_read_as_a_hold(self) -> None:
+        """A skipped phase carries a `reason` too."""
+        body = {"at": 1.0, "kind": "phase_finished", "level": 30, "text": "t", "data": {"reason": "a failed"}}
+        assert Event.from_dict(body).kind is Kind.PHASE_FINISHED
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"at": 1.0, "kind": "from_the_future", "level": 30, "text": "t"},
+            {"kind": "note", "level": 30, "text": "t"},
+            {"at": 1.0, "kind": "note", "level": 31, "text": "t"},
+            ["a", "list"],
+        ],
+    )
+    def test_anything_else_is_not_an_event(self, body: Any) -> None:  # Any: a JSON line of any shape
+        with pytest.raises(NotAnEvent):
+            Event.from_dict(body)
 
 
 class TestJunit:

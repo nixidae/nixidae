@@ -20,7 +20,7 @@ on `cp` take" without anybody parsing a prefix out of a string.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -78,6 +78,18 @@ class Kind(StrEnum):
     NOTE = "note"
     """The runner talking about itself."""
 
+    PAUSED = "paused"
+    """The drive holds until a client says `continue`. `data` carries
+    `reason` (`after cases failed`, `before check`) and `socket`."""
+
+    READY = "ready"
+    """An environment is up and holds until it is stopped. `data` carries
+    `socket`."""
+
+    RESUMED = "resumed"
+    """A pause or a ready hold ended. `data` carries the `reason` of the
+    hold it ends."""
+
     ERROR = "error"
 
 
@@ -102,6 +114,31 @@ class Event:
     def as_json(self) -> str:
         return json.dumps(self.as_dict())
 
+    @classmethod
+    def from_dict(cls, body: Any) -> Event:  # Any: one parsed JSON line, of any shape
+        """The event `as_dict` wrote, or `NotAnEvent`.
+
+        A runner before `PAUSED`, `READY` and `RESUMED` wrote each as a
+        `NOTE` with a `reason`, `ready` or `resumed` key. Such a line reads
+        as the kind it means, so `events.jsonl` of an older run still
+        shows its pauses.
+        """
+        try:
+            seconds = body.get("seconds")
+            event = cls(
+                at=float(body["at"]),
+                kind=Kind(body["kind"]),
+                level=Level(int(body["level"])),
+                text=str(body["text"]),
+                machine=body.get("machine"),
+                phase=body.get("phase"),
+                seconds=None if seconds is None else float(seconds),
+                data=dict(body.get("data") or {}),
+            )
+        except (AttributeError, KeyError, TypeError, ValueError) as error:
+            raise NotAnEvent(f"not an event: {error!r}") from error
+        return _from_note(event) if event.kind is Kind.NOTE else event
+
     def as_dict(self) -> dict[str, Any]:  # Any: the JSON document `events.jsonl` holds
         body: dict[str, Any] = {
             "at": round(self.at, 3),
@@ -118,6 +155,27 @@ class Event:
         if self.data:
             body["data"] = self.data
         return body
+
+
+class NotAnEvent(ValueError):
+    """A line of `events.jsonl` that `Event.from_dict` cannot read: damaged,
+    or written by a newer runner with a kind this one lacks."""
+
+
+def _from_note(event: Event) -> Event:
+    """A hold written as a `NOTE`, as the kind it means. Ready first: that
+    note carries a `reason` too."""
+    data = dict(event.data)
+    if data.get("ready"):
+        del data["ready"]
+        data.pop("reason", None)
+        return replace(event, kind=Kind.READY, data=data)
+    if "resumed" in data:
+        data["reason"] = data.pop("resumed")
+        return replace(event, kind=Kind.RESUMED, data=data)
+    if "reason" in data:
+        return replace(event, kind=Kind.PAUSED)
+    return event
 
 
 def wanted(event: Event, level: Level) -> bool:

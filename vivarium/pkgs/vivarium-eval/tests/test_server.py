@@ -14,6 +14,7 @@ import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import ImageContent, JSONRPCNotification, TextContent
 from vivarium.control import PARENT, Op, Reply
+from vivarium.events import Event, Kind, Level
 from vivarium.monitor import LIVE, channel_event
 from vivarium_eval import server as server_module
 from vivarium_eval.cli import explain
@@ -49,13 +50,13 @@ class TestAnEvaluationError:
         assert why_it_exited(output).splitlines()[-1] == "line 39"
 
 
-def event(kind: str, **fields: object) -> dict[str, Any]:
-    return {"kind": kind, **fields}
+def event(kind: Kind, text: str = "", **fields: Any) -> Event:  # Any: Event's own keyword arguments
+    return Event(at=0.0, kind=kind, level=Level.INFO, text=text, **fields)
 
 
 class TestChannelEvent:
     def test_a_pause(self) -> None:
-        content, meta = channel_event(event("note", text="paused", data={"reason": "after cases failed"}), "r1") or (
+        content, meta = channel_event(event(Kind.PAUSED, "paused", data={"reason": "after cases failed"}), "r1") or (
             "",
             {},
         )
@@ -63,19 +64,21 @@ class TestChannelEvent:
         assert "guests are up" in content
 
     def test_a_resume(self) -> None:
-        pushed = channel_event(event("note", text="resumed", data={"resumed": "after cases failed"}), "r1")
+        pushed = channel_event(event(Kind.RESUMED, "resumed", data={"reason": "after cases failed"}), "r1")
         assert pushed == (
             "resumed, paused after cases failed",
             {"run": "r1", "event": "resumed", "reason": "after cases failed"},
         )
 
     def test_a_failed_phase(self) -> None:
-        pushed = channel_event(event("phase_finished", phase="cases", data={"state": "failed", "error": "boom"}), "r1")
+        pushed = channel_event(
+            event(Kind.PHASE_FINISHED, phase="cases", data={"state": "failed", "error": "boom"}), "r1"
+        )
         assert pushed == ("phase cases failed: boom", {"run": "r1", "event": "failed", "phase": "cases"})
 
     def test_the_verdict(self) -> None:
         pushed = channel_event(
-            event("run_finished", data={"passed": False, "states": {"boot": "passed", "cases": "failed"}}),
+            event(Kind.RUN_FINISHED, data={"passed": False, "states": {"boot": "passed", "cases": "failed"}}),
             "r1",
         )
         assert pushed == (
@@ -84,11 +87,13 @@ class TestChannelEvent:
         )
 
     def test_progress_at_each_phase_boundary(self) -> None:
-        assert channel_event(event("phase_started", phase="deploy"), "r1") == (
+        assert channel_event(event(Kind.PHASE_STARTED, phase="deploy"), "r1") == (
             "phase deploy started",
             {"run": "r1", "event": "progress", "phase": "deploy", "state": "started"},
         )
-        assert channel_event(event("phase_finished", phase="deploy", seconds=12.4, data={"state": "passed"}), "r1") == (
+        assert channel_event(
+            event(Kind.PHASE_FINISHED, phase="deploy", seconds=12.4, data={"state": "passed"}), "r1"
+        ) == (
             "phase deploy passed in 12s",
             {"run": "r1", "event": "progress", "phase": "deploy", "state": "passed"},
         )
@@ -96,33 +101,33 @@ class TestChannelEvent:
     @pytest.mark.parametrize(
         "quiet",
         [
-            event("journal", text="Started"),
-            event("phase_finished", data={"state": "skipped"}),
-            event("note", text="control: exec", data={"op": "exec"}),
+            event(Kind.JOURNAL, "Started"),
+            event(Kind.PHASE_FINISHED, data={"state": "skipped"}),
+            event(Kind.NOTE, "control: exec", data={"op": "exec"}),
         ],
     )
-    def test_the_rest_stays_in_the_file(self, quiet: dict[str, Any]) -> None:
+    def test_the_rest_stays_in_the_file(self, quiet: Event) -> None:
         assert channel_event(quiet, "r1") is None
 
     def test_every_meta_key_is_an_identifier(self) -> None:
         """Claude Code drops a key with anything but letters, digits and _."""
         for pushed in (
-            channel_event(event("note", data={"reason": "x"}), "r"),
-            channel_event(event("phase_finished", phase="p", data={"state": "failed"}), "r"),
-            channel_event(event("run_finished", data={"passed": True}), "r"),
+            channel_event(event(Kind.PAUSED, data={"reason": "x"}), "r"),
+            channel_event(event(Kind.PHASE_FINISHED, phase="p", data={"state": "failed"}), "r"),
+            channel_event(event(Kind.RUN_FINISHED, data={"passed": True}), "r"),
         ):
             assert pushed is not None
             assert all(key.isidentifier() for key in pushed[1])
 
 
 LINES = [
-    json.dumps(e)
+    e.as_json()
     for e in [
-        event("journal", machine="cp", text="a", data={"unit": "kubelet.service"}),
-        event("journal", machine="cp", text="b", data={"unit": "etcd.service"}),
-        event("journal", machine="w1", text="c", data={"unit": "kubelet.service"}),
-        event("case", phase="cases", text="t.py::test_x", data={"outcome": "failed"}),
-        event("rpc", machine="cp", phase="cases", text="hostname", data={"case": "t.py::test_x"}),
+        event(Kind.JOURNAL, "a", machine="cp", data={"unit": "kubelet.service"}),
+        event(Kind.JOURNAL, "b", machine="cp", data={"unit": "etcd.service"}),
+        event(Kind.JOURNAL, "c", machine="w1", data={"unit": "kubelet.service"}),
+        event(Kind.CASE, "t.py::test_x", phase="cases", data={"outcome": "failed"}),
+        event(Kind.RPC, "hostname", machine="cp", phase="cases", data={"case": "t.py::test_x"}),
     ]
 ] + ["not json"]
 

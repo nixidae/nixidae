@@ -455,7 +455,7 @@ class TestHold:
         assert session.stopped is None, "a stop at ready is the end of the run, not an interruption"
         assert seen == ["ready", "live", "resumed", "finished"]
         assert list((tmp_path / "access").iterdir()) == [], "a key outlived the guests it opens"
-        assert "note:ready; the guests stay up until the run is stopped" in session.said
+        assert "ready:ready; the guests stay up until the run is stopped" in session.said
 
     async def test_continue_at_ready_runs_what_reload_added_and_holds_again(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
@@ -497,7 +497,7 @@ class TestHold:
             await until_state(socket, "paused")
             assert (await request(socket, Op.CONTINUE)).ok
         assert session.torn_down
-        assert not any(said.startswith("note:ready") for said in session.said)
+        assert not any(said.startswith("ready:") for said in session.said)
 
     async def test_a_stop_before_ready_is_still_a_stop(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
