@@ -34,6 +34,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -516,6 +517,10 @@ def until_pause(argv: list[str], request: Request) -> int:
         child = subprocess.Popen(  # noqa: S603 -- this program, with the caller's own arguments
             child_argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
         )
+    # Reaped as it ends: an unreaped child stays a zombie, and the monitor's
+    # `kill(pid, 0)` then finds the run alive until --wait runs out
+    # (nixidae/nixidae#1353). Daemon: the run outlives this process.
+    threading.Thread(target=child.wait, name="reap-run", daemon=True).start()
     # Its pid now, before the child writes it: a child that dies at once
     # is then a run gone, not a run never seen.
     origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
