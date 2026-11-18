@@ -26,11 +26,24 @@ ASK: Final = 2.0
 """Seconds a run has to answer `state` before it counts as gone."""
 
 
+ENV: Final = "VIVARIUM_REGISTRY"
+"""The directory, as `pin` fixed it."""
+
+
 def directory() -> Path:
     """`$XDG_RUNTIME_DIR/vivarium/runs`, else one per user under /tmp."""
+    if pinned := os.environ.get(ENV):
+        return Path(pinned)
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     base = Path(runtime) / "vivarium" if runtime else Path("/tmp") / f"vivarium-{os.getuid()}"  # noqa: S108 -- per user, made 0700
     return base / "runs"
+
+
+def pin() -> None:
+    """Fix `directory()` for this process and its children. The runner calls
+    it before it enters its user namespace: uid 0 there names another
+    user's directory under /tmp, where `vivarium ls` does not look."""
+    os.environ.setdefault(ENV, str(directory()))
 
 
 def entry(out: Path, where: Path | None = None) -> Path:

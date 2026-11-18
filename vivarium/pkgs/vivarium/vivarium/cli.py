@@ -909,6 +909,7 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(anyio.run(phases, args))
         if args.keep:
             os.environ[runroot.KEEP] = "1"
+        registry.pin()
         # First, before anything boots or any thread starts.
         namespace.enter(Spec.read(args.spec).unshare, private_net=args.offline)
         args.out.mkdir(parents=True, exist_ok=True)
