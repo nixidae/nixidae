@@ -20,10 +20,10 @@ let
 
   agent = config.system.build.vivariumAgentPackage;
   units = import ./foreign-units.nix { inherit lib pkgs agent; };
-  # vec0 is the uplink. On the out-of-band fabric (nixidae/nixidae#958) it
-  # joins a management segment and leases there, so rename it eth0 and let
-  # VyOS DHCP it. Otherwise VyOS does not manage it: the agent is on ttyS0,
-  # not the network.
+  # vec0 is the uplink. Behind the router, or on a management segment a
+  # test serves (nixidae/nixidae#958), it leases there, so rename it eth0
+  # and let VyOS DHCP it. Otherwise VyOS does not manage it: the agent is
+  # on ttyS0, not the network.
   uplinkMac = config.vivarium.uplinkMac;
   onOob = config.vivarium.uplink.segment != null;
   uplinkLink = lib.optional onOob {
@@ -55,7 +55,7 @@ let
     }) config.vivarium.nics
   );
 
-  # A management VRF for the uplink, like the RouterOS fabric test: eth0's
+  # A management VRF for the uplink, like oob-routeros: eth0's
   # lease and routes land in their own table, isolated from the dataplane.
   uplinkVrf = if onOob then cfg.uplinkVrf else null;
   vrfTable = "100";

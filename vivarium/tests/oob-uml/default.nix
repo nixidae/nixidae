@@ -1,9 +1,8 @@
 /*
-  The out-of-band fabric under UML (nixidae/nixidae#958): the same
-  lease as `oob`, but both guests are UML processes. It proves a UML
-  guest's uplink joins a management segment -- vec0 on a segment fd
-  instead of the passt bridge -- which is what VyOS needs to reach the
-  fabric, since VyOS runs under UML.
+  A management segment the test serves, under UML (nixidae/nixidae#958):
+  the same lease as `oob`, but both guests are UML processes. It proves
+  a UML guest's uplink joins a segment the test names: vec0 on a segment
+  fd, not the passt bridge.
 */
 { mkTest, servicesNode, ... }:
 mkTest {

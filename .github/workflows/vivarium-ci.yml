@@ -4594,7 +4594,7 @@ jobs:
     - name: Allow the unprivileged user namespaces Nix and passt need
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
-    - name: 'Run vyos-oob on uml: VyOS leases its management address from the fabric'
+    - name: 'Run vyos-oob on uml: VyOS leases its management address from a segment the test serves'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.vyos-oob
       timeout-minutes: 20
     - if: failure()

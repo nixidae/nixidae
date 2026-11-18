@@ -1,8 +1,8 @@
-"""VyOS on the out-of-band fabric (nixidae/nixidae#958).
+"""VyOS on a management segment the test serves (nixidae/nixidae#958).
 
 VyOS's uplink (eth0) is on the management segment and leases from the
 services guest's Kea. The vyos-guest module renames vec0 to eth0 and
-DHCPs it; this proves VyOS reaches the fabric over a lease, not a static
+DHCPs it; this proves VyOS reaches the segment over a lease, not a static
 address. The agent is on ttyS0, so it answers while eth0 is still coming
 up.
 """

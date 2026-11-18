@@ -156,9 +156,9 @@ let
       timeoutMinutes = 30;
     };
     oob = {
-      # The out-of-band management fabric, first piece: a NixOS services
-      # guest runs Kea DHCP4 and a peer leases a management address. Two
-      # small NixOS guests, 2.6 s once built.
+      # A management segment the test serves: a NixOS services guest runs
+      # Kea DHCP4 and a peer leases a management address. Two small NixOS
+      # guests, 2.6 s once built.
       description = "a services guest hands out a management lease with Kea";
       timeoutMinutes = 20;
     };
@@ -197,10 +197,11 @@ let
       backend = "uml";
     };
     vyos-oob = {
-      # VyOS on the fabric: eth0 (the uplink) leases its management
-      # address from the services guest's Kea. VyOS under UML plus a NixOS
-      # guest; the cap is the VyOS ISO fetch on a cold cache.
-      description = "VyOS leases its management address from the fabric";
+      # VyOS on a management segment the test serves: eth0 (the uplink)
+      # leases its management address from the services guest's Kea.
+      # VyOS under UML plus a NixOS guest; the cap is the VyOS ISO fetch
+      # on a cold cache.
+      description = "VyOS leases its management address from a segment the test serves";
       timeoutMinutes = 30;
       backend = "uml";
     };

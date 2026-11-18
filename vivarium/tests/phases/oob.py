@@ -1,9 +1,10 @@
 """A guest's uplink leases a management address from a Kea services guest.
 
-The out-of-band management fabric (nixidae/nixidae#958): one guest runs
-Kea DHCP4 on a segment, another joins it as its uplink (`vec0`, not passt)
-and leases there, and the two reach each other. This is how a foreign
-guest's management interface reaches the fabric.
+A management segment the test serves (nixidae/nixidae#958): one guest
+runs Kea DHCP4 on a segment, another joins it as its uplink (`vec0`) and
+leases there, and the two reach each other. The run's router is the
+default management switch (nixidae/nixidae#1523); this is a test that
+brings its own.
 """
 
 from __future__ import annotations
