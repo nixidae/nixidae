@@ -871,6 +871,10 @@ rec {
         pkgs.runCommand "vivarium-session-${name}-${backends}-attempt"
           {
             requiredSystemFeatures = featuresFor machines;
+            # The guests run where the build was asked for, so `report.json`
+            # times that machine. A UML run asks for no feature, and without
+            # this a remote builder takes it.
+            preferLocalBuild = true;
             passthru = { inherit spec probe; };
           }
           ''
