@@ -579,10 +579,10 @@ What a guest gets when its run sets nothing:
 - A guest that is not NixOS: `passt`, unless its run has a router.
 - A run gets a router when one of its guests asks for one
   (`vivarium.uplink.wantsRouter`), and then every guest of the run goes
-  behind it. A cloud image (`vivarium.kinds.image`), RouterOS and VyOS
-  ask, unless `uplink.segment` puts their uplink elsewhere;
-  `checks.suse`, `checks.routeros-router` and `checks.vyos-router` measure
-  them. dinix, SONiC and an appliance do not ask.
+  behind it. A cloud image (`vivarium.kinds.image`), RouterOS, VyOS and
+  SONiC ask, unless `uplink.segment` puts their uplink elsewhere;
+  `checks.suse`, `checks.routeros-router`, `checks.vyos-router` and
+  `checks.sonic-router` measure them. dinix and an appliance do not ask.
 - On macOS, a krun run gets a router. With `router.enable = false`, each
   guest takes `vsock`.
 

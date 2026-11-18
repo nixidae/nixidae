@@ -24,7 +24,7 @@ mkTest {
     };
   };
   phases.uplink = {
-    script = ../phases/uplink-vyos.py;
+    script = ../phases/uplink-eth0.py;
     after = [ "boot" ];
   };
 }

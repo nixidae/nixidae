@@ -57,6 +57,8 @@ in
     # QEMU guest.
     vivarium.memory = lib.mkDefault "4096M";
     vivarium.kind = "sonic";
+    # Measured: eth0 leases from the router (checks.sonic-router).
+    vivarium.uplink.wantsRouter = lib.mkDefault (config.vivarium.uplink.segment == null);
     vivarium.rootImage = cfg.disk;
     vivarium.closure = null;
     vivarium.nixDatabase.enable = false;

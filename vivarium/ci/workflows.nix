@@ -148,6 +148,13 @@ let
       description = "SONiC VS boots and answers a shell on its serial console";
       timeoutMinutes = 30;
     };
+    sonic-router = {
+      # SONiC behind a QEMU router guest: eth0's DHCP client is what
+      # makes SONiC a guest the automatic router serves. SONiC (4 GiB)
+      # plus the router; the cap is the SONiC image fetch.
+      description = "SONiC leases its uplink from the router and reaches the host";
+      timeoutMinutes = 30;
+    };
     oob = {
       # The out-of-band management fabric, first piece: a NixOS services
       # guest runs Kea DHCP4 and a peer leases a management address. Two

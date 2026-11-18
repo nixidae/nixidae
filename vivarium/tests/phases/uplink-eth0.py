@@ -1,4 +1,5 @@
-"""VyOS behind the router: eth0 leases the router's address, and VyOS reaches the host through the relay."""
+"""A guest behind the router whose uplink is eth0 (VyOS, SONiC): eth0 leases
+the router's address, and the guest reaches the host through the relay."""
 
 from __future__ import annotations
 
@@ -24,23 +25,23 @@ async def serve(stream: SocketStream) -> None:
         await stream.send(b"HTTP/1.0 200 OK\r\nContent-Length: %d\r\n\r\n%s" % (len(BODY), BODY))
 
 
-async def lease(vyos: Machine) -> ipaddress.IPv4Address:
-    """eth0's address from the router. vyos-router starts the DHCP client
-    well after the agent is up, so name the stage on a timeout."""
+async def lease(vm: Machine) -> ipaddress.IPv4Address:
+    """eth0's address from the router. The DHCP client starts well after
+    the agent is up, so show eth0 on a timeout."""
     try:
-        text = (await vyos.wait_until_succeeds(LEASE, timeout=300)).stdout.strip()
+        text = (await vm.wait_until_succeeds(LEASE, timeout=300)).stdout.strip()
     except MachineError as error:
-        status = (await vyos.execute("systemctl --no-pager status vyos-router 2>&1")).stdout
-        raise AssertionError(f"{error}\nvyos-router:\n{status}") from None
+        shown = (await vm.execute("ip addr show eth0 2>&1")).stdout
+        raise AssertionError(f"{error}\neth0:\n{shown}") from None
     return ipaddress.IPv4Address(text)
 
 
 async def test(vms: Machines) -> None:
-    vyos = vms.vyos
-    address = await lease(vyos)
-    if str(address) != vyos.uplink_ip:
-        raise AssertionError(f"vyos leased {address}, and the router gives it {vyos.uplink_ip}")
-    print(f"[test] vyos leased {address} on eth0 from the router")
+    (vm,) = (vm for name, vm in vms.items() if name != "router")
+    address = await lease(vm)
+    if str(address) != vm.uplink_ip:
+        raise AssertionError(f"{vm.name} leased {address}, and the router gives it {vm.uplink_ip}")
+    print(f"[test] {vm.name} leased {address} on eth0 from the router")
 
     listener = await anyio.create_tcp_listener(local_host="127.0.0.1")
     port = listener.extra(SocketAttribute.local_port)
@@ -50,8 +51,8 @@ async def test(vms: Machines) -> None:
 
     async with listener, anyio.create_task_group() as group:
         group.start_soon(accept)
-        got = (await vyos.succeed(f"curl -sS --max-time 10 http://{GATEWAY}:{port}/")).stdout.strip()
+        got = (await vm.succeed(f"curl -sS --max-time 10 http://{GATEWAY}:{port}/")).stdout.strip()
         group.cancel_scope.cancel()
     if got != BODY.decode():
-        raise AssertionError(f"vyos: the host's server said {got!r}")
-    print("[test] vyos reached the host's loopback through the router")
+        raise AssertionError(f"{vm.name}: the host's server said {got!r}")
+    print(f"[test] {vm.name} reached the host's loopback through the router")
