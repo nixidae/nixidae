@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 
 def test_red() -> None:
-    assert 1 + 1 == 3, "fails on purpose"
+    pytest.fail("fails on purpose")
