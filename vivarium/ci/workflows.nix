@@ -32,6 +32,15 @@ let
     }
   ];
 
+  # A container guest needs `uid-range` and /dev/net, but no /dev/kvm.
+  containerBootstrap = lib.mkMerge [
+    sandboxBootstrap
+    {
+      nix.install.uidRange = true;
+      nix.install.devNet = true;
+    }
+  ];
+
   /*
     The integration tests, and what each one costs.
 
@@ -498,7 +507,12 @@ let
       inherit timeoutMinutes;
       cond = selectable "test-${name}";
       # krun asks what QEMU asks: /dev/kvm, and `uid-range` for virtio-fs.
-      ghanix = if backend == "uml" then sandboxBootstrap else guestBootstrap;
+      ghanix =
+        {
+          uml = sandboxBootstrap;
+          container = containerBootstrap;
+        }
+        .${backend} or guestBootstrap;
       steps = [
         (steps.build {
           name = "Run ${test} on ${backend}: ${description}";
@@ -526,7 +540,47 @@ let
       ];
     };
 
-  testJobs = lib.mapAttrs' (name: spec: lib.nameValuePair "test-${name}" (testJob name spec)) tests;
+  /*
+    The tests whose QEMU job above holds the backend contract -- a test
+    never knows which backend it got -- with the other backends each runs
+    on. Not `fuse` on a container guest: it has no /dev/fuse
+    (nixidae/nixidae#1498).
+  */
+  contract = {
+    forward = [
+      "uml"
+      "krun"
+      "container"
+    ];
+    artifacts = [
+      "uml"
+      "krun"
+      "container"
+    ];
+    fuse = [
+      "uml"
+      "krun"
+    ];
+  };
+
+  allTests =
+    tests
+    // lib.concatMapAttrs (
+      test: backends:
+      lib.genAttrs' backends (
+        backend:
+        lib.nameValuePair "${test}-${backend}" (
+          tests.${test}
+          // {
+            inherit test backend;
+          }
+        )
+      )
+    ) contract;
+
+  testJobs = lib.mapAttrs' (
+    name: spec: lib.nameValuePair "test-${name}" (testJob name spec)
+  ) allTests;
 
   /*
     A guest as a container, in the Nix sandbox.
@@ -544,13 +598,7 @@ let
     needs = [ "kernel" ];
     timeoutMinutes = 30;
     cond = selectable "test-container";
-    ghanix = lib.mkMerge [
-      sandboxBootstrap
-      {
-        nix.install.uidRange = true;
-        nix.install.devNet = true;
-      }
-    ];
+    ghanix = containerBootstrap;
     steps = [
       (steps.build {
         name = "Probe: can this sandbox run a container guest with a LAN";
@@ -664,7 +712,7 @@ in
   */
   attrs =
     lib.concatLists (lib.attrValues built)
-    ++ lib.mapAttrsToList (name: spec: (testSpec name spec).attr) tests;
+    ++ lib.mapAttrsToList (name: spec: (testSpec name spec).attr) allTests;
 
   /**
     What a CI job runs as a driver, as a path from the top of `default.nix`.

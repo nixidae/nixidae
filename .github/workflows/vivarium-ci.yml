@@ -328,6 +328,207 @@ jobs:
         path: vivarium/attempt
         retention-days: 7
     timeout-minutes: 15
+  test-artifacts-container:
+    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-artifacts-container,'))
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          auto-allocate-uids = true
+          cores = 4
+          experimental-features = nix-command flakes auto-allocate-uids cgroups
+          extra-sandbox-paths = /dev/net
+          extra-system-features = uid-range
+          max-jobs = 1
+          use-cgroups = true
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: 'Run artifacts on container: what a guest writes reaches the host, per guest'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.artifacts.container
+      timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.artifacts.container.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-artifacts-container
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 15
+  test-artifacts-krun:
+    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-artifacts-krun,'))
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          auto-allocate-uids = true
+          cores = 4
+          experimental-features = nix-command flakes auto-allocate-uids cgroups
+          extra-system-features = uid-range
+          max-jobs = 1
+          use-cgroups = true
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: Let the runner user open /dev/kvm
+      run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
+      timeout-minutes: 5
+    - name: 'Run artifacts on krun: what a guest writes reaches the host, per guest'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.artifacts.krun
+      timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.artifacts.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-artifacts-krun
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 15
+  test-artifacts-uml:
+    if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-artifacts-uml,''))'
+    needs:
+    - kernel
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          cores = 4
+          experimental-features = nix-command flakes
+          max-jobs = 1
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: 'Run artifacts on uml: what a guest writes reaches the host, per guest'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.artifacts
+      timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.artifacts.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-artifacts-uml
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 15
   test-boot-counting:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-boot-counting,'))
     runs-on: ubuntu-24.04
@@ -736,6 +937,142 @@ jobs:
         path: vivarium/attempt
         retention-days: 7
     timeout-minutes: 45
+  test-forward-container:
+    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-forward-container,'))
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          auto-allocate-uids = true
+          cores = 4
+          experimental-features = nix-command flakes auto-allocate-uids cgroups
+          extra-sandbox-paths = /dev/net
+          extra-system-features = uid-range
+          max-jobs = 1
+          use-cgroups = true
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: 'Run forward on container: the host reaches a service inside a guest'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.forward.container
+      timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.forward.container.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-forward-container
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 45
+  test-forward-krun:
+    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-forward-krun,'))
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          auto-allocate-uids = true
+          cores = 4
+          experimental-features = nix-command flakes auto-allocate-uids cgroups
+          extra-system-features = uid-range
+          max-jobs = 1
+          use-cgroups = true
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: Let the runner user open /dev/kvm
+      run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
+      timeout-minutes: 5
+    - name: 'Run forward on krun: the host reaches a service inside a guest'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.forward.krun
+      timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.forward.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-forward-krun
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 45
   test-forward-router:
     if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-forward-router,''))'
     needs:
@@ -801,6 +1138,71 @@ jobs:
         path: vivarium/attempt
         retention-days: 7
     timeout-minutes: 30
+  test-forward-uml:
+    if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-forward-uml,''))'
+    needs:
+    - kernel
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          cores = 4
+          experimental-features = nix-command flakes
+          max-jobs = 1
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: 'Run forward on uml: the host reaches a service inside a guest'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.forward
+      timeout-minutes: 35
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.forward.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-forward-uml
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 45
   test-forward-vsock:
     if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-forward-vsock,'))
     runs-on: ubuntu-24.04
@@ -1001,6 +1403,140 @@ jobs:
       with:
         if-no-files-found: warn
         name: attempt-fuse
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 15
+  test-fuse-krun:
+    if: (github.event_name != 'workflow_dispatch' || inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',test-fuse-krun,'))
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          auto-allocate-uids = true
+          cores = 4
+          experimental-features = nix-command flakes auto-allocate-uids cgroups
+          extra-system-features = uid-range
+          max-jobs = 1
+          use-cgroups = true
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: Let the runner user open /dev/kvm
+      run: echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules; sudo udevadm control --reload-rules; sudo udevadm trigger --name-match=kvm; ls -l /dev/kvm
+      timeout-minutes: 5
+    - name: 'Run fuse on krun: a userspace filesystem, as root and as a user'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.fuse.krun
+      timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.fuse.krun.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-fuse-krun
+        path: vivarium/attempt
+        retention-days: 7
+    timeout-minutes: 15
+  test-fuse-uml:
+    if: '!cancelled() && (needs.kernel.result == ''success'' || needs.kernel.result == ''skipped'') && (github.event_name != ''workflow_dispatch'' || inputs.jobs == '''' || contains(format('',{0},'', inputs.jobs), '',test-fuse-uml,''))'
+    needs:
+    - kernel
+    runs-on: ubuntu-24.04
+    steps:
+    - timeout-minutes: 10
+      uses: actions/checkout@main
+    - if: runner.os == 'Linux'
+      name: Make room on the runner
+      run: df -h /; sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup /usr/local/julia* /usr/local/lib/android /opt/az /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft /opt/google /usr/lib/firefox; docker system prune --all --force; docker builder prune --all --force; df -h /
+      timeout-minutes: 10
+      working-directory: /
+    - timeout-minutes: 15
+      uses: cachix/install-nix-action@master
+      with:
+        extra_nix_config: |
+          access-tokens = github.com=${{ github.token }}
+          cores = 4
+          experimental-features = nix-command flakes
+          max-jobs = 1
+    - env:
+        REMOTE_BUILDER_KEY: ${{ secrets.PYNIXD_BUILDER_KEY }}
+      if: runner.os == 'Linux' && contains(fromJSON('["Lillecarl"]'), github.actor)
+      name: Build and substitute on ssh-ng://gha@37.27.129.237:2234
+      run: |
+        if [ -z "$REMOTE_BUILDER_KEY" ]; then echo "no PYNIXD_BUILDER_KEY: building on the runner"; exit 0; fi
+        printf '%s\n' "$REMOTE_BUILDER_KEY" | sudo install -m 0600 /dev/stdin /etc/nix/remote-builder-key
+        sudo mkdir -p /etc/nix-daemon /etc/systemd/system/nix-daemon.service.d
+        sudo tee /etc/nix-daemon/nix.conf <<'EOF'
+        include /etc/nix/nix.conf
+        builders = ssh-ng://gha@37.27.129.237:2234 x86_64-linux /etc/nix/remote-builder-key 16 2 benchmark,big-parallel,recursive-nix - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=
+        builders-use-substitutes = true
+        extra-substituters = ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw=&trusted=1&priority=2
+        EOF
+        printf '[Service]\nEnvironment=NIX_CONF_DIR=/etc/nix-daemon\n' | sudo tee /etc/systemd/system/nix-daemon.service.d/remote-builder.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart nix-daemon
+        # As root, the user the daemon dials the remote as: the key is root's alone.
+        sudo "$(command -v nix)" store info --store 'ssh-ng://gha@37.27.129.237:2234?ssh-key=/etc/nix/remote-builder-key&base64-ssh-public-host-key=c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUF0R0xKdjVSanpVdU9HV25zYVRSRXNuQWo2eFZwcEFuZWdhWFdma0pISGw='
+      timeout-minutes: 5
+    - timeout-minutes: 15
+      uses: cachix/cachix-action@master
+      with:
+        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        name: lillecarl
+        useDaemon: false
+    - name: Allow the unprivileged user namespaces Nix and passt need
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
+      timeout-minutes: 5
+    - name: 'Run fuse on uml: a userspace filesystem, as root and as a user'
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.fuse
+      timeout-minutes: 5
+    - if: failure()
+      name: Copy the run's evidence
+      run: cp -r --dereference "$(nix eval --raw --file . checks.fuse.attempt.outPath)" attempt && chmod -R u+w attempt
+    - if: failure()
+      name: Keep the evidence of a red run
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: warn
+        name: attempt-fuse-uml
         path: vivarium/attempt
         retention-days: 7
     timeout-minutes: 15
