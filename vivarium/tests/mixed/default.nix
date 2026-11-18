@@ -4,8 +4,7 @@
   little, QEMU for what wants the CPU. A node sets its own
   `vivarium.backend`; the run's `backend` is only the default.
 
-  By hand: the QEMU guest needs /dev/kvm, which the session job in CI
-  does not have.
+  The QEMU guest needs /dev/kvm: CI's `backends` job has it.
 */
 { mkTest, ... }:
 mkTest {

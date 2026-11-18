@@ -41,6 +41,12 @@ let
     }
   ];
 
+  # A run that holds a guest of each backend needs all of it.
+  everyBackendBootstrap = lib.mkMerge [
+    guestBootstrap
+    { nix.install.devNet = true; }
+  ];
+
   /*
     The integration tests, and what each one costs.
 
@@ -308,6 +314,17 @@ let
       description = "a container runs, out of the host's store";
       timeoutMinutes = 45;
     };
+    crio = {
+      description = "containerd's questions, under CRI-O";
+      timeoutMinutes = 45;
+      backend = "uml";
+    };
+    containerd-zero-layers = {
+      # Two containerd builds, nixpkgs' and the patched one.
+      description = "a user-namespaced container from an image with zero layers, with and without the fix";
+      timeoutMinutes = 60;
+      backend = "uml";
+    };
     k8s = {
       description = "a three-node kubeadm cluster";
       timeoutMinutes = 120;
@@ -387,6 +404,7 @@ let
       "checks.check-python"
       "checks.check-k8s-images"
       "checks.check-k8s-config"
+      "checks.ci-set"
     ];
     sessions = [
       "checks.phase-rules"
@@ -408,6 +426,24 @@ let
       "checks.switch"
       "checks.cleanup"
       "checks.interactive"
+    ];
+    features = [
+      "checks.cloud"
+      "checks.launch"
+      "checks.python-packages"
+      "checks.cache"
+      "checks.lan-router"
+      "checks.nixos-compat"
+      "checks.nixos-tests.simple-vm"
+      "checks.nixos-tests.oh-my-zsh"
+      "checks.nixos-tests.systemd-no-tainted"
+      "checks.suse"
+    ];
+    backends = [
+      "checks.store-view"
+      "checks.segments"
+      "checks.backends"
+      "checks.mixed"
     ];
     eval = [
       "packages.vivarium-eval.tests"
@@ -685,6 +721,48 @@ let
     ];
   };
   /*
+    What a test asks of vivarium beyond the session: the cloud API,
+    templates, Python packages, the cache recipe, the router, the
+    nixos-test mapper with nixpkgs' own tests, and a foreign image. One
+    UML guest or two each; its own job, so the session job's step keeps
+    its margin when the guests are built cold.
+  */
+  featuresJob = job {
+    id = "features";
+    needs = [ "kernel" ];
+    timeoutMinutes = 45;
+    cond = selectable "features";
+    ghanix = sandboxBootstrap;
+    steps = [
+      (steps.build {
+        name = "Features: cloud, launch, Python packages, cache, router, the nixos-test mapper, openSUSE";
+        attrs = built.features;
+        timeoutMinutes = 35;
+      })
+    ];
+  };
+
+  /*
+    Runs that hold guests of different backends at once: each store view,
+    segments across backends, a ping between each pair. A UML guest waits
+    on the kernel; a container guest needs /dev/net.
+  */
+  backendsJob = job {
+    id = "backends";
+    needs = [ "kernel" ];
+    timeoutMinutes = 30;
+    cond = selectable "backends";
+    ghanix = everyBackendBootstrap;
+    steps = [
+      (steps.build {
+        name = "Backends together: store views, segments, all four on one segment, UML beside QEMU";
+        attrs = built.backends;
+        timeoutMinutes = 20;
+      })
+    ];
+  };
+
+  /*
     The `vivarium` CLI and its MCP server, both built on huggorm.
 
     Its own job: they build nanopynix, which no other job needs. The MCP
@@ -719,6 +797,25 @@ in
   */
   driven = lib.attrValues driven;
 
+  /**
+    The checks no CI job runs, each with the reason. `checks.ci-set`
+    fails on a check that is neither here nor in a job, and on a name
+    here that is both or names no check.
+
+    No job runs on macOS either: forward.py's darwin branches have only
+    unit tests, which patch `sys.platform`.
+  */
+  byHand = {
+    nested = "a GitHub runner is itself a VM, and its KVM does not nest a second time";
+    kata = "a Kata pod is a VM in the guest, and a GitHub runner's KVM does not nest";
+    kata-containerd = "a Kata pod is a VM in the guest, and a GitHub runner's KVM does not nest";
+    nixos-screen-tests = "nixpkgs' own tests, unchanged; `screen` runs vivarium's screen methods in CI";
+    appliance = "`routeros` runs RouterOS CHR in CI";
+    vyos = "`vyos-uml`, `vyos-bgp` and `vyos-oob` run VyOS in CI";
+    routeros-route = "`routeros-bgp` runs the same routing through RouterOS in CI";
+    container-probe = "`container-probe-tun` asks the same and more in the container job";
+  };
+
   # Through ghanix's schema rather than straight to YAML. That is what
   # turns each job's `ghanix` attribute into steps, drops the options a job
   # left unset, and refuses a job with no steps at all.
@@ -737,6 +834,8 @@ in
     jobs = {
       checks = checksJob;
       sessions = sessionJob;
+      features = featuresJob;
+      backends = backendsJob;
       eval = evalJob;
       kernel = kernelJob;
       direct-kernel = directKernelJob;

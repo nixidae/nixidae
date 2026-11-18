@@ -1,7 +1,7 @@
 /*
   nixpkgs' tests that read a screen, unchanged: `cage` is Wayland and
-  sets `enableOCR`, `xterm` is X11 and is found by its script. By
-  hand: they need /dev/kvm.
+  sets `enableOCR`, `xterm` is X11 and is found by its script. They
+  need /dev/kvm. By hand: `byHand` in ci/workflows.nix says why.
 */
 {
   pkgs,

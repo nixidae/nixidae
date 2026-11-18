@@ -4,7 +4,8 @@
   (QEMU) and `c` (a container) also share `ll`, with link-local
   addresses only.
 
-  By hand: the QEMU guest needs /dev/kvm and the container a tap.
+  The QEMU guest needs /dev/kvm and the container a tap: CI's `backends`
+  job has both.
 */
 { mkTest, ... }:
 mkTest {

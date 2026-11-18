@@ -11,6 +11,8 @@
   k8sImages,
   # The names `lib` exports, for `checks.docs`.
   libNames,
+  # What CI builds and what it leaves to a person, for `checks.ci-set`.
+  ciSet,
 }:
 let
   inherit (vivarium)
@@ -436,6 +438,8 @@ let
       k8sConfig
       k8sImages
       libNames
+      ciSet
+      checkLeaves
       demo
       store
       k8s-pull
@@ -444,11 +448,20 @@ let
       ;
   };
   isTest = name: type: type == "directory" && builtins.pathExists (./. + "/${name}/default.nix");
-in
-{
   checks = lib.mapAttrs (name: _: import (./. + "/${name}") scope) (
     lib.filterAttrs isTest (builtins.readDir ./.)
   );
+  # Each check's name, and each test's in a check that is a set of tests:
+  # `lan`, `nixos-tests.simple-vm`.
+  checkLeaves = lib.concatLists (
+    lib.mapAttrsToList (
+      name: check:
+      if lib.isDerivation check then [ name ] else map (test: "${name}.${test}") (lib.attrNames check)
+    ) checks
+  );
+in
+{
+  inherit checks;
   internal = {
     inherit
       demo

@@ -53,6 +53,7 @@ let
     pkgs = vivarium.guestPkgs;
     hostPkgs = pkgs;
     libNames = lib.attrNames exported;
+    ciSet = { inherit (ci) attrs byHand; };
     inherit
       lib
       sources
