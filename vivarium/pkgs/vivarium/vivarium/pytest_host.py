@@ -63,10 +63,10 @@ from vivarium_runner.arpyc import AsyncConnection, connect
 from . import cli as runner_cli, control, monitor
 from .control import reachable
 from .exits import Exit
-from .remote import SOCKET
+from .remote import SOCKET, RemoteMachine
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine, Generator
+    from collections.abc import Generator
 
     from anyio.from_thread import BlockingPortal
 
@@ -86,32 +86,6 @@ GUEST_TIMEOUT: Final = 3600.0
 
 class RunFailed(RuntimeError):
     """A run that did not come up."""
-
-
-class RemoteMachine:
-    """A guest of another process's run: every method of `Machine` as a
-    coroutine, one round trip each. Arguments and results are plain data."""
-
-    def __init__(self, conn: AsyncConnection, name: str) -> None:
-        self._conn = conn
-        self.name = name
-
-    async def get(self, attribute: str) -> Any:  # noqa: ANN401 -- any attribute of a Machine
-        """A plain attribute or property, such as `uplink_ip`."""
-        return await self._conn.call("get", (self.name, attribute), {})
-
-    def __getattr__(self, method: str) -> Callable[..., Coroutine[Any, Any, Any]]:
-        if method.startswith("_"):
-            raise AttributeError(method)
-
-        async def call(*args: object, **kwargs: object) -> Any:  # noqa: ANN401 -- what the method returns
-            return await self._conn.call("call", (self.name, method, args, kwargs), {})
-
-        call.__name__ = method
-        return call
-
-    def __repr__(self) -> str:
-        return f"<RemoteMachine {self.name}>"
 
 
 @dataclass(frozen=True)
@@ -370,9 +344,6 @@ class Driver:
 
     # ── tests that run in a guest ───────────────────────────────────
 
-    def _remote(self, run: Run, method: str, *args: object) -> Any:  # noqa: ANN401 -- what the run's method returns
-        return self.portal.call(run.conn.call, method, args, {})
-
     def _python_closure(self) -> list[str]:
         """This Python's store closure: from `pytestCheck`'s closureInfo, or
         from the `vivarium` CLI, which asks the store."""
@@ -390,19 +361,20 @@ class Driver:
         """This Python in the guest's store view, and the project unpacked
         at its own path: once a guest. Returns the host's side of the
         guest's `/artifacts`."""
-        artifacts = self._remote(run, "artifacts", guest)
+        vm = run.vms[guest]
+        artifacts = self.portal.call(vm.artifacts)
         if artifacts is None:
             raise RunFailed(f"{guest} has no /artifacts to hand it the project through")
         host = Path(artifacts) / "pytest"
         if (run.out, guest) in self.prepared:
             return host
-        self._remote(run, "call", guest, "add_paths", (self._python_closure(),), {})
+        self.portal.call(vm.add_paths, self._python_closure())
         host.mkdir(parents=True, exist_ok=True)
         with tarfile.open(host / "project.tar", "w") as tar:
             tar.add(self.rootdir, arcname=".", filter=project_filter)
         unpack = "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2], filter='tar')"
         command = shlex.join([sys.executable, "-c", unpack, f"{GUEST_ARTIFACTS}/pytest/project.tar", str(self.rootdir)])
-        self._remote(run, "call", guest, "succeed", (f"mkdir -p {shlex.quote(str(self.rootdir))} && {command}",), {})
+        self.portal.call(functools.partial(vm.succeed, f"mkdir -p {shlex.quote(str(self.rootdir))} && {command}"))
         self.prepared.add((run.out, guest))
         return host
 
@@ -417,13 +389,12 @@ class Driver:
         if self.inifile is not None:
             args += ["-c", str(self.inifile)]
         command = shlex.join([*worker, "--", *args, *(absolute(self.rootdir, nodeid) for nodeid in nodeids)])
-        code, output = self._remote(
-            run,
-            "call",
-            guest,
-            "execute",
-            (f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command}",),
-            {"timeout": GUEST_TIMEOUT},
+        code, output = self.portal.call(
+            functools.partial(
+                run.vms[guest].execute,
+                f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command}",
+                timeout=GUEST_TIMEOUT,
+            )
         )
         if self.coverage is not None and (measured := host / f"{stem}.coverage").exists():
             # Beside pytest-cov's own data file, as a parallel file: its combine merges it.

@@ -313,9 +313,14 @@ async def test_fresh(vm):                  # the run's only guest
 - The scope is pytest's: `function`, `class`, `module` or `session`. The
   plugin runs `vivarium up <attr> --file <vivarium_file>` for the first
   test of a scope, and `vivarium down` after its last.
-- Each guest is a proxy of its `Machine`: every method is a coroutine,
-  one round trip to the run's `<out>/machines.sock`. `await vm.get(name)`
-  reads an attribute or property. Arguments and results are plain data.
+- Each guest is a `vivarium.remote.RemoteMachine`. Each of its methods is a
+  coroutine, and one round trip to the run's `<out>/machines.sock`. It has
+  the `Machine` methods that take and return plain data, such as
+  `succeed`, `execute`, `wait_for_unit`, `wait_until_succeeds`, `journal`
+  and the screen input methods. A list arrives as a tuple. `await
+  vm.get("uplink_ip")` reads an attribute or property, and `vm.uplink_ip`
+  raises an error that says so. `until` and `never` run their check in the
+  test. `vms` is a plain dict, so it has no `vms.until`.
 - A test that uses `vms` or `vm` is `async def`.
 - `guest=` runs the test itself in that guest, fixtures and all, as
   root on the guest's kernel; sync or async, as any test:
