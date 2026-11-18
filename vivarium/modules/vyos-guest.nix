@@ -254,6 +254,8 @@ in
     vivarium.rootImage = cfg.squashfs;
     vivarium.closure = pkgs.closureInfo { rootPaths = roots; };
     vivarium.nixDatabase.enable = false;
+    # Measured: eth0 leases from the router (checks.vyos-router).
+    vivarium.uplink.wantsRouter = lib.mkDefault (config.vivarium.uplink.segment == null);
     vivarium.boot = {
       root.format = "squashfs";
       kernel = {

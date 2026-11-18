@@ -197,6 +197,13 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    vyos-router = {
+      # VyOS behind the run's router: eth0's DHCP client is what makes
+      # VyOS a guest the automatic router serves.
+      description = "VyOS leases its uplink from the router and reaches the host";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     vyos-oob-vrf = {
       # Functional management VRF, the VyOS analogue of oob-routeros: eth0
       # leases in a mgmt VRF, isolated from the dataplane. VyOS under UML
