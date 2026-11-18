@@ -154,7 +154,7 @@ in
       ];
     })
     (lib.mkIf cfg.enable {
-      # 256M on krun OOM-kills the agent at boot, and on QEMU under load,
+      # 256M on krun runs out of memory at boot, and on QEMU under load,
       # after seconds-long stalls into the guest. UML runs in it.
       vivarium.memory = lib.mkDefault (if config.vivarium.backend == "uml" then "256M" else "512M");
       # E2: two carry 16 Gbit/s on krun, and one is the limit. Every host

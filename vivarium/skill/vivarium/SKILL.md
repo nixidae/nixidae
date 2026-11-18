@@ -124,7 +124,7 @@ jq -c 'select(.kind=="case" and .data.outcome=="failed") | .text' "$OUT/events.j
 
 ## Traps
 
-- `vivarium.memory` below ~192M OOM-kills the guest agent; it looks like a hang.
+- `vivarium.memory` below ~192M runs the guest out of memory. The agent protects itself from the OOM killer, so a command or a service dies instead.
 - A guest agent failure surfaces as an exception from `vm.execute`; the traceback is in `await vm.journal("vivarium-agent")`.
 - Writes to `/nix/store` in a guest vanish at poweroff, by design.
 - A run cleans up however it ends, SIGKILL included. A guest process (QEMU, libkrun, UML) left after the run ended is a vivarium bug worth an issue.

@@ -459,7 +459,7 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 ### Traps
 
 - A guest agent failure surfaces as an exception from `vm.execute`; the traceback is in `await vm.journal("vivarium-agent")`.
-- `vivarium.memory` below ~192M OOM-kills the agent mid-test, which looks like a hang.
+- `vivarium.memory` below ~192M runs the guest out of memory. The agent sets its OOM score to -1000 (a container guest refuses it) and starts each command at 0, so a command or a service dies instead.
 - `vivarium.memory` is a ceiling: guest RAM is a sparse file and freed blocks are punched out. `vm.host_memory_kib()` is the host cost. At 1024M, boot / after reading the closure / after `drop_caches`: UML 149M, 553M, 148M; QEMU 349M, 782M, 404M.
 - `vm.shrink("256M")` / `vm.grow(...)` squeeze the guest; `drop_caches` first and read `vm.meminfo()`.
 - Writes to `/nix/store` in a guest land in a tmpfs overlay and vanish at poweroff, by design.

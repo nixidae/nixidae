@@ -61,6 +61,15 @@ KILL_WAIT = 5.0
 10 s the host adds over a command's timeout, so the host hears the timeout."""
 
 
+OOM_SCORE_ADJ = Path("/proc/self/oom_score_adj")
+OOM_PROTECTED = -1000
+
+_AT_DEFAULT_OOM_SCORE = '{ echo 0 > /proc/self/oom_score_adj; } 2>/dev/null; exec /bin/sh -c "$1"'
+"""The shell around a command: it leaves the agent's protected OOM score,
+then runs the command unchanged. A test's workload must stay killable, and
+`preexec_fn` is not safe in the agent's threads."""
+
+
 def _sh(command: str, timeout: float, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Run *command* in a process group of its own.
 
@@ -68,9 +77,8 @@ def _sh(command: str, timeout: float, env: Mapping[str, str] | None = None) -> s
     the background stops too, and a builtin `TimeoutError` carries the
     output so far to the host.
     """
-    with subprocess.Popen(
-        command,
-        shell=True,
+    with subprocess.Popen(  # noqa: S603 -- running the host's command is the agent's job
+        ["/bin/sh", "-c", _AT_DEFAULT_OOM_SCORE, "sh", command],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -344,6 +352,11 @@ async def _serve() -> None:
 
 
 def main() -> None:
+    # The OOM killer takes something else first: a killed agent reads as a
+    # hung guest. A container guest's user namespace refuses a negative
+    # score, and the agent then runs at the default.
+    with contextlib.suppress(PermissionError):
+        OOM_SCORE_ADJ.write_text(str(OOM_PROTECTED))
     anyio.run(_serve)
 
 

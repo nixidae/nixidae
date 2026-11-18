@@ -319,15 +319,16 @@ in
         for what it has ever used. `vm.host_memory_kib()` is that
         number; see the README.
 
-        Under UML, below about 192M the kernel starts OOM-killing the
-        agent while systemd and Python are both resident.
+        Under UML, below about 192M the guest runs out of memory while
+        systemd and Python are both resident.
 
         A QEMU guest needs more for the same work, which is why the
         default is not one number. It boots a stock NixOS kernel with its
         modules and a systemd initrd, where UML boots one kernel with
         everything built in. Measured: at 256M the agent reaches
-        its ready line and is OOM-killed seconds later, inside the build
-        sandbox, on a guest that passes the same test outside it.
+        its ready line and the guest runs out of memory seconds later,
+        inside the build sandbox, on a guest that passes the same test
+        outside it.
       '';
     };
 

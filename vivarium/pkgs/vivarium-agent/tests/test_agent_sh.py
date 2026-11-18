@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shlex
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -31,6 +32,28 @@ def running(pid: int) -> bool:
 def test_a_command_returns_its_status_and_output() -> None:
     done = agent._sh("echo out; echo err >&2; exit 3", timeout=5)
     assert (done.returncode, done.stdout, done.stderr) == (3, "out\n", "err\n")
+
+
+def test_a_command_leaves_the_agents_oom_score() -> None:
+    """The agent raises its own score here: lowering it needs a privilege
+    a test lacks, and either direction shows whether the command inherits
+    it. A child process, because the raise cannot be undone."""
+    probe = (
+        "from vivarium_agent import agent\n"
+        "agent.OOM_SCORE_ADJ.write_text('700')\n"
+        "print(agent._sh('cat /proc/self/oom_score_adj', timeout=5).stdout, end='')\n"
+    )
+    env = {**os.environ, "VIVARIUM_GUEST_PATH": os.environ["PATH"]}
+    done = subprocess.run(
+        [sys.executable, "-c", probe], env=env, capture_output=True, text=True, check=True, timeout=30
+    )
+    assert done.stdout == "0\n"
+
+
+def test_a_command_reaches_the_shell_unchanged() -> None:
+    """The wrapper passes the command as an argument, never as spliced text."""
+    done = agent._sh("""printf '%s|' "$0" 'a "b"' $((1 + 1))""", timeout=5)
+    assert done.stdout == '/bin/sh|a "b"|2|'
 
 
 def test_a_timeout_kills_the_child_in_the_background() -> None:
