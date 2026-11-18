@@ -522,6 +522,12 @@ the daemon for `apple-virt`, which Nix offers on a Mac that can run
 virtual machines, and the attempt may bind 127.0.0.1. Every macOS
 result here comes from a run by hand (nixidae/nixidae#1163).
 
+GitHub's hosted macOS runners cannot run a krun guest. Measured on
+2026-11-18 (`macos-15`, `macos-26`, `macos-latest`): each runner is an
+`Apple M1 (Virtual)` machine, the macOS 26 runners report
+`kern.hv_support: 0`, and Nix there offers no `apple-virt`. A macOS job
+needs a self-hosted runner on a Mac.
+
 The uplink is the guest's `vec0` (`vivarium.uplink.proxy`):
 
 | uplink | backends | Linux, by hand | Linux, in a build | macOS, by hand |
