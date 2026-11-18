@@ -1070,10 +1070,12 @@ in
         leaves `router.enable` null (nixidae/nixidae#1521). Every guest of
         the run then goes behind the router. A kind sets it when `vsock`
         cannot serve the guest and the guest is measured to lease `vec0`
-        by DHCP: a cloud image (`vivarium.kinds.image`) does.
+        by DHCP, unless `uplink.segment` puts the uplink elsewhere: a
+        cloud image (`vivarium.kinds.image`) does.
 
-        Nothing this reads may depend on the router: the run reads it to
-        decide whether there is one.
+        The run reads it from an evaluation of the guest without a
+        router, where `uplink.proxy` and `uplink.segment` have the values
+        the guest gives them.
       '';
     };
 

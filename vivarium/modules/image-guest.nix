@@ -261,7 +261,8 @@ in
     ];
     vivarium.kind = "image";
     # Measured: Leap leases `vec0` from the router (checks.suse-router).
-    vivarium.uplink.wantsRouter = lib.mkDefault true;
+    # A guest whose uplink joins a segment of the test's has its own DHCP.
+    vivarium.uplink.wantsRouter = lib.mkDefault (config.vivarium.uplink.segment == null);
     vivarium.rootImage = cfg.disk;
     vivarium.nixDatabase.enable = cfg.writableStore;
     vivarium.boot = {

@@ -572,9 +572,8 @@ rec {
 
       /*
         Whether the run has a router guest. Read from the user's guests,
-        so nothing their `wantsRouter` reads may depend on it: a guest's
-        router settings sit under `mkIf`, never in `imports`, and the
-        router joins `evaluated` after `cfg.nodes`.
+        and the router joins `evaluated` after `cfg.nodes`, so that a
+        guest's name does not wait on the decision.
       */
       routerEnabled =
         if cfg.router.enable != null then
@@ -587,15 +586,14 @@ rec {
             lib.filter (hostName: hostName != routerName) (lib.attrNames cfg.nodes)
           );
 
-      # A second evaluation, without the check for definitions no option
-      # declares. On the guest's own evaluation that check reads every
-      # definition's shape, networkd's gateway among them, which reads
-      # `uplink.proxy`, which reads this decision.
+      # A second evaluation, of the guest as it is without a router. Not
+      # the guest's own: there `uplink.proxy`, `uplink.segment` and the
+      # index read this decision, and the check for undeclared definitions
+      # reads networkd's gateway, which reads `uplink.proxy`. The check
+      # stays off here, so the probe reads no more than the option needs.
       wantsRouter =
         hostName: module:
-        ((evaluate hostName module).extendModules {
-          modules = [ { _module.check = lib.mkForce false; } ];
-        }).config.vivarium.uplink.wantsRouter;
+        (evaluateWith hostName module 0 [ { _module.check = false; } ]).config.vivarium.uplink.wantsRouter;
 
       # The router's index is its own, so adding it moves no guest's
       # index, MAC or ssh port. The highest: a MAC octet is one byte.
@@ -635,17 +633,17 @@ rec {
         };
 
       evaluate =
-        hostName: module:
-        let
-          index = indexOf hostName;
-        in
+        hostName: module: evaluateWith hostName module (indexOf hostName) [ (routerModule hostName) ];
+
+      evaluateWith =
+        hostName: module: index: extra:
         mkNode {
           imports = [
             cfg.defaults
             module
             peersModule
-            (routerModule hostName)
-          ];
+          ]
+          ++ extra;
           _module.args.nodes = nodes;
           # For `vivarium.lateClosure`: a guest names the settings paths it reads.
           _module.args.settings = cfg.settings;
