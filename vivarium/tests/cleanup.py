@@ -1,8 +1,9 @@
 """Does a run leave nothing behind, however it ends?
 
-Each case starts `vivarium run` on one guest, signals the runner once a
-phase has started, and looks for what is left: a run root, or a process
-by its exact name. SIGKILL: the cleaner removes the root. SIGTERM: the
+Each case starts `vivarium run` on one guest and looks for what is left:
+a run root, or a process by its exact name. A run that ends by itself:
+its teardown takes everything down. The rest signal the runner once a
+phase has started. SIGKILL: the cleaner removes the root. SIGTERM: the
 run exits 143 after the guest has powered itself off, or with
 `--no-control` after it was killed. `ctl stop` while the phase runs: the
 run exits 5 and says stopped.
@@ -180,10 +181,32 @@ def case(
     return status
 
 
+def ends_by_itself(vivarium: str, spec: str, work: Path, left_behind: tuple[str, ...]) -> None:
+    """A run that passes and ends: `--only boot` deselects `hold`. Its teardown
+    alone must take every guest process down; no signal helps it."""
+    out = work / "run-ends"
+    log = work / "run-ends.log"
+    with log.open("w") as sink:
+        status = subprocess.run(
+            [vivarium, "run", "--spec", spec, "--out", str(out), "--only", "boot"],
+            stdout=sink,
+            stderr=subprocess.STDOUT,
+            check=False,
+        ).returncode
+    if status != 0:
+        sys.exit(f"ends: exit {status}:\n{log.read_text()}")
+    if not until(lambda: not running(left_behind), 5):
+        sys.exit(f"ends: left {', '.join(running(left_behind))}")
+    if not until(lambda: not roots(), 5):
+        sys.exit(f"ends: left {roots()}")
+    print("ok: a run that ended by itself left nothing")
+
+
 def main() -> None:
     vivarium, spec, work, backend = sys.argv[1], sys.argv[2], Path(sys.argv[3]), sys.argv[4]
     os.environ.setdefault("HOME", str(work))
     left_behind = LEFT_BEHIND[backend]
+    ends_by_itself(vivarium, spec, work, left_behind)
     if backend == "uml":
         case(vivarium, spec, work, signal.SIGKILL, left_behind, first=kill_the_bridge)
     case(vivarium, spec, work, signal.SIGKILL, left_behind, keep=True)
