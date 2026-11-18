@@ -23,6 +23,7 @@ from vivarium.events import Event, Kind, Level
 from vivarium.exits import Exit
 from vivarium.monitor import LIVE
 from vivarium.phases import PhaseState, Stop
+from vivarium.roots import Roots
 from vivarium.session import Session
 from vivarium.spec import PhaseSpec, SegmentSpec, Spec
 from vivarium_runner import MachineError, Machines
@@ -58,6 +59,7 @@ class FakeSession(Session):
         self.following: bool | None = None
         self.sink: Sink | None = None
         self.stopped: Stop | None = None
+        self.roots = Roots()
 
     def emit(self, kind: Kind, text: str, *, level: Level = Level.INFO, **data: object) -> None:
         self.said.append(f"{kind}:{text}")

@@ -940,6 +940,8 @@ class Controller:
         try:
             spec = Spec.read(path)
             done = self.session.reload(spec)
+            # A template the new spec adds boots from the new closure.
+            self.session.roots.hold(path)
         except ReloadRefused as error:
             return Reply.refuse(f"reload {path}: {error}")
         except (OSError, json.JSONDecodeError, ValidationError, SpecError) as error:

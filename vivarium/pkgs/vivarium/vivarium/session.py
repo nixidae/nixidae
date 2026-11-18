@@ -68,6 +68,7 @@ from .phases import (
     skipped_by,
 )
 from .pytest_plugin import Plugin, arguments, machine_fixtures
+from .roots import Roots
 from .sinks import Broadcast
 
 if TYPE_CHECKING:
@@ -267,6 +268,7 @@ class Session:
         # The guests, from `prepare` to `teardown`; `vms` is its guests that are up.
         self._run: Run | None = None
         self.cloud = Cloud(self)
+        self.roots = Roots()
         self._tasks: TaskGroup | None = None
         self._journals: dict[str, journal.Tail] = {}
         # `follow` and a phase boundary both drain, and a Tail read twice

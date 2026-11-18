@@ -436,6 +436,7 @@ async def run(args: argparse.Namespace) -> int:
         kernel=kernels_of(args),
         cpus=cpus_of(args),
     )
+    session.roots.hold(args.spec)
     session.emit(Kind.RUN_STARTED, f"output in {args.out}")
     if sys.platform == "linux":
         session.emit(Kind.NOTE, namespace.describe(Path("/proc/self/uid_map").read_text()))
@@ -632,6 +633,7 @@ async def drive(
                 with anyio.CancelScope(shield=True), anyio.move_on_after(DRAIN):
                     await feed.drained()
             group.cancel_scope.cancel()
+            session.roots.close()
 
 
 async def _sequence(
