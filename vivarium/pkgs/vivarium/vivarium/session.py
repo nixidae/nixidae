@@ -670,7 +670,8 @@ class Session:
         `settle` before it finishes.
         """
         async with self._draining:
-            for name, tail in self._journals.items():
+            # A copy: an instance that ends leaves `_journals` while a read waits.
+            for name, tail in list(self._journals.items()):
                 for line in await tail.read():
                     entry = journal.parse(line)
                     if entry is None:
