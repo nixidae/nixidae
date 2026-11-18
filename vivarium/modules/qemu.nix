@@ -197,9 +197,9 @@ lib.mkIf
       ];
 
     # systemd in the initrd, so the overlay below gets its upperdir and
-    # workdir created and its ordering worked out for it. nixpkgs from
-    # e126e9e73c33 on has no scripted initrd: the option is then a removed
-    # stub, of type unspecified, that refuses any definition.
+    # workdir created and its ordering worked out for it. A nixpkgs without
+    # the scripted initrd keeps the option as a removed stub, of type
+    # unspecified, that refuses any definition.
     boot.initrd.systemd.enable = lib.mkIf (options.boot.initrd.systemd.enable.type.name == "bool") true;
     boot.initrd.availableKernelModules = [
       "virtio_pci"
