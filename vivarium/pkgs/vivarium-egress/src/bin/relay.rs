@@ -25,14 +25,21 @@
 //!   address; the relay connects to it.
 //!
 //!     relay TCP_PORT VSOCK_PORT UDP_PORT IN_PORT
+//!
+//! VSOCK_PORT and IN_PORT also take `unix:PATH`, for a guest with no vsock
+//! device: a container, whose unix sockets the host shares.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
+use std::fmt;
+use std::fs;
 use std::io::{self, Read, Write};
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, UdpSocket};
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -115,6 +122,55 @@ fn socket(addr: SocketAddr, kind: libc::c_int, proto: libc::c_int) -> io::Result
     Ok(fd)
 }
 
+/// One end of the relay's link to the host: a vsock port on the host's
+/// CID, or a unix socket's path.
+#[derive(Clone, Copy)]
+enum Endpoint {
+    Vsock(u32),
+    Unix(&'static Path),
+}
+
+impl Endpoint {
+    /// `unix:PATH`, or a vsock port.
+    fn parse(arg: &str) -> io::Result<Self> {
+        match arg.strip_prefix("unix:") {
+            // The relay's arguments live as long as the relay.
+            Some(path) => Ok(Self::Unix(Box::leak(Path::new(path).into()))),
+            None => arg.parse().map(Self::Vsock).map_err(io::Error::other),
+        }
+    }
+
+    fn connect(self) -> io::Result<Stream> {
+        match self {
+            Self::Vsock(port) => vsock_connect(port),
+            Self::Unix(path) => Ok(Stream::new(UnixStream::connect(path)?.into())),
+        }
+    }
+
+    fn listen(self) -> io::Result<OwnedFd> {
+        match self {
+            Self::Vsock(port) => vsock_listen(port),
+            Self::Unix(path) => {
+                // A restarted relay finds its last socket, and bind refuses it.
+                match fs::remove_file(path) {
+                    Err(err) if err.kind() != io::ErrorKind::NotFound => return Err(err),
+                    _ => {}
+                }
+                Ok(UnixListener::bind(path)?.into())
+            }
+        }
+    }
+}
+
+impl fmt::Display for Endpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Vsock(port) => write!(f, "vsock {HOST_CID}:{port}"),
+            Self::Unix(path) => write!(f, "unix {}", path.display()),
+        }
+    }
+}
+
 fn vsock_connect(port: u32) -> io::Result<Stream> {
     let fd = vsock_socket()?;
     let mut addr: libc::sockaddr_vm = unsafe { mem::zeroed() };
@@ -134,12 +190,7 @@ fn vsock_connect(port: u32) -> io::Result<Stream> {
     Ok(Stream::new(fd))
 }
 
-/// A forward: the host connects in over vsock, names a guest address,
-/// and the relay connects there, TCP or UDP. The guest sees the router's
-/// address. A guest's UDP reply to it matches the connected socket before
-/// the `tproxy` rule's listener: nft's tproxy looks up an established
-/// socket first.
-fn inbound(port: u32) -> io::Result<()> {
+fn vsock_listen(port: u32) -> io::Result<OwnedFd> {
     // An accepted socket takes the listener's window.
     let listener = vsock_socket()?;
     let mut addr: libc::sockaddr_vm = unsafe { mem::zeroed() };
@@ -152,6 +203,16 @@ fn inbound(port: u32) -> io::Result<()> {
     {
         return Err(io::Error::last_os_error());
     }
+    Ok(listener)
+}
+
+/// A forward: the host connects in, names a guest address, and the
+/// relay connects there, TCP or UDP. The guest sees the router's
+/// address. A guest's UDP reply to it matches the connected socket before
+/// the `tproxy` rule's listener: nft's tproxy looks up an established
+/// socket first.
+fn inbound(from: Endpoint) -> io::Result<()> {
+    let listener = from.listen()?;
     loop {
         let fd = unsafe {
             owned(libc::accept4(
@@ -194,9 +255,9 @@ fn inbound(port: u32) -> io::Result<()> {
     }
 }
 
-fn tcp_flow(guest: std::net::TcpStream, vsock_port: u32) -> io::Result<()> {
+fn tcp_flow(guest: std::net::TcpStream, egress: Endpoint) -> io::Result<()> {
     let dst = original_dst(guest.as_raw_fd(), guest.local_addr()?.is_ipv6())?;
-    let mut host = vsock_connect(vsock_port)?;
+    let mut host = egress.connect()?;
     host.write_all(&encode(TCP, dst))?;
     let mut status = [0u8; 1];
     host.read_exact(&mut status)?;
@@ -269,17 +330,17 @@ fn recv_original(fd: &OwnedFd, buf: &mut [u8]) -> io::Result<(usize, SocketAddr,
 
 type Flows<K> = Arc<Mutex<HashSet<K>>>;
 
-fn udp_flow(client: SocketAddr, dst: SocketAddr, first: &[u8], vsock_port: u32) -> io::Result<()> {
+fn udp_flow(client: SocketAddr, dst: SocketAddr, first: &[u8], egress: Endpoint) -> io::Result<()> {
     // Two guests may talk to one destination: each flow binds it.
     let reply = UdpSocket::from(udp_socket(dst, true)?);
     reply.connect(client)?;
-    let mut host = vsock_connect(vsock_port)?;
+    let mut host = egress.connect()?;
     host.write_all(&encode(UDP, dst))?;
     host.write_frame_or_drop(first)?;
     pump(host, reply)
 }
 
-fn udp_listener(addr: SocketAddr, vsock_port: u32) -> io::Result<()> {
+fn udp_listener(addr: SocketAddr, egress: Endpoint) -> io::Result<()> {
     let listener = udp_socket(addr, false)?;
     let (level, option) = match addr {
         SocketAddr::V4(_) => (libc::SOL_IP, libc::IP_RECVORIGDSTADDR),
@@ -297,7 +358,7 @@ fn udp_listener(addr: SocketAddr, vsock_port: u32) -> io::Result<()> {
         let first = buf[..n].to_vec();
         let flows = flows.clone();
         thread::spawn(move || {
-            if let Err(err) = udp_flow(client, dst, &first, vsock_port) {
+            if let Err(err) = udp_flow(client, dst, &first, egress) {
                 eprintln!("relay: udp {client} -> {dst}: {err}");
             }
             flows.lock().unwrap().remove(&(client, dst));
@@ -405,7 +466,7 @@ fn echo_request(
     echoes: &Echoes,
     key: EchoKey,
     message: &[u8],
-    vsock_port: u32,
+    egress: Endpoint,
     raw: &Arc<OwnedFd>,
 ) {
     let (client, dst, _) = key;
@@ -417,7 +478,7 @@ fn echo_request(
         }
         table.remove(&key);
     }
-    let opened = vsock_connect(vsock_port).and_then(|mut host| {
+    let opened = egress.connect().and_then(|mut host| {
         host.write_all(&encode(ICMP, SocketAddr::new(dst, 0)))?;
         host.write_frame_or_drop(message)?;
         Ok(host)
@@ -449,7 +510,7 @@ fn echo_request(
     });
 }
 
-fn icmp_echo(vsock_port: u32, echoes: Echoes) -> io::Result<()> {
+fn icmp_echo(egress: Endpoint, echoes: Echoes) -> io::Result<()> {
     let requests = unsafe {
         owned(libc::socket(
             libc::AF_INET,
@@ -479,11 +540,11 @@ fn icmp_echo(vsock_port: u32, echoes: Echoes) -> io::Result<()> {
         let dst = Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
         let id = u16::from_be_bytes([packet[ihl + 4], packet[ihl + 5]]);
         let key = (IpAddr::V4(client), IpAddr::V4(dst), id);
-        echo_request(&echoes, key, &packet[ihl..], vsock_port, &raw);
+        echo_request(&echoes, key, &packet[ihl..], egress, &raw);
     }
 }
 
-fn icmp6_echo(vsock_port: u32, echoes: Echoes) -> io::Result<()> {
+fn icmp6_echo(egress: Endpoint, echoes: Echoes) -> io::Result<()> {
     let fd = unsafe {
         owned(libc::socket(
             libc::AF_INET6,
@@ -550,7 +611,7 @@ fn icmp6_echo(vsock_port: u32, echoes: Echoes) -> io::Result<()> {
         let client = Ipv6Addr::from(src.sin6_addr.s6_addr);
         let id = u16::from_be_bytes([message[4], message[5]]);
         let key = (IpAddr::V6(client), IpAddr::V6(dst), id);
-        echo_request(&echoes, key, message, vsock_port, &raw);
+        echo_request(&echoes, key, message, egress, &raw);
     }
 }
 
@@ -565,11 +626,11 @@ fn tcp_listener(addr: SocketAddr) -> io::Result<TcpListener> {
     Ok(TcpListener::from(fd))
 }
 
-fn tcp_accept(listener: TcpListener, vsock_port: u32) -> io::Result<()> {
+fn tcp_accept(listener: TcpListener, egress: Endpoint) -> io::Result<()> {
     for guest in listener.incoming() {
         let guest = guest?;
         thread::spawn(move || {
-            if let Err(err) = tcp_flow(guest, vsock_port) {
+            if let Err(err) = tcp_flow(guest, egress) {
                 eprintln!("relay: {err}");
             }
         });
@@ -594,18 +655,12 @@ fn main() -> io::Result<()> {
         .get(1)
         .map_or(Ok(9000), |a| a.parse())
         .map_err(io::Error::other)?;
-    let vsock_port: u32 = args
-        .get(2)
-        .map_or(Ok(5000), |a| a.parse())
-        .map_err(io::Error::other)?;
+    let egress = args.get(2).map_or(Ok(Endpoint::Vsock(5000)), |a| Endpoint::parse(a))?;
     let udp: u16 = args
         .get(3)
         .map_or(Ok(9001), |a| a.parse())
         .map_err(io::Error::other)?;
-    let in_port: u32 = args
-        .get(4)
-        .map_or(Ok(5001), |a| a.parse())
-        .map_err(io::Error::other)?;
+    let inward = args.get(4).map_or(Ok(Endpoint::Vsock(5001)), |a| Endpoint::parse(a))?;
     if env::var("RELAY_YIELD").is_ok_and(|value| !value.is_empty() && value != "0") {
         vivarium_egress::YIELD_BEFORE_READ.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -613,15 +668,15 @@ fn main() -> io::Result<()> {
     let any6 = |port| SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
     let echoes = Echoes::default();
     let (tcp4, tcp6) = (tcp_listener(any4(tcp))?, tcp_listener(any6(tcp))?);
-    spawn("inbound", move || inbound(in_port));
-    spawn("udp", move || udp_listener(any4(udp), vsock_port));
-    spawn("udp6", move || udp_listener(any6(udp), vsock_port));
+    spawn("inbound", move || inbound(inward));
+    spawn("udp", move || udp_listener(any4(udp), egress));
+    spawn("udp6", move || udp_listener(any6(udp), egress));
     let echoes6 = echoes.clone();
-    spawn("icmp", move || icmp_echo(vsock_port, echoes));
-    spawn("icmp6", move || icmp6_echo(vsock_port, echoes6));
-    spawn("tcp6", move || tcp_accept(tcp6, vsock_port));
+    spawn("icmp", move || icmp_echo(egress, echoes));
+    spawn("icmp6", move || icmp6_echo(egress, echoes6));
+    spawn("tcp6", move || tcp_accept(tcp6, egress));
     eprintln!(
-        "relay: tcp {tcp}, udp {udp}, icmp echo, IPv4 and IPv6, to vsock {HOST_CID}:{vsock_port}"
+        "relay: tcp {tcp}, udp {udp}, icmp echo, IPv4 and IPv6, to {egress}, forwards from {inward}"
     );
-    tcp_accept(tcp4, vsock_port)
+    tcp_accept(tcp4, egress)
 }
