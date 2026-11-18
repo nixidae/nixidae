@@ -39,7 +39,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 ```
 
 - The monitor waits up to `--wait` (1800 s) for the run to start, because the driver evaluates and builds first. No `until [ -e ... ]` loop, no `sleep`. For a run `vivarium run` started, it prints each derivation as it starts building (not with `--quiet`), and exits 2 with the error if evaluating or building fails; `$OUT/build.jsonl` holds every Nix log record, build log lines included.
-- Exit: 0 passed, 1 failed, 2 no verdict (crash, eval error), 3 stream lost or no run started, 4 paused, 5 stopped, 6 ready (an environment). Re-arm after each `continue`, or use `ctl continue --wait`: it exits at the next pause or the verdict with the same codes.
+- Exit: 0 passed, 1 failed, 2 no verdict, 3 no run, 4 paused, 5 stopped, 6 ready, 7 refused (`docs/howto.md` says what each means). Re-arm after each `continue`, or use `ctl continue --wait`: it exits at the next pause or the verdict with the same codes.
 - `--through-pauses` runs to the verdict; without `--quiet` it also prints each phase start and pass.
 - With a `nix run` driver, the driver's own exit is the other half: a build or eval failure ends the driver and the monitor then times out. Read `$OUT.log` when the driver task ends first.
 - A background task exiting 0 is not a pass. Read the monitor's exit code, `status`, or `phases.json`.
@@ -87,7 +87,7 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 - A run started by `vivarium run <attr>` also prints a `switch` line (`vivarium switch --out O --node N --module ./module.nix`; the attribute comes from `run.json`): edit a NixOS module, switch one guest to it, no new run. A `nix run` driver prints none.
 - `ctl stop` ends the run, paused or running: guests down, exit 5, verdict `stopped`. It returns once the run has exited. Never kill the driver by pid or pattern.
 - `ctl state` prints `paused before <phase>` (or `running`), then `phase\tstate`, with the first line of the error on a failed phase. `ctl --json <op>` prints the whole reply as one JSON object: `pause`, `state`, `errors` (full text).
-- Do not pipe `ctl` into `tail`/`head`: a refusal goes to stderr and exit 1, and the pipe hides both.
+- Do not pipe `ctl` into `tail`/`head`: an error goes to stderr with exit 1 (it ran and failed), 3 (no run) or 7 (refused), and the pipe hides both.
 - Guest helpers: `succeed`, `execute` (rc, out), `fail`, `wait_for_unit`, `wait_until_succeeds`/`wait_until_fails(cmd, timeout)`, `until(what, check, timeout, evidence=)` (async check returns a value, or `None` for not yet), `never(what, check, timeout)`, `vms.until(what, check(vm), timeout, machines=)`: no hand-written retry loops. `system_state(timeout)` (the boot ended: the init's word and what failed; systemd or dinit), `journal(unit)`, `processes()`, `meminfo()`, `switch_to(name)`, screen methods on QEMU guests with `vivarium.display`.
 - Links: `await vms.segment("core").cut("leaf1")` / `.restore(...)` drops a member's frames on the host, carrier up; `.capture()` writes `<out>/pcap/core.pcap` (`segments.core.capture = true`: from boot). Only a hub segment (`segments.core.hub = true`, or three members); no `nft` or `tcpdump` in the guest. By hand: `vivarium ctl --out "$OUT" segment core cut leaf1`.
 

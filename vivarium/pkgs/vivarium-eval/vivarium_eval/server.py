@@ -43,6 +43,7 @@ from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
 from vivarium.control import PARENT, SOCKET, Op, Reply, WatchRefused, request, watch
+from vivarium.exits import describe
 from vivarium.journal import Tail
 from vivarium.monitor import LIVE, channel_event, paused_now
 
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
 
 CHANNEL: Final = "notifications/claude/channel"
 
-INSTRUCTIONS: Final = """\
+INSTRUCTIONS: Final = f"""\
 Runs NixOS guests under vivarium and lets you reach into them.
 
 `start` launches a run in the background and returns its id at once; it
@@ -82,8 +83,8 @@ A `progress` or `resumed` event marks the run moving on; say one line
 about it so the person watching sees the run move, and do nothing else.
 Without channels, run the `monitor` command that `start` returns in a
 Monitor or in the background: it prints pauses, failures and the verdict,
-one line each, and exits with the verdict (0 passed, 1 failed, 2 exited
-without one), with 4 at a pause or 6 at `ready`. Run it again after each `resume`.
+one line each, and exits with its status ({describe()}).
+Run it again after each `resume`.
 `monitor_all` prints every event, progress included, through pauses to
 the verdict.
 On `paused`, look with `events` and `exec` before you `resume` -- the

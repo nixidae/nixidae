@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
+
+from .exits import Exit
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -54,11 +56,6 @@ class PhaseState(StrEnum):
     by running a subset."""
 
 
-STOPPED: Final = 5
-"""The exit status of a run stopped by `ctl stop`, and of a monitor that
-sees one: not a pass, and not a failure either."""
-
-
 @dataclass(frozen=True, slots=True)
 class Stop:
     """Why a run ended before its verdict, and the status it exits with."""
@@ -68,7 +65,7 @@ class Stop:
 
     @classmethod
     def by_request(cls) -> Stop:
-        return cls("ctl stop", STOPPED)
+        return cls("ctl stop", Exit.STOPPED)
 
     @classmethod
     def by_signal(cls, number: int, name: str) -> Stop:

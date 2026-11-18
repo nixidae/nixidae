@@ -12,13 +12,12 @@ from typing import Any
 import anyio
 import pytest
 from vivarium.control import RUN_FILE, SOCKET, reachable
+from vivarium.exits import Exit
 from vivarium.monitor import (
     BUILD,
     BUILD_LOG,
     LIVE,
-    PAUSED,
     PLANNED,
-    READY,
     SUBSTITUTE,
     Arrival,
     BuildTally,
@@ -32,7 +31,6 @@ from vivarium.monitor import (
     status,
     wait_for_run,
 )
-from vivarium.phases import STOPPED
 
 
 class TestLine:
@@ -58,7 +56,7 @@ class TestStatus:
             ({"event": "finished", "passed": "true"}, 0),
             ({"event": "finished", "passed": "false"}, 1),
             ({"event": "exited"}, 2),
-            ({"event": "finished", "passed": "false", "stopped": "true"}, STOPPED),
+            ({"event": "finished", "passed": "false", "stopped": "true"}, Exit.STOPPED),
             ({"event": "paused"}, None),
             ({"event": "progress"}, None),
         ],
@@ -72,7 +70,7 @@ class TestStatus:
         assert pushed is not None
         text, meta = pushed
         assert text == "run stopped (ctl stop): x pending"
-        assert status(meta) == STOPPED
+        assert status(meta) == Exit.STOPPED
 
 
 PAUSE = {"run": "r", "event": "paused", "text": "paused after boot failed"}
@@ -282,18 +280,18 @@ async def _follow(tmp_path: Path, events: list[dict[str, Any]], **options: Any) 
     ("events", "until_pause", "code"),
     [
         # A live pause: only --through-pauses goes on.
-        ([LIVE, PAUSE, RESUMED, FAILED], True, PAUSED),
+        ([LIVE, PAUSE, RESUMED, FAILED], True, Exit.PAUSED),
         ([LIVE, PAUSE, RESUMED, FAILED], False, 1),
         # Armed while paused: the replayed pause is still open.
-        ([PAUSE, LIVE], True, PAUSED),
+        ([PAUSE, LIVE], True, Exit.PAUSED),
         ([PAUSE, LIVE], False, 3),
         # Armed after a resume: the replayed pause is closed.
         ([PAUSE, RESUMED, LIVE, FAILED], True, 1),
         # The replay alone decides nothing until it ends.
         ([PAUSE, RESUMED], True, 3),
         # An environment that is ready is not a pause and not a verdict.
-        ([LIVE, READY_EVENT], True, READY),
-        ([READY_EVENT, LIVE], True, READY),
+        ([LIVE, READY_EVENT], True, Exit.READY),
+        ([READY_EVENT, LIVE], True, Exit.READY),
         ([LIVE, READY_EVENT, RESUMED, PASSED], False, 0),
     ],
 )
@@ -368,7 +366,7 @@ class TestFollowFile:
         (tmp_path / "control.sock").touch()
         _write(tmp_path, STARTED, NOTE_PAUSED)
         with anyio.fail_after(5):
-            assert await follow_file(tmp_path, grace=0) == PAUSED
+            assert await follow_file(tmp_path, grace=0) == Exit.PAUSED
 
     @pytest.mark.anyio
     async def test_until_pause_runs_on_past_a_closed_pause(self, tmp_path: Path) -> None:

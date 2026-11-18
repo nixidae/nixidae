@@ -9,6 +9,7 @@ import pytest
 from vivarium import cli
 from vivarium.cli import parse
 from vivarium.control import Op, Reply
+from vivarium.exits import Exit
 from vivarium.session import CpuOverride
 
 if TYPE_CHECKING:
@@ -107,3 +108,30 @@ def test_cpus_of_a_run(flags: list[str], cpus: CpuOverride | None) -> None:
 def test_cpus_refused(flags: list[str]) -> None:
     with pytest.raises(SystemExit):
         cli.cpus_of(parse(["run", "--spec", "s.json", "--out", "o", *flags]))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("answer", "status"),
+    [
+        (Reply(ok=True), Exit.PASSED),
+        (Reply(ok=False, error="ZeroDivisionError"), Exit.FAILED),
+        (Reply.refuse("exec only while paused"), Exit.REFUSED),
+        (OSError("no such file"), Exit.NO_RUN),
+    ],
+)
+async def test_ctl_tells_a_refusal_from_a_failure_and_no_run(
+    answer: Reply | OSError, status: Exit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each its own status: a script that sees 1 knows the request ran. nixidae/nixidae#1483."""
+
+    async def request(
+        socket: Path, op: Op, arg: str = "", reload: tuple[Path, ...] = (), chunk: Callable[[str], None] | None = None
+    ) -> Reply:
+        if isinstance(answer, OSError):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(cli, "request", request)
+    for json in ([], ["--json"]):
+        assert await cli.ctl(parse(["ctl", "--out", "out", *json, "exec", "1"])) is status

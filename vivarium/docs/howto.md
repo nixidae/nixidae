@@ -79,15 +79,19 @@ for up to 30 minutes (`--wait SECONDS`), because the driver first
 evaluates and builds the test.
 
 The monitor prints one line for each pause, failure and verdict. Then
-it exits:
+it exits. `vivarium`, the driver, `ctl` and `monitor` use one table of
+exit statuses:
 
 | Exit | Meaning |
 | --- | --- |
-| 0 | The run passed. |
-| 1 | The run failed. |
-| 2 | The run stopped without a verdict, for example it crashed. |
-| 3 | The monitor lost the run's stream before a verdict, or no run started within `--wait`. |
+| 0 | The run passed, or `ctl` did what it asked. |
+| 1 | The run failed, or what `ctl` asked for ran and failed: an `exec` that raised, a `pytest` with a failed case. |
+| 2 | The run stopped without a verdict: it crashed, or the evaluation, build or spec failed. A command line the program refuses also exits 2. |
+| 3 | No run: none started within `--wait`, none listens on the socket, or the stream ended before a verdict. |
 | 4 | The run is paused. |
+| 5 | `ctl stop` stopped the run. |
+| 6 | An environment (`up`, `--hold`) is ready. |
+| 7 | The run refused the request: the wrong time for it, or a phase, guest or segment it does not have. |
 
 Start it in the background. When it exits, look at the exit code. After
 you resume a paused run, start the monitor again. It does not stop again
@@ -151,8 +155,8 @@ $ vivarium ctl --out ./out continue
 
 `continue` returns when the run is no longer paused. With `--wait`, it
 returns at the next pause or at the verdict instead, and exits as
-`vivarium monitor` does: 0 passed, 1 failed, 4 paused, 5 stopped, 6
-ready (an environment, below).
+`vivarium monitor` does (the table in "Wait for the run without
+watching it").
 
 `vivarium ctl --out ./out watch` prints the run's progress, pauses,
 failures and verdict, one line each, until the run ends. Every run with

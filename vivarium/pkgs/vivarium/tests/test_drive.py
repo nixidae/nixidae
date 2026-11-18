@@ -20,6 +20,7 @@ import pytest
 from vivarium.cli import drive
 from vivarium.control import RUN_FILE, SOCKET, Op, RunFile, request, watch
 from vivarium.events import Event, Kind, Level
+from vivarium.exits import Exit
 from vivarium.monitor import LIVE
 from vivarium.phases import PhaseState, Stop
 from vivarium.session import Session
@@ -287,7 +288,7 @@ class TestBreakpoints:
             assert len(chunks) > 1, "the output came in one piece, not as it was printed"
             for op, arg in ((Op.RUN, "one"), (Op.PYTEST, str(tmp_path)), (Op.CONTINUE, "")):
                 reply = await request(socket, op, arg)
-                assert not reply.ok
+                assert reply.status is Exit.REFUSED
                 assert "only while paused" in (reply.error or "")
             release.set()
 
@@ -348,7 +349,7 @@ class TestBreakpoints:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
             reply = await request(socket, Op.RELOAD, str(spec))
-            assert not reply.ok
+            assert reply.status is Exit.REFUSED
             assert "the guests changed" in (reply.error or "")
             assert session.spec.machines == []
             assert (await request(socket, Op.CONTINUE)).ok
@@ -364,7 +365,7 @@ class TestBreakpoints:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
             reply = await request(socket, Op.RELOAD, str(spec))
-            assert not reply.ok
+            assert reply.status is Exit.REFUSED
             assert "the segments changed" in (reply.error or "")
             assert session.spec.segments == {}
             assert (await request(socket, Op.CONTINUE)).ok

@@ -1,12 +1,14 @@
 """Do the docs name commands and library functions that exist?
 
-Three claims, read from the source tree:
+Four claims, read from the source tree:
 
 - Every `nix run --file . <test>.<driver> -- ARGS` in a Markdown file
   parses with the runner's own parser, with the flags that driver adds.
 - Every `vivarium.lib.NAME` named anywhere is a name `lib` exports.
 - Every name `lib` exports has a `/** */` doc comment where it is
   defined, the form nixdoc reads.
+- The howto's exit status table has each status of `vivarium.exits.Exit`
+  and no other, and a short listing anywhere names them all.
 
     docs SOURCE LIB_NAMES_JSON
 """
@@ -20,6 +22,7 @@ import sys
 from pathlib import Path
 
 from vivarium.cli import parse
+from vivarium.exits import Exit, describe
 
 # What each wrapper in lib.nix adds after `run --spec SPEC`.
 DRIVER_FLAGS: dict[str, list[str]] = {
@@ -33,6 +36,9 @@ FENCE = re.compile(r"^```[^\n]*\n(.*?)^```", re.DOTALL | re.MULTILINE)
 INLINE = re.compile(r"`([^`\n]+(?:\n[^`\n]+)*)`")
 SHELL_END = ("&&", "||", "|", ";", "&")
 LIB_NAME = re.compile(r"vivarium\.lib\.([A-Za-z_][A-Za-z0-9_]*)")
+EXIT_TABLE = "| Exit | Meaning |"
+EXIT_ROW = re.compile(r"^\| (\d+) \|")
+LISTING = "0 passed, 1 failed"
 
 
 def commands(markdown: str) -> list[str]:
@@ -93,6 +99,20 @@ def definition(sources: list[Path], name: str) -> tuple[Path, list[str], int] | 
     return None
 
 
+def exit_rows(markdown: str) -> list[int] | None:
+    """The statuses in the table under `EXIT_TABLE`, or None with no table."""
+    lines = markdown.splitlines()
+    if EXIT_TABLE not in lines:
+        return None
+    rows: list[int] = []
+    for line in lines[lines.index(EXIT_TABLE) + 2 :]:
+        match = EXIT_ROW.match(line)
+        if match is None:
+            break
+        rows.append(int(match.group(1)))
+    return rows
+
+
 def main() -> None:
     root, names = Path(sys.argv[1]), set(json.loads(Path(sys.argv[2]).read_text()))
     problems: list[str] = []
@@ -132,9 +152,21 @@ def main() -> None:
             problems.append(f"{source.name}:{number + 1}: lib.{name} has no /** */ doc comment")
     print(f"read {len(names)} lib names")
 
+    rows = exit_rows((root / "docs" / "howto.md").read_text())
+    statuses = [status.value for status in Exit]
+    if rows is None:
+        problems.append(f"docs/howto.md: no exit status table ({EXIT_TABLE})")
+    elif rows != statuses:
+        problems.append(f"docs/howto.md: the exit status table has {rows}, vivarium.exits.Exit has {statuses}")
+    for page in pages:
+        for number, line in enumerate(page.read_text().splitlines(), 1):
+            if LISTING in line and describe() not in line:
+                problems.append(f"{page.relative_to(root)}:{number}: lists exit statuses, not as `{describe()}`")
+    print(f"read {len(statuses)} exit statuses")
+
     if problems:
         sys.exit("\n".join(problems))
-    print("ok: every driver command parses, and every lib name exists and has a doc comment")
+    print("ok: every driver command parses, every lib name exists and has a doc comment, the exit statuses match")
 
 
 if __name__ == "__main__":

@@ -47,8 +47,8 @@ from typing import Any, Final
 import anyio
 
 from .control import RUN_FILE, SOCKET, watch
+from .exits import Exit
 from .journal import Tail
-from .phases import STOPPED
 
 TERMINAL: Final = frozenset({"finished", "exited"})
 """The events after which a run sends nothing more."""
@@ -59,14 +59,6 @@ QUIET_SKIPS: Final = frozenset({"progress", "resumed", "building", "builds"})
 LIVE: Final = {"event": "live"}
 """What the server sends after the replayed events. It is not an event and
 is not printed."""
-
-PAUSED: Final = 4
-"""The exit status at a pause, unless `--through-pauses`."""
-
-READY: Final = 6
-"""The exit status when an environment (`--hold`) is ready, unless
-`--through-pauses`. Not 0: a watcher must not read the guests still up as
-a verdict."""
 
 HOLDS: Final = frozenset({"paused", "ready"})
 """The events after which the run waits for someone to act."""
@@ -139,18 +131,14 @@ def shown(event: dict[str, Any], *, quiet: bool, as_json: bool = False) -> bool:
     return not (quiet and event.get("event") in QUIET_SKIPS)
 
 
-def status(event: dict[str, Any]) -> int | None:
-    """The exit status a terminal event means, or `None` for any other.
-
-    0 passed, 1 failed, 2 exited with no verdict: a crash or an
-    evaluation error, 5 stopped.
-    """
+def status(event: dict[str, Any]) -> Exit | None:
+    """The exit status a terminal event means, or `None` for any other."""
     if event.get("event") == "finished" and event.get("stopped") == "true":
-        return STOPPED
+        return Exit.STOPPED
     if event.get("event") == "finished":
-        return 0 if event.get("passed") == "true" else 1
+        return Exit.PASSED if event.get("passed") == "true" else Exit.FAILED
     if event.get("event") == "exited":
-        return 2
+        return Exit.NO_VERDICT
     return None
 
 
@@ -334,7 +322,7 @@ class Watch:
         self.seen: list[dict[str, Any]] = []
         self.live = False
 
-    def take(self, event: dict[str, Any]) -> int | None:
+    def take(self, event: dict[str, Any]) -> Exit | None:
         if event == LIVE:
             self.live = True
         else:
@@ -345,11 +333,11 @@ class Watch:
             if code is not None:
                 return code
         if self.until_pause and self.live and (hold := held(self.seen)) is not None:
-            return READY if hold == "ready" else PAUSED
+            return Exit.READY if hold == "ready" else Exit.PAUSED
         return None
 
 
-async def follow(socket: Path, **options: bool) -> int:
+async def follow(socket: Path, **options: bool) -> Exit:
     """Print the run's events from `watch` on its control socket until its
     verdict, or with `until_pause` until it is paused; the exit status.
     Raises `WatchRefused` for a run that serves no `watch`."""
@@ -358,10 +346,10 @@ async def follow(socket: Path, **options: bool) -> int:
         code = printer.take(event)
         if code is not None:
             return code
-    return 3
+    return Exit.NO_RUN
 
 
-async def follow_file(out: Path, *, grace: float = GRACE, **options: bool) -> int:
+async def follow_file(out: Path, *, grace: float = GRACE, **options: bool) -> Exit:
     """`follow`, from `<out>/events.jsonl`, for a run that serves no `watch`.
 
     Polls: the file is all such a run offers, and a file has no
@@ -390,5 +378,5 @@ async def follow_file(out: Path, *, grace: float = GRACE, **options: bool) -> in
             if code is not None:
                 return code
         if not up and (was_up or anyio.current_time() - started > grace):
-            return 2
+            return Exit.NO_VERDICT
         await anyio.sleep(0.25)

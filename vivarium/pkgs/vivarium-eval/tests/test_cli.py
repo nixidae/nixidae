@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from vivarium.control import RUN_FILE, Op, Origin, run_file
+from vivarium.exits import Exit
 from vivarium_eval.cli import child_args, entry, main, not_ready, origin_of, parse, parser, split_attr
 
 
@@ -83,7 +84,7 @@ class TestRunnerCommands:
     def test_ctl_reaches_the_runner_code(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit) as exited:
             main(["ctl", "--out", str(tmp_path), "state"])
-        assert exited.value.code == 1
+        assert exited.value.code is Exit.NO_RUN
         assert "no run is listening" in capsys.readouterr().err
 
     def test_parse_refuses_a_command_that_does_not_evaluate(self) -> None:

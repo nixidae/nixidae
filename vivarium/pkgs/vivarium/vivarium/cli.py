@@ -51,6 +51,7 @@ from .control import (
     watch as watch_run,
 )
 from .events import Kind, Level
+from .exits import Exit, describe
 from .feed import Feed
 from .phases import END, FAILURE, START, PhaseState, Stop, breakpoints, launchable, ready, selected, summarise
 from .session import CpuOverride, Session, SessionError
@@ -272,7 +273,7 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
         action="store_true",
         help=(
             "continue: then wait for the next pause or the verdict, as `monitor --quiet` does,"
-            " and exit with its status (0 passed, 1 failed, 4 paused, 5 stopped, 6 ready)"
+            f" and exit with its status ({describe()})"
         ),
     )
     ctl.add_argument(
@@ -315,10 +316,8 @@ def add_monitor(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> Non
         "monitor",
         help="print a run's events, one line each, until its verdict",
         description=(
-            "Follow a run, live or finished, by its --out or its id. Exit 0 if it passed, 1 if it"
-            " failed, 2 if it exited without a verdict, 3 if the stream ended early"
-            " or no run started within --wait, 4 if it paused, 5 if it was stopped,"
-            " 6 if an environment (`--hold`) is ready."
+            f"Follow a run, live or finished, by its --out or its id. Exit status: {describe()}."
+            f" {Exit.NO_RUN.value} is also a stream that ended early, or no run started within --wait."
             " The exit status is the verdict: run it bare, with no pipe and no"
             " `; echo` after it, or a pause reads as success."
         ),
@@ -748,7 +747,7 @@ async def _schedule(
             )
 
 
-async def ctl(args: argparse.Namespace) -> int:
+async def ctl(args: argparse.Namespace) -> Exit:
     """One request to a run; its output, its value, its error."""
     arg = sys.stdin.read() if args.arg == "-" else args.arg
     # The run resolves a path against its own working directory, not ours.
@@ -759,13 +758,13 @@ async def ctl(args: argparse.Namespace) -> int:
         arg = shlex.join([arg, *args.pytest_args])
     if args.segment_args and args.op != Op.SEGMENT:
         print(f"[vivarium] {args.op} takes one argument", file=sys.stderr)
-        return 2
+        return Exit.USAGE
     if args.op == Op.SEGMENT:
         arg = shlex.join([arg, *args.segment_args])
     socket = args.out / SOCKET
     if args.wait and args.op != Op.CONTINUE:
         print("[vivarium] --wait is for continue", file=sys.stderr)
-        return 2
+        return Exit.USAGE
     streamed: list[str] = []
 
     def show(text: str) -> None:
@@ -780,10 +779,10 @@ async def ctl(args: argparse.Namespace) -> int:
         reply = await request(socket, Op(args.op), arg, tuple(args.reload), chunk)
     except OSError as error:
         print(f"[vivarium] no run is listening at {socket}: {error}", file=sys.stderr)
-        return 1
+        return Exit.NO_RUN
     except WatchRefused as error:
         print(f"[vivarium] the run at {socket} serves no watch: {error}", file=sys.stderr)
-        return 1
+        return Exit.REFUSED
     if args.op == Op.CONTINUE and reply.ok:
         # Returns once the run has said `resumed`, so a monitor armed now
         # replays no open pause.
@@ -794,7 +793,7 @@ async def ctl(args: argparse.Namespace) -> int:
                 return await monitor.follow(socket, quiet=True, replay=False)
             except (OSError, WatchRefused) as error:
                 print(f"[vivarium] cannot wait on {socket}: {error}", file=sys.stderr)
-                return 3
+                return Exit.NO_RUN
     if args.op == Op.STOP and reply.ok:
         if await wait_for_exit(args.out):
             reply.result = "stopped"
@@ -803,7 +802,7 @@ async def ctl(args: argparse.Namespace) -> int:
             reply.error = f"the run did not exit within {STOP_WAIT:g}s of stop"
     if args.json:
         print(json.dumps(dataclasses.asdict(reply)))
-        return 0 if reply.ok else 1
+        return reply.status
     if streamed:
         # The reply's output is what was printed already.
         if not streamed[-1].endswith("\n"):
@@ -819,7 +818,7 @@ async def ctl(args: argparse.Namespace) -> int:
             print("\t".join([name, state, *why]))
     if reply.error:
         print(reply.error.rstrip(), file=sys.stderr)
-    return 0 if reply.ok else 1
+    return reply.status
 
 
 async def _resumed(socket: Path) -> None:
@@ -870,14 +869,14 @@ def watch(args: argparse.Namespace) -> int:
     try:
         arrival = anyio.run(monitor.wait_for_run, socket.parent, args.wait, monitor.Watch(**options))
         if arrival is monitor.Arrival.GONE:
-            return 2
+            return Exit.NO_VERDICT
         if arrival is monitor.Arrival.NEVER:
             print(
                 f"[vivarium] no run in {socket.parent} after {args.wait:g}s: no events.jsonl",
                 file=sys.stderr,
                 flush=True,
             )
-            return 3
+            return Exit.NO_RUN
         try:
             return anyio.run(functools.partial(monitor.follow, socket, **options))
         except (FileNotFoundError, ConnectionRefusedError, WatchRefused):
@@ -886,7 +885,7 @@ def watch(args: argparse.Namespace) -> int:
             pass
         if not (socket.parent / "events.jsonl").exists():
             print(f"[vivarium] no run in {socket.parent}: no events.jsonl", file=sys.stderr, flush=True)
-            return 3
+            return Exit.NO_RUN
         return anyio.run(functools.partial(monitor.follow_file, socket.parent, **options))
     except KeyboardInterrupt:
         return 130
@@ -914,7 +913,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(130) from None
     except (SessionError, SpecError, namespace.NamespaceError) as error:
         print(f"[vivarium] {error}", file=sys.stderr, flush=True)
-        raise SystemExit(1) from None
+        raise SystemExit(Exit.NO_VERDICT) from None
 
 
 if __name__ == "__main__":

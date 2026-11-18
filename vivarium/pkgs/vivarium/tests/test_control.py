@@ -30,6 +30,7 @@ from vivarium.control import (
     segment_request,
     split_last_expression,
 )
+from vivarium.exits import Exit
 from vivarium.phases import PhaseState
 from vivarium.session import Session
 from vivarium_runner import Lan, Machines
@@ -111,7 +112,7 @@ class TestConsole:
 
     async def test_an_exception_is_the_reply_not_a_crash(self) -> None:
         reply = await Console({}).execute("1 / 0")
-        assert not reply.ok
+        assert reply.status is Exit.FAILED
         assert reply.error is not None
         assert "ZeroDivisionError" in reply.error
 

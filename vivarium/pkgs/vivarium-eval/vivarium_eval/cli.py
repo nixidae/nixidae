@@ -46,7 +46,7 @@ from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
 from huggorm_bindings import DerivedPathBuilt, OutputsSpec
 from vivarium import access, cli as runner_cli, control, monitor, registry
-from vivarium.phases import STOPPED
+from vivarium.exits import Exit, describe
 
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
@@ -118,8 +118,8 @@ def parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help=(
                     "start the run in the background, its output in <out>/run.log; wait as"
-                    " `monitor --quiet` does and exit with its status (0 passed, 1 failed,"
-                    " 2 no run, 4 paused, 5 stopped). The run goes on after a pause"
+                    f" `monitor --quiet` does and exit with its status ({describe()})."
+                    " The run goes on after a pause"
                 ),
             )
     down = sub.add_parser("down", help="stop an environment `up` started; exit 0 if its phases passed")
@@ -312,27 +312,27 @@ async def build_spec(file: Path, attr: list[str]) -> Path:
         return Path(await (await select_attr_path(state, target, ["spec"])).realise_string())
 
 
-def reload(args: argparse.Namespace) -> int:
+def reload(args: argparse.Namespace) -> Exit:
     try:
         origin = origin_of(args.attr, args.file, args.out)
         attr = split_attr(origin.attr)
     except ValueError as error:
         say(str(error))
-        return 2
+        return Exit.USAGE
     started = time.monotonic()
     say(f"evaluating {origin.attr}")
     try:
         spec = anyio.run(build_spec, origin.file, attr)
     except (NixError, AttrPathError) as error:
         say(f"evaluation failed: {explain(str(error))}")
-        return 1
+        return Exit.FAILED
     say(f"built {spec} in {time.monotonic() - started:.1f}s")
     reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.RELOAD, str(spec), (), None)
     if reply.result is not None:
         print(reply.result)
     if reply.error:
         print(reply.error.rstrip(), file=sys.stderr)
-    return 0 if reply.ok else 1
+    return reply.status
 
 
 def this_cli() -> Path:
@@ -357,20 +357,20 @@ def origin_of(attr: str | None, file: Path | None, out: Path) -> control.Origin:
     return about.origin
 
 
-def switch(args: argparse.Namespace) -> int:
+def switch(args: argparse.Namespace) -> Exit:
     try:
         origin = origin_of(args.attr, args.file, args.out)
         attr = split_attr(origin.attr)
     except ValueError as error:
         say(str(error))
-        return 2
+        return Exit.USAGE
     started = time.monotonic()
     say(f"evaluating {origin.attr} with {args.module} on {args.node}")
     try:
         system, registration = anyio.run(build_extended, origin.file, attr, args.node, args.module)
     except (NixError, AttrPathError) as error:
         say(f"evaluation failed: {explain(str(error))}")
-        return 1
+        return Exit.FAILED
     say(f"built {system} in {time.monotonic() - started:.1f}s")
     code = switch_code(args.node, system, registration, args.action)
     # Every argument given: zuban's TypeVarTuple does not count a defaulted parameter.
@@ -379,7 +379,7 @@ def switch(args: argparse.Namespace) -> int:
         print(reply.output, end="" if reply.output.endswith("\n") else "\n")
     if reply.error:
         print(reply.error.rstrip(), file=sys.stderr)
-    return 0 if reply.ok else 1
+    return reply.status
 
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -448,7 +448,7 @@ def main(argv: list[str] | None = None) -> None:
         explained = explain(str(error))
         recorder.failed(explained)
         say(f"evaluation failed: {explained}")
-        raise SystemExit(1) from None
+        raise SystemExit(Exit.NO_VERDICT) from None
     finally:
         recorder.close()
     say(f"evaluated and built in {time.monotonic() - started:.1f}s")
@@ -474,7 +474,7 @@ def until_pause(argv: list[str], request: Request) -> int:
     process: the point is to return at a pause with the guests up."""
     if request.out is None:
         say(f"{'up' if request.command == 'up' else '--until-pause'} needs --out")
-        return 2
+        return Exit.USAGE
     request.out.mkdir(parents=True, exist_ok=True)
     child_argv = [str(this_cli()), *child_args(argv)]
     with (request.out / LOG).open("wb") as log:
@@ -493,19 +493,19 @@ def until_pause(argv: list[str], request: Request) -> int:
     # stdout is `up`'s result, access.json; the progress is not.
     with contextlib.redirect_stdout(sys.stderr):
         code = runner_cli.watch(args)
-    if code != monitor.READY:
+    if code != Exit.READY:
         say(not_ready(code, request.out))
         return code
     print((request.out / access.FILE).read_text(), end="")
     say(f"ready: ssh -F {request.out / access.SSH_CONFIG} <guest>; files in {request.out / access.DIRECTORY}")
     say(f"stop it: {this_cli()} down --out {request.out}")
-    return 0
+    return Exit.PASSED
 
 
 def not_ready(code: int, out: Path) -> str:
     """Where to look when `up` ends short of ready. Only a paused run
     still has its socket to answer `ctl state`; an ended one left files."""
-    if code == monitor.PAUSED:
+    if code == Exit.PAUSED:
         return f"the environment is not ready, it paused; `vivarium ctl --out {out} state` says why"
     return f"the environment is not ready (monitor exit {code}); see {out / LOG} and {out / 'phases.json'}"
 
@@ -530,31 +530,31 @@ async def closure(paths: list[str]) -> int:
     return 0
 
 
-async def down(out: Path) -> int:
-    """`ctl stop`, then the run's exit: 0 if its phases passed, 5 if it was
-    stopped before it was ready, 1 if a phase failed."""
+async def down(out: Path) -> Exit:
+    """`ctl stop`, then the run's verdict: passed, failed, or stopped before
+    it was ready."""
     socket = out / control.SOCKET
     try:
         reply = await control.request(socket, control.Op.STOP)
     except OSError as error:
         say(f"no run is listening at {socket}: {error}")
-        return 1
+        return Exit.NO_RUN
     if not reply.ok:
         say(reply.error or "the run refused stop")
-        return 1
+        return reply.status
     if not await runner_cli.wait_for_exit(out):
         say(f"the run did not exit within {runner_cli.STOP_WAIT:g}s of stop")
-        return 1
+        return Exit.FAILED
     try:
         verdict = json.loads(await anyio.Path(out / "phases.json").read_text())
     except (OSError, json.JSONDecodeError) as error:
         say(f"the run left no verdict in {out / 'phases.json'}: {error}")
-        return 2
+        return Exit.NO_VERDICT
     if verdict.get("stopped"):
         say(f"down; stopped before it was ready ({verdict['stopped']})")
-        return STOPPED
+        return Exit.STOPPED
     say("down" if verdict.get("passed") else "down; a phase failed")
-    return 0 if verdict.get("passed") else 1
+    return Exit.PASSED if verdict.get("passed") else Exit.FAILED
 
 
 async def listing(as_json: bool) -> int:

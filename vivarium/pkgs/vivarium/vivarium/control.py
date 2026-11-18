@@ -48,6 +48,7 @@ from pydantic import ValidationError
 from vivarium_runner import MachineError, unixpath
 
 from .events import Kind, Level
+from .exits import Exit
 from .phases import PhaseState, ReloadRefused, Stop
 from .session import CasesFailed, load_phase
 from .spec import PytestSpec, Spec, SpecError
@@ -130,6 +131,20 @@ class Reply:
     """Why the run is paused, as `state` answers it: `before later`."""
     errors: dict[str, str] | None = None
     """Each failed phase's error, as `state` answers it."""
+    refused: bool = False
+    """Whether the run refused the request, apart from a request that ran
+    and failed."""
+
+    @classmethod
+    def refuse(cls, error: str) -> Reply:
+        return cls(ok=False, refused=True, error=error)
+
+    @property
+    def status(self) -> Exit:
+        """The exit status of `ctl` for this reply."""
+        if self.ok:
+            return Exit.PASSED
+        return Exit.REFUSED if self.refused else Exit.FAILED
 
     def encode(self) -> bytes:
         return json.dumps(asdict(self)).encode() + b"\n"
@@ -753,7 +768,7 @@ class Controller:
         try:
             asked = parse_request(line)
         except ValueError as error:
-            return Reply(ok=False, error=str(error))
+            return Reply.refuse(str(error))
         op, arg = asked.op, asked.arg
         self.session.emit(Kind.NOTE, f"control: {op} {arg}".rstrip(), level=Level.DETAIL, op=str(op), arg=arg)
         if op is Op.STATE:
@@ -766,16 +781,16 @@ class Controller:
             )
         if op is Op.WATCH:
             # A feed answers on the stream, in `_client`, before this.
-            return Reply(ok=False, error="this run serves no watch")
+            return Reply.refuse("this run serves no watch")
         if op is Op.STOP:
             if self._stop is None:
-                return Reply(ok=False, error="this run cannot be stopped through its socket")
+                return Reply.refuse("this run cannot be stopped through its socket")
             self._stopping = True
             return Reply(ok=True, result="stopping")
         if op not in self.ANY_TIME and not self.paused:
-            return Reply(ok=False, error=f"{op} only while paused; the run is running")
+            return Reply.refuse(f"{op} only while paused; the run is running")
         if op in (Op.INJECT, Op.SEGMENT) and self.session.vms is None:
-            return Reply(ok=False, error="no guests are up yet")
+            return Reply.refuse("no guests are up yet")
         if op is Op.SEGMENT:
             return await self._segment(arg)
         self._bind_guests()
@@ -798,10 +813,13 @@ class Controller:
         """Cut, restore or capture a segment, then show it."""
         vms = self.session.vms
         if vms is None:
-            return Reply(ok=False, error="no guests are up yet")
+            return Reply.refuse("no guests are up yet")
         try:
             asked = segment_request(arg)
             lan = vms.segment(asked.name)
+        except (ValueError, MachineError) as error:
+            return Reply.refuse(str(error))
+        try:
             match asked.action:
                 case SegmentAction.CUT:
                     await lan.cut(asked.member)
@@ -813,7 +831,9 @@ class Controller:
                     await lan.end_capture()
                 case SegmentAction.SHOW:
                     pass
-        except (ValueError, MachineError) as error:
+        except ValueError as error:
+            return Reply.refuse(str(error))
+        except MachineError as error:
             return Reply(ok=False, error=str(error))
         cut = ", ".join(lan.cut_members) or "nothing"
         capture = f"capturing to {lan.capturing}" if lan.capturing else "not capturing"
@@ -855,7 +875,9 @@ class Controller:
         try:
             spec = Spec.read(path)
             done = self.session.reload(spec)
-        except (OSError, json.JSONDecodeError, ValidationError, SpecError, ReloadRefused) as error:
+        except ReloadRefused as error:
+            return Reply.refuse(f"reload {path}: {error}")
+        except (OSError, json.JSONDecodeError, ValidationError, SpecError) as error:
             return Reply(ok=False, error=f"reload {path}: {error}")
         fresh = tuple(directory for directory in spec.pythonPath if directory not in old.pythonPath)
         self._reload(fresh)
@@ -888,7 +910,7 @@ class Controller:
             test = load_phase(Path(arg).expanduser().resolve())
             vms = self.session.vms
             if vms is None:
-                return Reply(ok=False, error="no guests are up yet")
+                return Reply.refuse("no guests are up yet")
             with self.session._capture(f"inject:{Path(arg).name}", output):
                 await test(vms)
         except Exception:  # noqa: BLE001 -- the injected code's failure is the reply
@@ -907,9 +929,9 @@ class Controller:
         path, *args = shlex.split(arg)
         tests = Path(path).expanduser().resolve()
         if not tests.exists():
-            return Reply(ok=False, error=f"no tests at {tests}")
+            return Reply.refuse(f"no tests at {tests}")
         if self.session.vms is None:
-            return Reply(ok=False, error="no guests are up")
+            return Reply.refuse("no guests are up")
         name = f"pytest:{tests.name}"
         spec = PytestSpec(tests=tests, args=args)
         try:
@@ -923,7 +945,7 @@ class Controller:
     async def _run(self, name: str) -> Reply:
         phase = next((p for p in self.session.spec.phases if p.name == name), None)
         if phase is None:
-            return Reply(ok=False, error=f"no phase {name!r}")
+            return Reply.refuse(f"no phase {name!r}")
         state = await self.session.run(phase)
         return Reply(
             ok=state is PhaseState.PASSED,

@@ -62,6 +62,7 @@ from vivarium_runner.arpyc import AsyncConnection, connect
 
 from . import cli as runner_cli, control, monitor
 from .control import reachable
+from .exits import Exit
 from .remote import SOCKET
 
 if TYPE_CHECKING:
@@ -341,7 +342,7 @@ class Driver:
         # The monitor prints the pause; it is progress, not a test's output.
         with contextlib.redirect_stdout(sys.stderr):
             code = runner_cli.watch(args)
-        if code != monitor.READY:
+        if code != Exit.READY:
             raise RunFailed(f"{attr} did not come up (exit {code}); its output is in {out / LOG}")
 
     def _evaluate_and_start(self, attr: str, out: Path) -> None:
