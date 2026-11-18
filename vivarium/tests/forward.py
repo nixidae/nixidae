@@ -91,6 +91,8 @@ async def test(vms: Machines) -> None:
     assert await fetch(where[0]) == PAGE
     print(f"[test] privileged {PRIVILEGED} answers on {where[0]}")
 
+    # No fetch waited for UNLISTED's server, which has no forward.
+    await vm.wait_until_succeeds(f"ss -Htln 'sport = :{UNLISTED}' | grep -q .", timeout=30)
     listening = await vm.listening()
     for port in (PLAIN, PRIVILEGED, UNLISTED, vm.spec.ssh_port):
         assert port in listening, f"{port} missing from {listening}"
