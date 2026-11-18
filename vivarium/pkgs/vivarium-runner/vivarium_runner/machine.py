@@ -62,6 +62,7 @@ from .control import (
     validate as validate_control,
 )
 from .forward import UplinkNetwork, UplinkNetworkJson
+from .held import Held, hold
 from .lifetime import die_with_parent
 from .net import Lan
 from .spec import BackendName, Seccomp, UplinkProxy, closed
@@ -569,14 +570,10 @@ class Machine:
 
         self._rundir: Path | None = None
         self._process: subprocess.Process | None = None
-        # The console pump runs for this guest's whole life, across the
-        # separate boot/run/teardown calls that drive a session (even across
-        # processes, over the control socket) -- a span anyio's scoped task
-        # groups cannot own, so it is a held task, cancelled in shutdown().
-        # The agent's serve loop is the same kind of task, owned by arpyc.
-        self._monitor: asyncio.Task[None] | None = None
+        # One boot's console pump: started in `_boot`, stopped in `_stop_process`.
+        self._monitor: Held | None = None
         self._serial: asyncio.StreamWriter | None = None
-        self._serial_monitor: asyncio.Task[None] | None = None
+        self._serial_monitor: Held | None = None
         """A guest with no control channel: its serial line, read as console."""
         self._console_send, self._console_recv = anyio.create_memory_object_stream[str](math.inf)
         self._history: collections.deque[str] = collections.deque(maxlen=_CONSOLE_HISTORY)
@@ -590,7 +587,7 @@ class Machine:
         self._cleanup: list[Path] = []
         self._disk_fds: tuple[int, ...] = ()
         self._lan_kept: dict[str, int] = {}
-        self._watcher: asyncio.Task[None] | None = None
+        self._watcher: Held | None = None
         self._stopping = False
         self._exit_code: int | None = None
         self._exited = anyio.Event()
@@ -762,7 +759,7 @@ class Machine:
             os.close(fd)
         self._spare_fds = []
         self.recorder.step(self.name, "launch", f"launch {self.name}", time.monotonic() - started)
-        self._monitor = asyncio.ensure_future(self._pump_console())  # noqa: TID251 -- held until Machine owns a task group, nixidae/nixidae#949
+        self._monitor = hold(self._tasks, self._pump_console, None, name=f"console of {self.name}")
 
         if self.control_kind not in (AGENT, NONE):
             await self._start_console(find_dialect(self.name, self.spec.control), started)
@@ -812,7 +809,7 @@ class Machine:
         # when the guest goes away rather than hanging on our own fd.
         self._guest_sock.close()
         self._guest_sock = None
-        self._watcher = asyncio.ensure_future(self._watch())  # noqa: TID251 -- held until Machine owns a task group, nixidae/nixidae#949
+        self._watcher = hold(self._tasks, self._watch, name=f"watch {self.name}")
 
     async def _watch(self) -> None:
         """Boot the guest again when it reboots itself; record a stop it made by itself.
@@ -826,7 +823,7 @@ class Machine:
             raise MachineError(f"[{self.name}] no guest process to wait for")
         await self._process.wait()
         if self._monitor is not None:
-            await self._monitor
+            await self._monitor.wait()
         if self._stopping:
             return
         if self.backend.rebooted(self._process.returncode, self._history):
@@ -908,9 +905,10 @@ class Machine:
         sock, self._agent_sock = self._agent_sock, None
         self._guest_sock.close()
         self._guest_sock = None
-        # The console pump reads asyncio's StreamReader, as for a process.
-        reader, self._serial = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251 -- nixidae/nixidae#949
-        self._serial_monitor = asyncio.ensure_future(self._pump_console(reader))  # noqa: TID251 -- nixidae/nixidae#949
+        # asyncio's StreamReader, so one pump reads both kinds of console:
+        # the guest process's stdout is one, as `subprocess` above says.
+        reader, self._serial = await asyncio.open_unix_connection(sock=sock)  # noqa: TID251 -- see above
+        self._serial_monitor = hold(self._tasks, self._pump_console, reader, name=f"serial of {self.name}")
 
     async def _start_console(self, dialect: Dialect, started: float) -> None:
         """Log in on the guest's console and apply its config disk.
@@ -964,9 +962,7 @@ class Machine:
         """
         self._stopping = True
         if self._watcher is not None:
-            self._watcher.cancel()
-            with contextlib.suppress(anyio.get_cancelled_exc_class()):
-                await self._watcher
+            await self._watcher.stop()
             self._watcher = None
         # A console guest keeps nothing, so it is not asked: QEMU is
         # stopped below.
@@ -1034,9 +1030,7 @@ class Machine:
 
         for task in (self._monitor, self._serial_monitor):
             if task is not None:
-                task.cancel()
-                with contextlib.suppress(anyio.get_cancelled_exc_class()):
-                    await task
+                await task.stop()
         self._monitor = self._serial_monitor = None
         if self._serial is not None:
             self._serial.close()
@@ -1176,6 +1170,11 @@ class Machine:
             except ValueError:
                 # Line longer than the stream limit; skip it rather than die.
                 continue
+            except OSError as error:
+                # The guest's end went away mid-read: the console ends, and
+                # the guest's exit says the rest. Raised, it ends the run.
+                self._log(f"the console ended: {error}")
+                return
             if not raw:
                 return
             line = _ANSI.sub("", raw.decode(errors="replace").rstrip())
