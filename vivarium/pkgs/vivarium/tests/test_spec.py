@@ -53,6 +53,16 @@ class TestAFieldTheSpecLacks:
             Spec.read(write(tmp_path, machines=[machine]))
 
 
+@pytest.mark.parametrize(
+    "kind",
+    [{}, {"script": "/x.py", "pytest": {"tests": "/tests"}}],
+    ids=["neither", "both"],
+)
+def test_a_phase_is_a_script_or_a_pytest_run(tmp_path: Path, kind: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="phase a needs exactly one of script and pytest"):
+        Spec.read(write(tmp_path, phases=[{"name": "a", **kind}]))
+
+
 def test_a_closed_value_is_checked(tmp_path: Path) -> None:
     machine = {**machine_json("one"), "backend": "vm"}
     with pytest.raises(ValidationError, match=r"machines\.0\.backend"):

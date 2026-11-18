@@ -308,6 +308,10 @@ class TestPassed:
     def test_a_pending_phase_is_not_a_pass(self) -> None:
         assert not passed({"a": PhaseState.PENDING})
 
+    def test_an_interrupted_phase_is_not_a_pass(self) -> None:
+        """`ctl stop` or a signal mid-phase: the phase has no answer."""
+        assert not passed({"a": PhaseState.PASSED, "b": PhaseState.INTERRUPTED})
+
     def test_a_deselected_phase_is_a_pass(self) -> None:
         """`--only mine` must exit 0 when `mine` passed.
 

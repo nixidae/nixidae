@@ -71,6 +71,29 @@ def test_passt_never_gets_an_unpicked_port() -> None:
         forward.to_args([Rule(address="127.0.0.2", ports=(PortMap(None, 6443),))])
 
 
+def test_passt_gets_one_spec_per_protocol_in_host_port_order() -> None:
+    """passt reads `ADDR/HOST:GUEST,...`, and a port mapped to itself as one number."""
+    rule = Rule(address="127.0.0.3", ports=(PortMap(14325, 22), PortMap(8080, 8080)), protocols=("tcp", "udp"))
+    assert forward.to_args([rule]) == [
+        "--tcp-ports",
+        "127.0.0.3/8080,14325:22",
+        "--udp-ports",
+        "127.0.0.3/8080,14325:22",
+    ]
+
+
+@linux_loopback
+def test_each_guest_gets_a_loopback_address_no_other_guest_has() -> None:
+    port = free_port_above("127.0.0.3", 25000)
+    taken = {"127.0.0.2"}
+    [first], _ = forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken, start=1024)
+    [second], _ = forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken, start=1024)
+    assert first.address == "127.0.0.3"
+    assert second.address not in {None, "127.0.0.2", "127.0.0.3"}
+    assert taken == {"127.0.0.2", "127.0.0.3", second.address}
+    assert first.ports == second.ports == (PortMap(port, port),)
+
+
 class Forwarding(Machine):
     """A machine with forwards and nothing else."""
 

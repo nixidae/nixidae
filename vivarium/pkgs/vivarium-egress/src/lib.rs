@@ -444,7 +444,23 @@ pub unsafe fn owned(fd: i32) -> io::Result<OwnedFd> {
 
 #[cfg(test)]
 mod tests {
-    use super::echo_reply;
+    use super::{REQUEST_LEN, TCP, UDP, decode, echo_reply, encode};
+    use std::net::SocketAddr;
+
+    #[test]
+    fn a_request_decodes_to_what_was_encoded() {
+        for (proto, dst) in [(TCP, "10.0.2.2:53"), (UDP, "[fd00:10:0:2::2]:65535")] {
+            let dst: SocketAddr = dst.parse().unwrap();
+            assert_eq!(decode(&encode(proto, dst)).unwrap(), (proto, dst));
+        }
+    }
+
+    #[test]
+    fn an_unknown_family_is_refused() {
+        let mut raw = [0u8; REQUEST_LEN];
+        raw[1] = 5;
+        assert!(decode(&raw).is_err());
+    }
 
     // Recorded from a ping socket to 127.0.0.1 and ::1 on macOS 27.
     const REPLY_ICMP: [u8; 13] = *b"\x00\x00\xa9\xf8\x12\x34\x00\x01hello";

@@ -597,3 +597,40 @@ fn main() -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Router, parse_spec};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use vivarium_egress::{TCP, UDP};
+
+    // The shape `forward.egress_args` writes (test_the_egress_gets_one_port_each
+    // in vivarium-runner's tests/test_forward.py), with a libkrun router's
+    // socket path: a vsock router needs a device.
+    #[test]
+    fn a_forward_the_runner_writes_parses() {
+        let spec = parse_spec("udp/127.0.0.3:14325=10.0.2.16:22@/run/relay.sock", None).unwrap();
+        assert_eq!(spec.proto, UDP);
+        assert_eq!(spec.bind, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
+        assert_eq!((spec.first, spec.last), (14325, 14325));
+        assert_eq!(spec.guest, "10.0.2.16:22".parse::<SocketAddr>().unwrap());
+        match spec.router {
+            Router::Path(path) => assert_eq!(path, "/run/relay.sock"),
+            #[allow(unreachable_patterns)]
+            _ => panic!("a path router"),
+        }
+    }
+
+    #[test]
+    fn a_range_with_no_protocol_or_address_is_tcp_on_localhost() {
+        let spec = parse_spec("8080-8082=10.0.2.15:80@/r", None).unwrap();
+        assert_eq!(spec.proto, TCP);
+        assert_eq!(spec.bind, IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_eq!((spec.first, spec.last), (8080, 8082));
+    }
+
+    #[test]
+    fn a_range_past_the_last_guest_port_is_refused() {
+        assert!(parse_spec("1000-1010=10.0.2.15:65530@/r", None).is_err());
+    }
+}
