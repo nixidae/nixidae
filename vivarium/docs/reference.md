@@ -463,10 +463,11 @@ nodes.d.vivarium.interfaces.lab.segment = "lab";
   evaluates. No forward reaches a router network's guest.
 - A lab guest reaches the host's loopback through the gateway `10.0.2.2`,
   as an uplink guest does. The egress knows each flow's network by its
-  vsock port, and refuses a lab's flow to a host port that a forward
-  binds. On macOS every forward shares `127.0.0.1`; `checks.router-network`
-  puts forwards there on Linux too, and shows that a lab does not reach
-  them.
+  vsock port, and refuses a lab's flow to a host port that a forward of
+  this run binds. On macOS every forward shares `127.0.0.1`;
+  `checks.router-network` puts forwards there on Linux too, and shows
+  that a lab does not reach them. The egress knows only its own run's
+  forwards: on macOS a lab still reaches another run's forwards there.
 
 ## Backends
 
