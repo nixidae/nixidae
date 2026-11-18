@@ -328,6 +328,11 @@ class TestPassed:
     def test_deselecting_everything_is_not_a_failure(self) -> None:
         assert passed({"a": PhaseState.DESELECTED})
 
+    def test_no_phases_is_not_a_pass(self) -> None:
+        """A run with nothing to answer has no answer. `modules/run.nix`
+        refuses such a run; this holds for a spec written by hand."""
+        assert not passed({})
+
 
 class TestSummarise:
     def test_it_counts_each_outcome(self) -> None:

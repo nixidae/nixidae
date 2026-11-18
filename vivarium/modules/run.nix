@@ -546,6 +546,12 @@ in
 
     assertions = [
       {
+        assertion = enabled != { };
+        message =
+          "vivarium: run '${config.name}' has no enabled phase, so it has nothing to pass."
+          + " The `boot` recipe is on unless a run turns it off.";
+      }
+      {
         assertion = unknown == [ ];
         message =
           "vivarium: these phases are named in an `after` and do not exist: "

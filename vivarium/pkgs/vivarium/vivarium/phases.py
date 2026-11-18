@@ -276,8 +276,10 @@ def passed(state: dict[str, PhaseState]) -> bool:
     A **deselected** phase is different: the caller said not to run it,
     so its answer was never wanted.  Only a caller can deselect, and a
     sandboxed check never does, so this cannot make CI green.
+
+    A run with no phases at all asked nothing, so it did not pass.
     """
-    return all(value in (PhaseState.PASSED, PhaseState.DESELECTED) for value in state.values())
+    return bool(state) and all(value in (PhaseState.PASSED, PhaseState.DESELECTED) for value in state.values())
 
 
 VERDICT: Final = "phases.json"
