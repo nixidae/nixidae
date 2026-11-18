@@ -707,22 +707,24 @@ class Session:
         if self.vms is None:
             return
         tokens: set[str] = set()
+
+        async def send(vm: Machine) -> None:
+            token = f"{vm.name}-{time.monotonic_ns()}"
+            try:
+                await vm.succeed(f"echo {token} | systemd-cat --identifier={journal.SETTLE}", timeout=timeout)
+            except MachineError:
+                return
+            tokens.add(token)
+
         with self.report.waiting("-", "the journals to settle"), anyio.move_on_after(timeout):
-            for name, tail in self._journals.items():
-                if nodes is not None and name not in nodes:
-                    continue
-                vm = self.vms.get(name)
-                if vm is None or not tail.streaming or not vm.alive():
-                    continue
-                token = f"{name}-{time.monotonic_ns()}"
-                try:
-                    await vm.succeed(
-                        f"echo {token} | systemd-cat --identifier={journal.SETTLE}",
-                        timeout=timeout,
-                    )
-                except MachineError:
-                    continue
-                tokens.add(token)
+            async with anyio.create_task_group() as group:
+                for name, tail in self._journals.items():
+                    if nodes is not None and name not in nodes:
+                        continue
+                    vm = self.vms.get(name)
+                    if vm is not None and tail.streaming and vm.alive():
+                        group.start_soon(send, vm)
+            # Polled: the stream is a file a guest writes, and nothing says it grew.
             while not tokens <= self._settled:
                 await self.drain()
                 await anyio.sleep(0.02)
