@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from vivarium_runner.machine import MachineSpecJson
+from vivarium_runner.machine_spec import MachineSpecJson
 
 
 class SpecError(ValueError):

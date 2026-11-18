@@ -19,7 +19,8 @@ import anyio
 
 from .control import ControlSpec
 from .forward import ForwardError, Rule, UplinkNetwork
-from .machine import LaunchSpec, Machine, MachineError, MachineSpec
+from .machine import Machine, MachineError
+from .machine_spec import LaunchSpec, MachineSpec
 from .spec import BackendName, Seccomp, UplinkProxy
 
 if TYPE_CHECKING:

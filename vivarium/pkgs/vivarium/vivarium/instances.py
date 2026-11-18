@@ -12,7 +12,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from vivarium_runner.machine import MachineSpec
+    from vivarium_runner.machine_spec import MachineSpec
 
 MAX_INDEX = 255
 """The index is the last byte of every MAC the guest has, so 256 guests at once."""

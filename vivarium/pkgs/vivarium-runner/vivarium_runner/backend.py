@@ -50,7 +50,8 @@ from .store import AllowList, BoundStore, ContainerStore
 
 if TYPE_CHECKING:
     from .boot import Boot, Kernel
-    from .machine import Machine, MachineSpec
+    from .machine import Machine
+    from .machine_spec import MachineSpec
     from .store import Store
 
 

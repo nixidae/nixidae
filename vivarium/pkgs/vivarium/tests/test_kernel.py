@@ -6,7 +6,7 @@ import pytest
 from vivarium.session import CpuOverride, Session, SessionError, with_cpus, with_kernel
 from vivarium.spec import PhaseSpec, Spec
 from vivarium_runner.boot import Boot, Kernel
-from vivarium_runner.machine import LaunchSpec
+from vivarium_runner.machine_spec import LaunchSpec
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json, machine_spec
 

@@ -25,7 +25,7 @@ from . import container, storeview
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from .machine import MachineSpec
+    from .machine_spec import MachineSpec
 
 
 class StoreError(RuntimeError):

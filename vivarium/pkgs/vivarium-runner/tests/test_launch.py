@@ -24,7 +24,7 @@ from vivarium_runner.backend import (
     _drive_args,
 )
 from vivarium_runner.boot import Boot, Firmware, Kernel
-from vivarium_runner.machine import LaunchSpec, MachineSpec
+from vivarium_runner.machine_spec import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json, machine_spec
 

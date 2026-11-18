@@ -28,7 +28,7 @@ rec {
   address6 = index: "${prefix6}${toString (host index)}";
 
   /**
-    What the runner reads: `UplinkNetworkJson` in vivarium_runner/machine.py.
+    What the runner reads: `UplinkNetworkJson` in vivarium_runner/forward.py.
   */
   spec = {
     address = address 0;

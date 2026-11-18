@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from vivarium_runner.machine import (
+from vivarium_runner.machine_spec import (
     MEMORY_SCALE_FLOOR_MIB,
     MachineSpec,
     host_available_mib,

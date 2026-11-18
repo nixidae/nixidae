@@ -8,11 +8,11 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-from .machine import MachineSpec
+from .machine_spec import MachineSpec
 from .spec import BackendName, Seccomp, UplinkProxy
 
 if TYPE_CHECKING:
-    from .machine import MachineSpecJson
+    from .machine_spec import MachineSpecJson
 
 
 def machine_json(name: str, backend: BackendName = BackendName.UML) -> MachineSpecJson:

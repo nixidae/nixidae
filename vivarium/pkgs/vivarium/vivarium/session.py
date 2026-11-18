@@ -77,7 +77,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterator, Mapping
 
     from anyio.abc import TaskGroup
-    from vivarium_runner.machine import Cpus, MachineSpecJson
+    from vivarium_runner.machine_spec import Cpus, MachineSpecJson
 
     from .sinks import Sink
     from .spec import PhaseSpec, PytestSpec, Spec

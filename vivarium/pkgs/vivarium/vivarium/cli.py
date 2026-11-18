@@ -29,7 +29,7 @@ from typing import Final
 
 import anyio
 from vivarium_runner import MachineError
-from vivarium_runner.machine import Cpus
+from vivarium_runner.machine_spec import Cpus
 
 from . import access, monitor, namespace, registry, remote, repl, runroot
 from .control import (
