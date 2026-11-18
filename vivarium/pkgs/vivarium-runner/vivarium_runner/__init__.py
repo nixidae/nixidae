@@ -11,8 +11,9 @@ from vivarium_agent.channel import ProcessInfo, SystemState, UnitInfo
 
 from .display import Button
 from .forward import ForwardError
-from .machine import GuestTimeout, Machine, MachineError, Machines
+from .machine import GuestTimeout, Machine, MachineError
 from .machine_spec import Interface, LaunchSpec, MachineSpec, Systems
+from .machines import Machines
 from .net import Lan, SegmentError
 
 __all__ = [

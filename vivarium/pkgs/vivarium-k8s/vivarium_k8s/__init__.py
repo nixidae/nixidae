@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Any, TypedDict, cast
 
 import anyio
-from vivarium_runner.machine import Machine, MachineError, Machines
+from vivarium_runner.machine import Machine, MachineError
+from vivarium_runner.machines import Machines
 
 
 class NodeFacts(TypedDict):
