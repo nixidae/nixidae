@@ -48,13 +48,13 @@ import pytest
 from anyio.from_thread import BlockingPortal
 from vivarium_runner import Machine, MachineError, Machines, MachineSpec, backends
 from vivarium_runner.backends import BackendError
+from vivarium_runner.instances import InstanceError, free_index, instance_spec, seed
 from vivarium_runner.net import build_lans
 from vivarium_runner.report import Report
 
 from . import access, journal, junit_in
 from .cloud import Cloud, CloudService
 from .events import Event, Kind, Level
-from .instances import InstanceError, free_index, instance_spec, seed
 from .phases import (
     VERDICT,
     PhaseState,

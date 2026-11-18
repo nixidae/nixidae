@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 
 import pytest
-from vivarium.instances import InstanceError, free_index, instance_spec, seed, shifted
 from vivarium_runner import Interface, MachineSpec
+from vivarium_runner.instances import InstanceError, free_index, instance_spec, seed, shifted
 from vivarium_runner.testing import machine_spec
 
 

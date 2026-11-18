@@ -1,7 +1,7 @@
 """A guest a phase creates from a template while the run goes. nixidae/nixidae#1408.
 
 Pure: what an instance is called, which index and addresses it gets, and
-the seed it reads at boot. `Session.launch` does the effects.
+the seed it reads at boot. `vivarium.Session.launch` does the effects.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from vivarium_runner.machine_spec import MachineSpec
+    from .machine_spec import MachineSpec
 
 MAX_INDEX = 255
 """The index is the last byte of every MAC the guest has, so 256 guests at once."""
