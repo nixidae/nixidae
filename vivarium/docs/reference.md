@@ -388,6 +388,11 @@ to a VM over a socket, does not. Adding a forward to a live passt means
 restarting it, which drops every connection through it, including the ssh
 session you were in when you started the service you wanted to reach.
 
+passt and gvproxy are deprecated: `vivarium.uplink.proxy = "vsock"` replaces
+them, and is the default for a NixOS guest on QEMU or krun
+(nixidae/nixidae#1404). passt stays the default on UML, in a container and
+for a guest that is not NixOS, until vsock serves those too.
+
 A krun guest can take gvproxy instead: `vivarium.uplink.proxy = "gvproxy"`
 (nixidae/nixidae#1163). gvproxy runs on macOS and needs no user namespace.
 The guest gets the same addresses, from gvproxy's DHCP, and gvproxy

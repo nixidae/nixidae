@@ -1019,7 +1019,6 @@ in
         "router"
         "vsock"
       ];
-      # passt goes once vsock is verified on macOS (nixidae/nixidae#1404).
       # Not by `uplink.segment`: a routed guest's segment default reads this.
       default =
         if
@@ -1034,10 +1033,17 @@ in
           "passt";
       defaultText = lib.literalMD "`vsock` for a NixOS guest on QEMU or krun, else `passt`";
       description = ''
-        What serves the uplink (`vec0`). `passt` is the default where
-        `vsock` is not: UML, a container (pasta) and a guest that is not
-        NixOS. An `uplink.segment` takes precedence over `vsock`.
-        `gvproxy` is gvisor-tap-vsock's,
+        What serves the uplink (`vec0`).
+
+        `passt` and `gvproxy` are deprecated: `vsock` replaces them
+        (nixidae/nixidae#1404). Choosing either where `vsock` serves the
+        guest, a NixOS guest on QEMU or krun, is a warning. passt stays
+        the default where `vsock` does not serve the guest yet: UML, a
+        container (pasta) and a guest that is not NixOS. It goes once
+        `vsock` serves those and works on macOS (nixidae/nixidae#1163).
+
+        An `uplink.segment` takes precedence over `vsock`.
+        `gvproxy`, deprecated, is gvisor-tap-vsock's,
         which runs on macOS too and needs no user namespace
         (nixidae/nixidae#1163). It gives the guest passt's addresses, and
         forwards TCP ports only.
@@ -1147,6 +1153,22 @@ in
     vivarium.nixDatabase.extraRoots = map toString (
       lib.attrValues config.system.build.vivariumConfigurations
     );
+
+    warnings =
+      let
+        proxy = config.vivarium.uplink.proxy;
+        # The router's `passt` names no proxy: it reaches the host over vsock.
+        vsockServes =
+          config.vivarium.kind == "nixos"
+          && lib.elem config.vivarium.backend [
+            "qemu"
+            "krun"
+          ]
+          && !config.vivarium.router.enable;
+      in
+      lib.optional (proxy == "gvproxy" || (proxy == "passt" && vsockServes)) ''
+        ${config.networking.hostName}: vivarium.uplink.proxy = "${proxy}" is deprecated, and `vsock` replaces it (nixidae/nixidae#1404).
+      '';
 
     assertions = [
       {
