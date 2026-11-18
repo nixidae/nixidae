@@ -10,12 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import anyio
+
 from .. import forward, mconsole
 from ..boot import RootFormat
 from ..capability import Controls
 from ..store import BoundStore
 from .base import BackendError, Launch, Stop, _maybe, _path, launch_config, with_boot_image
-from .host import RELAY_IN_PORT, egress_args, memory_bytes, memory_file_kib, socket_dir, start_egress
+from .host import RELAY_IN_PORT, _abandon, egress_args, memory_bytes, memory_file_kib, socket_dir, start_egress
 
 if TYPE_CHECKING:
     from ..boot import Boot, Kernel, Root
@@ -204,7 +206,7 @@ class Uml:
     def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
         return with_boot_image(spec, kernel)
 
-    def launch(
+    async def launch(
         self,
         machine: Machine,
         rundir: Path,
@@ -222,7 +224,7 @@ class Uml:
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
         kernel = [
             str(boot.kernel.image),
-            *self._root(config, rundir, spec, boot.root, boot.kernel),
+            *await self._root(config, rundir, spec, boot.root, boot.kernel),
             "rw",
             f"mem={spec.memory}",
             f"ssl0=fd:{agent_fd}",
@@ -259,9 +261,13 @@ class Uml:
             device = uml_dir / "vsock.sock"
             args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
             notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
-            helpers.append(
-                start_egress(config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args)
-            )
+            try:
+                await start_egress(
+                    config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args, helpers
+                )
+            except BaseException:
+                _abandon(helpers, ())
+                raise
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
         elif spec.uplink is None:
@@ -324,7 +330,7 @@ class Uml:
         return Controls(channel=console, balloon=console)
 
     @staticmethod
-    def _root(config: UmlConfig, rundir: Path, spec: MachineSpec, root: Root | None, kernel: Kernel) -> list[str]:
+    async def _root(config: UmlConfig, rundir: Path, spec: MachineSpec, root: Root | None, kernel: Kernel) -> list[str]:
         """The disks, the root and the kernel's parameters.
 
         A qcow2 image (a cloud image) is a format ubd cannot read. It
@@ -343,11 +349,7 @@ class Uml:
                 if config.qemu_img is None:
                     raise BackendError(f"{spec.name}: a qcow2 root image needs qemuImg in vivarium.launch.config")
                 raw = rundir / "disk.raw"
-                subprocess.run(
-                    [str(config.qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],
-                    check=True,
-                    capture_output=True,
-                )
+                await anyio.run_process([str(config.qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)])
                 disks = [f"ubd0={raw}"]
             case RootFormat.RAW:
                 disks = [f"ubd0={rundir}/cow,{spec.image}"]

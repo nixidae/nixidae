@@ -6,10 +6,11 @@ import os
 import socket
 import subprocess
 import tempfile
-import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import anyio
 
 from .. import container, forward, unixpath
 from ..lifetime import die_with_parent
@@ -136,6 +137,18 @@ def _abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) 
         os.close(fd)
 
 
+PULSE = 0.05
+"""How long a helper that fails at startup takes to fail. passt,
+virtiofsd and swtpm fail at once or not at all."""
+
+
+async def alive(proc: subprocess.Popen[bytes]) -> bool:
+    """Whether *proc* still runs a `PULSE` after its start: the readiness
+    check of a helper that says nothing when it is ready."""
+    await anyio.sleep(PULSE)
+    return proc.poll() is None
+
+
 RELAY_IN_PORT = 5001
 """Where the router's relay takes forwards in: its IN_PORT, in modules/router.nix."""
 
@@ -156,10 +169,16 @@ def egress_args(machine: Machine, relay: str) -> list[str]:
     ]
 
 
-def start_egress(
-    egress: Path | None, rundir: Path, gateway: str, listen: str, ready: Path, args: list[str]
-) -> subprocess.Popen[bytes]:
-    """Start the router's egress on *listen* and wait until *ready* exists.
+async def start_egress(
+    egress: Path | None,
+    rundir: Path,
+    gateway: str,
+    listen: str,
+    ready: Path,
+    args: list[str],
+    helpers: list[subprocess.Popen[bytes]],
+) -> None:
+    """Start the router's egress on *listen*, into *helpers*, and wait until *ready* exists.
 
     The egress binds every forward before it binds *ready*, and maps the
     uplink's *gateway* to the host's loopback.
@@ -176,19 +195,18 @@ def start_egress(
             start_new_session=True,
             preexec_fn=die_with_parent,
         )
+    helpers.append(proc)
     # A poll: the egress says nothing when it listens.
-    deadline = time.monotonic() + 10
-    while not ready.exists():
-        if proc.poll() is not None:
-            raise BackendError(f"the egress exited ({proc.returncode}):\n{_tail(log)}")
-        if time.monotonic() > deadline:
-            proc.kill()
-            raise BackendError(f"the egress did not listen on {ready}:\n{_tail(log)}")
-        time.sleep(0.02)
-    return proc
+    with anyio.move_on_after(10):
+        while not ready.exists():
+            if proc.poll() is not None:
+                raise BackendError(f"the egress exited ({proc.returncode}):\n{_tail(log)}")
+            await anyio.sleep(0.02)
+        return
+    raise BackendError(f"the egress did not listen on {ready}:\n{_tail(log)}")
 
 
-def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
+async def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
     """A writable layer over the read-only root image, with no name.
 
     The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
@@ -206,7 +224,7 @@ def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw"
     ``Failed to find file descriptor with matching flags=0x0``.
     """
     scratch = rundir / "root.qcow2"
-    done = subprocess.run(
+    done = await anyio.run_process(
         [
             str(qemu_img),
             "create",
@@ -223,20 +241,30 @@ def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw"
             str(image),
             str(scratch),
         ],
-        capture_output=True,
-        text=True,
+        check=False,
     )
     if done.returncode != 0:
-        raise BackendError(f"could not make a scratch disk over {image}: {(done.stderr or done.stdout).strip()}")
+        said = (done.stderr or done.stdout).decode(errors="replace").strip()
+        raise BackendError(f"could not make a scratch disk over {image}: {said}")
     fds = (os.open(scratch, os.O_RDWR), os.open(scratch, os.O_RDONLY))
     scratch.unlink()
     return fds
 
 
-def start_passt(
-    passt: Path, rundir: Path, network: forward.UplinkNetwork, rules: list[forward.Rule], offline: bool = False
-) -> tuple[int, subprocess.Popen[bytes]]:
+async def start_passt(
+    passt: Path,
+    rundir: Path,
+    network: forward.UplinkNetwork,
+    rules: list[forward.Rule],
+    offline: bool,
+    helpers: list[subprocess.Popen[bytes]],
+    opened: list[int],
+) -> int:
     """Start passt on one end of a socketpair; return QEMU's end.
+
+    passt goes into *helpers* and QEMU's end into *opened* as each one
+    exists, so the launch that owns them cleans up after a failure or a
+    cancel here.
 
     No bridge: passt frames with a 4-byte big-endian length prefix,
     which is QEMU's own socket protocol, so the two talk directly.
@@ -252,32 +280,28 @@ def start_passt(
     user-mode-nixos run 34943651620.
     """
     qemu_end, passt_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    qemu_fd = qemu_end.detach()
+    opened.append(qemu_fd)
     log = rundir / "passt.log"
-    handle = log.open("wb")
-    proc = subprocess.Popen(
-        [
-            str(passt),
-            "--foreground",
-            "--fd",
-            str(passt_end.fileno()),
-            *forward.uplink_args(network, offline),
-            *forward.to_args(rules),
-        ],
-        stdin=subprocess.DEVNULL,
-        pass_fds=(passt_end.fileno(),),
-        stdout=handle,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        preexec_fn=die_with_parent,
-    )
-    passt_end.close()
-    handle.close()
-
-    # The same readiness check as `Qemu._virtiofsd`, and for the same
-    # reason: passt fails at startup or not at all.
-    time.sleep(0.05)
-    if proc.poll() is not None:
-        qemu_end.close()
+    with passt_end, log.open("wb") as handle:
+        proc = subprocess.Popen(
+            [
+                str(passt),
+                "--foreground",
+                "--fd",
+                str(passt_end.fileno()),
+                *forward.uplink_args(network, offline),
+                *forward.to_args(rules),
+            ],
+            stdin=subprocess.DEVNULL,
+            pass_fds=(passt_end.fileno(),),
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            preexec_fn=die_with_parent,
+        )
+    helpers.append(proc)
+    if not await alive(proc):
         raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{_tail(log)}")
     # Kept open until the guest has spawned; Machine closes it after.
-    return qemu_end.detach(), proc
+    return qemu_fd

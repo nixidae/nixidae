@@ -7,7 +7,6 @@ import os
 import shutil
 import socket
 import subprocess
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +23,7 @@ from .host import (
     _abandon,
     _require_ids,
     _tail,
+    alive,
     egress_args,
     memory_file_kib,
     scratch_disk,
@@ -232,7 +232,7 @@ class Qemu:
     def with_kernel(self, spec: MachineSpec, kernel: Path) -> MachineSpec:
         return with_boot_image(spec, kernel)
 
-    def launch(
+    async def launch(
         self,
         machine: Machine,
         rundir: Path,
@@ -249,13 +249,13 @@ class Qemu:
         opened: list[int] = []
         try:
             if disk_boot:
-                return self._launch_disk(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
-            return self._launch(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
+                return await self._launch_disk(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
+            return await self._launch(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
         except BaseException:
             _abandon(helpers, opened)
             raise
 
-    def _uplink_netdev(
+    async def _uplink_netdev(
         self,
         machine: Machine,
         rundir: Path,
@@ -273,14 +273,12 @@ class Qemu:
         spec = machine.spec
         if spec.uplink is not None:
             return f"dgram,id=vec0,local.type=fd,local.str={lan_fds['vec0']}", None
-        passt_fd, passt_proc = start_passt(
-            QemuConfig.of(spec).passt, rundir, spec.uplink_network, machine.forward, machine.offline
+        passt_fd = await start_passt(
+            QemuConfig.of(spec).passt, rundir, spec.uplink_network, machine.forward, machine.offline, helpers, opened
         )
-        helpers.append(passt_proc)
-        opened.append(passt_fd)
         return f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}", passt_fd
 
-    def _launch(
+    async def _launch(
         self,
         machine: Machine,
         rundir: Path,
@@ -302,15 +300,11 @@ class Qemu:
         monitor_fd = _monitor(sockets / "qmp")
         opened.append(monitor_fd)
 
-        vfs_fd, vfsd = self._virtiofsd(config.virtiofsd, sockets, "vfs", spec.store)
-        helpers.append(vfsd)
-        opened.append(vfs_fd)
+        vfs_fd = await self._virtiofsd(config.virtiofsd, sockets, "vfs", spec.store, helpers, opened)
 
         art_fd: int | None = None
         if machine.artifacts is not None:
-            art_fd, artd = self._virtiofsd(config.virtiofsd, sockets, "art", str(machine.artifacts))
-            helpers.append(artd)
-            opened.append(art_fd)
+            art_fd = await self._virtiofsd(config.virtiofsd, sockets, "art", str(machine.artifacts), helpers, opened)
 
         # A reboot keeps the disk the guest wrote, and the runner owns it:
         # see `_reopen`.
@@ -327,10 +321,10 @@ class Qemu:
             disk_fds = _reopen(disk_fds)
             opened.extend(disk_fds)
         else:
-            disk_fds = scratch_disk(config.qemu_img, rundir, spec.image)
+            disk_fds = await scratch_disk(config.qemu_img, rundir, spec.image)
             opened.extend(disk_fds)
             if firmware is not None:
-                esp_fds = scratch_disk(config.qemu_img, rundir, firmware.esp, backing="qcow2")
+                esp_fds = await scratch_disk(config.qemu_img, rundir, firmware.esp, backing="qcow2")
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
             for disk in config.disks:
@@ -342,9 +336,7 @@ class Qemu:
 
         tpm_fd: int | None = None
         if config.swtpm is not None:
-            tpm_fd, swtpm = self._swtpm(config.swtpm, rundir)
-            helpers.append(swtpm)
-            opened.append(tpm_fd)
+            tpm_fd = await self._swtpm(config.swtpm, rundir, helpers, opened)
 
         passt_fd: int | None = None
         if spec.vsock:
@@ -354,13 +346,13 @@ class Qemu:
             device = sockets / "vsock"
             device.unlink(missing_ok=True)
             args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
-            helpers.append(
-                start_egress(config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args)
+            await start_egress(
+                config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args, helpers
             )
             uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
             notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
         else:
-            netdev, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
+            netdev, passt_fd = await self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
             notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else []
             uplink = ["-netdev", netdev, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)},host_mtu={spec.mtu}"]
 
@@ -483,7 +475,7 @@ class Qemu:
             notes=notes,
         )
 
-    def _launch_disk(
+    async def _launch_disk(
         self,
         machine: Machine,
         rundir: Path,
@@ -512,7 +504,7 @@ class Qemu:
         sockets, cleanup = socket_dir(rundir, "qmp", None)
 
         disk_fds = (
-            _reopen(disk_fds) if disk_fds else scratch_disk(config.qemu_img, rundir, spec.image, boot.root.format)
+            _reopen(disk_fds) if disk_fds else await scratch_disk(config.qemu_img, rundir, spec.image, boot.root.format)
         )
         opened.extend(disk_fds)
 
@@ -547,7 +539,7 @@ class Qemu:
         ]
         passt_fd: int | None = None
         if config.uplink:
-            uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
+            uplink, passt_fd = await self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
             argv += ["-netdev", uplink, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}"]
         monitor_fd = _monitor(sockets / "qmp")
         opened.append(monitor_fd)
@@ -606,11 +598,19 @@ class Qemu:
         return rw, ro
 
     @staticmethod
-    def _virtiofsd(virtiofsd: Path, rundir: Path, socket_name: str, shared: str) -> tuple[int, subprocess.Popen[bytes]]:
-        """Serve a host directory, and leave no socket behind.
+    async def _virtiofsd(
+        virtiofsd: Path,
+        rundir: Path,
+        socket_name: str,
+        shared: str,
+        helpers: list[subprocess.Popen[bytes]],
+        opened: list[int],
+    ) -> int:
+        """Serve a host directory, and leave no socket behind; return QEMU's end.
 
         *socket_name* keeps the store's and the artifacts' sockets apart
-        under *rundir*.
+        under *rundir*. virtiofsd goes into *helpers* and QEMU's end into
+        *opened*, as `start_passt` does.
 
         virtiofsd takes a *listening* socket on ``--fd``, so the path it
         was bound to is only needed for long enough to connect to it once.
@@ -649,44 +649,44 @@ class Qemu:
             raise BackendError(f"could not make a socket at {socket_path}: {error}") from error
         finally:
             socket_path.unlink(missing_ok=True)
+        client_fd = client.detach()
+        opened.append(client_fd)
 
-        proc = subprocess.Popen(
-            [
-                str(virtiofsd),
-                f"--fd={listener.fileno()}",
-                f"--shared-dir={shared}",
-                # Nothing left to drop: this is already unprivileged, and
-                # namespace sandboxing needs privileges a build does not
-                # have.
-                "--sandbox",
-                "none",
-                "--cache",
-                "auto",
-                "--no-announce-submounts",
-            ],
-            stdin=subprocess.DEVNULL,
-            pass_fds=(listener.fileno(),),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            preexec_fn=die_with_parent,
-        )
-        listener.close()
+        with listener:
+            proc = subprocess.Popen(
+                [
+                    str(virtiofsd),
+                    f"--fd={listener.fileno()}",
+                    f"--shared-dir={shared}",
+                    # Nothing left to drop: this is already unprivileged, and
+                    # namespace sandboxing needs privileges a build does not
+                    # have.
+                    "--sandbox",
+                    "none",
+                    "--cache",
+                    "auto",
+                    "--no-announce-submounts",
+                ],
+                stdin=subprocess.DEVNULL,
+                pass_fds=(listener.fileno(),),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                preexec_fn=die_with_parent,
+            )
+        helpers.append(proc)
 
         # virtiofsd serves the runner's listener, so no socket file appears
         # to wait for: the readiness check is that it is still alive a
         # moment later. Without it, a bad argument or an unreadable shared
         # directory would show up as a guest whose initrd cannot mount /nix,
         # which names the wrong thing.
-        time.sleep(0.05)
-        if proc.poll() is not None:
-            client.close()
+        if not await alive(proc):
             raise BackendError(f"virtiofsd exited ({proc.returncode}) instead of serving {shared}")
-
-        return client.detach(), proc
+        return client_fd
 
     @staticmethod
-    def _swtpm(swtpm: Path, rundir: Path) -> tuple[int, subprocess.Popen[bytes]]:
+    async def _swtpm(swtpm: Path, rundir: Path, helpers: list[subprocess.Popen[bytes]], opened: list[int]) -> int:
         """Start a TPM 2.0 on one end of a socketpair; return QEMU's end.
 
         One swtpm for each boot, over a state directory that lasts the run.
@@ -696,8 +696,10 @@ class Qemu:
         state = rundir / "tpm"
         state.mkdir(mode=0o700, exist_ok=True)
         qemu_end, tpm_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        qemu_fd = qemu_end.detach()
+        opened.append(qemu_fd)
         log = rundir / "swtpm.log"
-        with log.open("ab") as handle:
+        with tpm_end, log.open("ab") as handle:
             proc = subprocess.Popen(
                 [
                     str(swtpm),
@@ -715,10 +717,7 @@ class Qemu:
                 start_new_session=True,
                 preexec_fn=die_with_parent,
             )
-        tpm_end.close()
-        # As passt above: swtpm fails at startup or not at all.
-        time.sleep(0.05)
-        if proc.poll() is not None:
-            qemu_end.close()
+        helpers.append(proc)
+        if not await alive(proc):
             raise BackendError(f"swtpm exited ({proc.returncode}) instead of serving the TPM:\n{_tail(log)}")
-        return qemu_end.detach(), proc
+        return qemu_fd

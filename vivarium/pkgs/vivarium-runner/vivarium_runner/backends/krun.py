@@ -7,11 +7,12 @@ import os
 import socket
 import subprocess
 import sys
-import time
 from dataclasses import dataclass, replace
 from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import anyio
 
 from .. import forward, unixpath
 from ..lifetime import die_with_parent
@@ -159,10 +160,18 @@ class Krun:
         return replace(spec, boot=replace(boot, kernel=replace(own, vmlinux=kernel)))
 
     @staticmethod
-    def _gvproxy(
-        gvproxy: Path | None, rundir: Path, spec: MachineSpec, rules: list[forward.Rule]
-    ) -> tuple[int, subprocess.Popen[bytes]]:
+    async def _gvproxy(
+        gvproxy: Path | None,
+        rundir: Path,
+        spec: MachineSpec,
+        rules: list[forward.Rule],
+        helpers: list[subprocess.Popen[bytes]],
+        opened: list[int],
+    ) -> int:
         """Start gvproxy for one guest's uplink; return the guest's end.
+
+        gvproxy goes into *helpers* and the guest's end into *opened*, as
+        `start_passt` does.
 
         gvproxy takes no fd: it listens on a socket in *rundir*, and the
         runner connects. Its framing on that socket is passt's, so
@@ -209,26 +218,27 @@ class Krun:
                 start_new_session=True,
                 preexec_fn=die_with_parent,
             )
+        helpers.append(proc)
         # The connect is the readiness check. gvproxy's ready notification
         # comes before its qemu listener exists.
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        deadline = time.monotonic() + 5
-        while True:
-            try:
-                client.connect(str(sock))
-                break
-            except (FileNotFoundError, ConnectionRefusedError):
-                if proc.poll() is not None or time.monotonic() > deadline:
-                    client.close()
-                    proc.kill()
-                    proc.wait()
-                    raise BackendError(
-                        f"{spec.name}: gvproxy did not serve {sock} (exit {proc.returncode}):\n{_tail(log)}"
-                    ) from None
-                time.sleep(0.01)
-        return client.detach(), proc
+        opened.append(client.fileno())
+        try:
+            with anyio.move_on_after(5):
+                while proc.poll() is None:
+                    try:
+                        client.connect(str(sock))
+                    except (FileNotFoundError, ConnectionRefusedError):
+                        await anyio.sleep(0.01)
+                    else:
+                        return client.fileno()
+        finally:
+            # `opened` owns the fd: a close here as well would close
+            # whatever reused its number.
+            client.detach()
+        raise BackendError(f"{spec.name}: gvproxy did not serve {sock} (exit {proc.poll()}):\n{_tail(log)}")
 
-    def launch(
+    async def launch(
         self,
         machine: Machine,
         rundir: Path,
@@ -256,7 +266,7 @@ class Krun:
             if disk_fds:
                 disk_rw = disk_fds[0]
             else:
-                disk_rw, disk_ro = scratch_disk(config.qemu_img, rundir, spec.image)
+                disk_rw, disk_ro = await scratch_disk(config.qemu_img, rundir, spec.image)
                 opened += [disk_rw, disk_ro]
             # As Qemu._uplink_netdev: an uplink segment (a router's, nixidae/nixidae#1404)
             # replaces passt, and its fd is the run's.
@@ -269,8 +279,8 @@ class Krun:
                 for path in (listen, relay):
                     path.unlink(missing_ok=True)
                 args = egress_args(machine, str(relay))
-                helpers.append(
-                    start_egress(config.egress, rundir, spec.uplink_network.gateway, str(listen), listen, args)
+                await start_egress(
+                    config.egress, rundir, spec.uplink_network.gateway, str(listen), listen, args, helpers
                 )
                 uplink = [f"--vsock={RELAY_PORT},{listen}", f"--vsock-listen={RELAY_IN_PORT},{relay}"]
                 notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
@@ -278,16 +288,14 @@ class Krun:
                 uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]
             else:
                 if spec.uplink_proxy == UplinkProxy.GVPROXY:
-                    passt_fd, passt_proc = Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward)
+                    passt_fd = await Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward, helpers, opened)
                 else:
                     if config.passt is None:
                         raise BackendError(f"{spec.name}: vivarium.launch.config has no passt")
-                    passt_fd, passt_proc = start_passt(
-                        config.passt, rundir, spec.uplink_network, machine.forward, machine.offline
+                    passt_fd = await start_passt(
+                        config.passt, rundir, spec.uplink_network, machine.forward, machine.offline, helpers, opened
                     )
                     notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline)
-                helpers.append(passt_proc)
-                opened.append(passt_fd)
                 passt_fds = (passt_fd,)
                 uplink = [f"--uplink={passt_fd},{spec.mac(0)}"]
         except BaseException:

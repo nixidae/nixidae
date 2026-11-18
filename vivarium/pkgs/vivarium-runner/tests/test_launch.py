@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
+import anyio
 import pytest
 from vivarium_runner.backends import BackendError
 from vivarium_runner.backends.container import Container
@@ -127,7 +128,8 @@ VYOS = Boot(
 def test_uml_boots_each_root(config: Mapping[str, object], boot: Boot, argv: list[str]) -> None:
     spec = replace(uml(config, boot=boot), image=Path("/nix/store/image"))
     assert boot.kernel is not None
-    assert Uml._root(UmlConfig.of(spec), Path("/run"), spec, boot.root, boot.kernel) == argv
+    root = anyio.run(Uml._root, UmlConfig.of(spec), Path("/run"), spec, boot.root, boot.kernel)
+    assert root == argv
 
 
 @pytest.mark.parametrize(

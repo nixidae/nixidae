@@ -89,7 +89,7 @@ class Container:
     def store(rundir: Path, paths: list[str]) -> Store:
         return ContainerStore.build(rundir / "nix", paths, rundir / "crun")
 
-    def launch(
+    async def launch(
         self,
         machine: Machine,
         rundir: Path,

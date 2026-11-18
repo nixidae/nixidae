@@ -300,14 +300,14 @@ class Machine:
             raise MachineError(f"[{self.name}] boot before start: no run directory")
         self._agent_sock, self._guest_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
-        # The boot clock starts before the launch: guests launch one after
-        # another, and a clock started at the spawn hid that.
+        # The boot clock starts before the launch: a launch waits on its
+        # helpers, and a clock started at the spawn hid that.
         started = time.monotonic()
         try:
             if boot is None:
-                launch = self.backend.launch(self, self._rundir, self._guest_sock.fileno(), self.lan_fds)
+                launch = await self.backend.launch(self, self._rundir, self._guest_sock.fileno(), self.lan_fds)
             else:
-                launch = self.backend.launch(
+                launch = await self.backend.launch(
                     self,
                     self._rundir,
                     self._guest_sock.fileno(),

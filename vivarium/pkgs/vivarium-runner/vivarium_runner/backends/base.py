@@ -163,7 +163,7 @@ class Backend(Protocol):
         """
         ...
 
-    def launch(
+    async def launch(
         self,
         machine: Machine,
         rundir: Path,
