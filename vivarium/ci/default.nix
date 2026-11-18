@@ -1,6 +1,7 @@
-# The workflows of ./workflows.nix, as values.
+# The CI of ./workflows.nix, as values: the workflows, and the attributes
+# their jobs build.
 #
-# nixidae renders each one to `.github/workflows/vivarium-<name>.yml`, with
+# nixidae renders each workflow to `.github/workflows/vivarium-<name>.yml`, with
 # vivarium as the working directory of every step, and checks the committed
 # file against the value. Tests run only in nixidae. nixidae/nixidae#4.
 {
@@ -16,9 +17,7 @@ let
   ghanix = (import sources.ghanix { inherit lib; }).lib;
 
 in
-{
-  workflows = import ./workflows.nix {
-    inherit lib;
-    ghalib = ghanix;
-  };
+import ./workflows.nix {
+  inherit lib;
+  ghalib = ghanix;
 }

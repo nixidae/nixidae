@@ -359,6 +359,61 @@ let
     };
   };
 
+  /*
+    What each step outside a test job builds. The steps read it, and so
+    do `attrs` and `internal.ci`.
+  */
+  built = {
+    kernel = [ "packages.umlKernel" ];
+    direct-kernel = [ "packages.directKernel" ];
+    container-probe = [ "checks.container-probe-tun" ];
+    test-container = [
+      "checks.container"
+      "checks.container-lan"
+    ];
+    checks = [
+      "checks.ruff"
+      "checks.check-scripts"
+      "checks.docs"
+      "checks.check-python"
+      "checks.check-k8s-images"
+      "checks.check-k8s-config"
+    ];
+    sessions = [
+      "checks.phase-rules"
+      "checks.knobs"
+      "checks.only-rules"
+      "checks.on-demand"
+      "checks.recipes"
+      "checks.suite-recipe"
+      "checks.stream"
+      "checks.pytest-phase"
+      "checks.breakpoint"
+      "checks.live-exec"
+      "checks.copy-commands"
+      "checks.guest-suites"
+      "checks.kernel-override"
+      "checks.parallel"
+      "checks.report"
+      "checks.peers"
+      "checks.switch"
+      "checks.cleanup"
+      "checks.interactive"
+    ];
+    eval = [
+      "packages.vivarium-eval.tests"
+      "internal.mcp-check"
+    ];
+  };
+
+  /*
+    What a job runs as a driver and not as a build, by job id: each
+    reaches the network, which a sandbox has not. Not in `internal.ci`.
+  */
+  driven = {
+    test-k8s-pull = "internal.k8s-pull";
+  };
+
   # Building the kernel once and letting the cache hand it to the test
   # jobs saves repeating a ten-minute build three times over.
   kernelJob = job {
@@ -368,7 +423,7 @@ let
     steps = [
       (steps.build {
         name = "Build the UML kernel";
-        attrs = [ "packages.umlKernel" ];
+        attrs = built.kernel;
         timeoutMinutes = 45;
       })
     ];
@@ -383,7 +438,7 @@ let
     steps = [
       (steps.build {
         name = "Build the dinix guest kernel";
-        attrs = [ "packages.directKernel" ];
+        attrs = built.direct-kernel;
         timeoutMinutes = 170;
       })
     ];
@@ -402,7 +457,7 @@ let
     without it refuses the build -- a job that does not start, not a red
     one.
   */
-  testJob =
+  testSpec =
     name:
     {
       description,
@@ -414,6 +469,29 @@ let
       # The whole attribute, for a check with no backend variants.
       attr ? if backend == "uml" then "checks.${test}" else "checks.${test}.${backend}",
     }:
+    {
+      inherit
+        description
+        timeoutMinutes
+        after
+        backend
+        test
+        attr
+        ;
+    };
+
+  testJob =
+    name: spec:
+    let
+      inherit (testSpec name spec)
+        description
+        timeoutMinutes
+        after
+        backend
+        test
+        attr
+        ;
+    in
     job {
       id = "test-${name}";
       needs = (lib.optional (backend == "uml") "kernel") ++ after;
@@ -476,15 +554,12 @@ let
     steps = [
       (steps.build {
         name = "Probe: can this sandbox run a container guest with a LAN";
-        attrs = [ "checks.container-probe-tun" ];
+        attrs = built.container-probe;
         timeoutMinutes = 5;
       })
       (steps.build {
         name = "Run container and container-lan: NixOS guests under crun, in the sandbox";
-        attrs = [
-          "checks.container"
-          "checks.container-lan"
-        ];
+        attrs = built.test-container;
         timeoutMinutes = 20;
       })
     ];
@@ -510,7 +585,7 @@ let
       {
         name = "Run k8s-pull: a node that pulls its images, on a virtual machine";
         timeout-minutes = 20;
-        run = "nix run --print-build-logs --file . internal.k8s-pull.driver -- --out ./out";
+        run = "nix run --print-build-logs --file . ${driven.test-k8s-pull}.driver -- --out ./out";
       }
     ];
   };
@@ -530,14 +605,7 @@ let
     steps = [
       (steps.build {
         name = "Check the generated files, ruff, the scripts, the Python types, the docs, the images and the kubeadm config";
-        attrs = [
-          "checks.ruff"
-          "checks.check-scripts"
-          "checks.docs"
-          "checks.check-python"
-          "checks.check-k8s-images"
-          "checks.check-k8s-config"
-        ];
+        attrs = built.checks;
         timeoutMinutes = 20;
       })
     ];
@@ -563,27 +631,7 @@ let
     steps = [
       (steps.build {
         name = "The session: phase rules, knobs, --only, on-demand boot, recipes, guest suites, stream, pytest, breakpoints, printed commands, parallel, report, peers, switch, cleanup, interactive";
-        attrs = [
-          "checks.phase-rules"
-          "checks.knobs"
-          "checks.only-rules"
-          "checks.on-demand"
-          "checks.recipes"
-          "checks.suite-recipe"
-          "checks.stream"
-          "checks.pytest-phase"
-          "checks.breakpoint"
-          "checks.live-exec"
-          "checks.copy-commands"
-          "checks.guest-suites"
-          "checks.kernel-override"
-          "checks.parallel"
-          "checks.report"
-          "checks.peers"
-          "checks.switch"
-          "checks.cleanup"
-          "checks.interactive"
-        ];
+        attrs = built.sessions;
         timeoutMinutes = 20;
       })
     ];
@@ -603,20 +651,30 @@ let
     steps = [
       (steps.build {
         name = "The vivarium CLI's tests, and the MCP server driven as Claude Code drives it";
-        attrs = [
-          "packages.vivarium-eval.tests"
-          "internal.mcp-check"
-        ];
+        attrs = built.eval;
         timeoutMinutes = 50;
       })
     ];
   };
 in
 {
+  /**
+    Every attribute a CI job builds, as a path from the top of
+    `default.nix`: `internal.ci` builds them all.
+  */
+  attrs =
+    lib.concatLists (lib.attrValues built)
+    ++ lib.mapAttrsToList (name: spec: (testSpec name spec).attr) tests;
+
+  /**
+    What a CI job runs as a driver, as a path from the top of `default.nix`.
+  */
+  driven = lib.attrValues driven;
+
   # Through ghanix's schema rather than straight to YAML. That is what
   # turns each job's `ghanix` attribute into steps, drops the options a job
   # left unset, and refuses a job with no steps at all.
-  ci = ghalib.evalWorkflow {
+  workflows.ci = ghalib.evalWorkflow {
     name = "CI";
     on = {
       push = { };

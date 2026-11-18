@@ -176,7 +176,7 @@ let
   };
 in
 # The schema of nixidae/nixidae#1103. Every other name is under `internal`.
-{
+lib.fix (self: {
   lib = exported;
 
   /*
@@ -277,5 +277,20 @@ in
           python3 ${./tests/mcp_driver.py} ${vivarium-eval}/bin/vivarium-mcp ${tests.checks.pytest-phase.session.spec}
           touch $out
         '';
+
+    /*
+      Everything CI builds, as one build: a local pass of this is CI's
+      verdict on the builds. The jobs that run a driver (`ci.driven`) are
+      not in it. A name in `ci/workflows.nix` that is not here fails the
+      evaluation.
+
+        nix build --file . internal.ci --keep-going --option extra-sandbox-paths /dev/net
+    */
+    ci = pkgs.linkFarm "vivarium-ci" (
+      map (attr: {
+        name = attr;
+        path = lib.getAttrFromPath (lib.splitString "." attr) self;
+      }) ci.attrs
+    );
   };
-}
+})
