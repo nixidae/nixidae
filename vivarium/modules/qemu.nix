@@ -165,6 +165,14 @@ lib.mkIf
         # the built-in `page_reporting` "module", and it overrides whatever
         # virtio-balloon asks for.
         "page_reporting.page_reporting_order=5"
+        # The kernel gives a parameter with no dot to init as environment.
+        # systemd holds back every mount job while its mount monitor is
+        # rate limited, 5 changes per second by default (`src/core/mount.c`).
+        # The initrd changes the mount table 22 times, so it held
+        # /sysroot for 1.00 s, and /sysroot/nix for 1.00 s after it.
+        # Measured on `lan.qemu`: "Welcome" at 3.8 s after the initrd
+        # banner by default, 2.35-2.77 s with this.
+        "SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST=50"
       ]
       # DAMON_RECLAIM's stock watermarks keep it idle while more than half
       # of memory is free, which is right on a host and wrong here: a free
