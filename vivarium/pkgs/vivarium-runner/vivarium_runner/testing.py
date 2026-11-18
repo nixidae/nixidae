@@ -33,6 +33,13 @@ def machine_json(name: str, backend: BackendName = BackendName.UML) -> MachineSp
         "interfaces": [],
         "uplink": None,
         "uplinkProxy": UplinkProxy.PASST,
+        "uplinkNetwork": {
+            "address": "10.0.2.15",
+            "prefixLength": 24,
+            "gateway": "10.0.2.2",
+            "dns": "10.0.2.3",
+            "gateway6": "fd00:10:0:2::2",
+        },
         "router": False,
         "forward": [],
     }

@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 from vivarium_runner import Machine, MachineError, forward
-from vivarium_runner.forward import ForwardError, PortMap, Rule
+from vivarium_runner.forward import ForwardError, PortMap, Rule, UplinkNetwork
 
 FIRST = "127.0.0.2" if sys.platform == "linux" else forward.SHARED_LOOPBACK
 """The address `resolve` gives a run's first guest."""
@@ -145,20 +145,42 @@ def test_two_guests_on_one_loopback_get_two_ports() -> None:
     assert notes == [f"{forward.SHARED_LOOPBACK}: guest port {port} on host port {moved.host}: {port} is taken"]
 
 
+NETWORK = UplinkNetwork(
+    address="192.0.2.15", prefix_length=24, gateway="192.0.2.2", dns="192.0.2.3", gateway6="fd00:9::2"
+)
+
+
 def test_the_uplink_args_say_nothing(capsys: pytest.CaptureFixture[str]) -> None:
     """The DNS and offline lines are `uplink_notes`, which the guest says under its name."""
-    forward.uplink_args(offline=True)
-    forward.egress_uplink_args(offline=True)
+    forward.uplink_args(NETWORK, offline=True)
+    forward.egress_uplink_args(NETWORK, offline=True)
     assert capsys.readouterr().out == ""
+
+
+def test_the_args_carry_the_spec_s_addresses(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(forward.ENV_DNS, "192.0.2.53")
+    passt = forward.uplink_args(NETWORK)
+    assert passt[:8] == [
+        "--address",
+        "192.0.2.15",
+        "--netmask",
+        "24",
+        "--gateway",
+        "192.0.2.2",
+        "--dns-forward",
+        "192.0.2.3",
+    ]
+    assert forward.egress_uplink_args(NETWORK) == ["--map=192.0.2.3:53=192.0.2.53:53", "--loopback=fd00:9::2"]
+    assert NETWORK.subnet == "192.0.2.0/24"
 
 
 def test_the_notes_name_the_upstream_and_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(forward.ENV_DNS, "192.0.2.53")
-    assert forward.uplink_notes() == [f"[uplink] DNS on {forward.UPLINK_DNS}, forwarded to 192.0.2.53"]
-    [_, offline] = forward.uplink_notes(offline=True)
+    assert forward.uplink_notes(NETWORK) == ["[uplink] DNS on 192.0.2.3, forwarded to 192.0.2.53"]
+    [_, offline] = forward.uplink_notes(NETWORK, offline=True)
     assert offline.startswith(f"[uplink] offline: outbound bound to {forward.OFFLINE_OUTBOUND}")
-    [router, _] = forward.egress_notes(offline=True)
-    assert router == f"[uplink] router: DNS on {forward.UPLINK_DNS}, forwarded to 192.0.2.53"
+    [router, _] = forward.egress_notes(NETWORK, offline=True)
+    assert router == "[uplink] router: DNS on 192.0.2.3, forwarded to 192.0.2.53"
 
 
 class Speaking(Machine):

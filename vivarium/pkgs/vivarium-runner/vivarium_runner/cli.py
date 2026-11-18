@@ -17,7 +17,7 @@ from pathlib import Path
 import anyio
 
 from .control import ControlSpec
-from .forward import ForwardError, Rule
+from .forward import ForwardError, Rule, UplinkNetwork
 from .machine import LaunchSpec, Machine, MachineError, MachineSpec
 from .spec import BackendName, Seccomp, UplinkProxy
 
@@ -37,6 +37,11 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
         "--forward",
         required=True,
         help="JSON list of forward rules, as vivarium.forward generates",
+    )
+    parser.add_argument(
+        "--uplink-network",
+        required=True,
+        help="JSON of the uplink's addresses, as nix/uplink.nix writes them",
     )
     parser.add_argument("--mem", required=True)
     parser.add_argument("--mtu", type=int, required=True)
@@ -104,6 +109,7 @@ async def _run(args: argparse.Namespace) -> int:
             interfaces=(),
             uplink=None,
             uplink_proxy=UplinkProxy.PASST,
+            uplink_network=UplinkNetwork.from_json(json.loads(args.uplink_network)),
             router=False,
             forward=tuple(Rule.from_json(rule) for rule in json.loads(args.forward)),
             launch=LaunchSpec(

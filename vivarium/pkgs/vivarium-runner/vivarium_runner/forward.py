@@ -15,6 +15,7 @@ guest nor the rule.
 
 from __future__ import annotations
 
+import ipaddress
 import itertools
 import os
 import socket
@@ -370,32 +371,48 @@ def reachable(rules: list[Rule], guest_port: int) -> list[str]:
     return [f"{rule.address}:{port.host}" for rule in rules for port in rule.ports if port.guest == guest_port]
 
 
-# The guest's own address on its uplink, and the two addresses passt
-# answers on behind it.
-#
-# passt shares the *host's* address by default: a guest is given the
-# host's real IPv4, netmask and router, so the host's LAN is on-link to
-# the guest and a test's environment depends on where the host is. On a
-# hosted machine that LAN has other people's servers on it.
-#
-# 10.0.2.0/24 instead, which is the range QEMU's own user-mode network
-# has used for twenty years, so it is the one a reader already knows --
-# and the one modules/k8s.nix has described as the guest's uplink all
-# along.
-#
-# Every guest gets the same address, and that is right: each has a passt
-# of its own, none of them shares a link, and two guests that must reach
-# each other do it on `vec1` with addresses a test chose. What makes a
-# guest reachable from the host is its own 127.0.0.x, which forward.py
-# hands out per guest and which is unaffected by any of this.
-UPLINK_ADDRESS = "10.0.2.15"
-UPLINK_PREFIX = 24
-UPLINK_GATEWAY = "10.0.2.2"
+@closed
+class UplinkNetworkJson(TypedDict):
+    """`UplinkNetwork` as Nix wrote it: `spec` in nix/uplink.nix."""
+
+    address: str
+    prefixLength: int  # noqa: N815 -- Nix writes it, so Nix spells it
+    gateway: str
+    dns: str
+    gateway6: str
 
 
-# Where passt answers DNS for the guest.  Free in the uplink /24, and the
-# address QEMU's own user-mode networking has used for this for years.
-UPLINK_DNS = "10.0.2.3"
+@dataclass(frozen=True)
+class UplinkNetwork:
+    """The guest's own address on its uplink, and what answers behind it.
+
+    nix/uplink.nix writes them, for passt, gvproxy and the router alike.
+    Every guest gets the same address: each has an uplink of its own, and
+    the host reaches a guest through its own 127.0.0.x.
+    """
+
+    address: str
+    prefix_length: int
+    gateway: str
+    dns: str
+    """Where passt and the egress answer DNS for the guest."""
+    gateway6: str
+    """The router's IPv6 gateway, which the egress maps to the host's ::1."""
+
+    @classmethod
+    def from_json(cls, data: UplinkNetworkJson) -> UplinkNetwork:
+        return cls(
+            address=data["address"],
+            prefix_length=data["prefixLength"],
+            gateway=data["gateway"],
+            dns=data["dns"],
+            gateway6=data["gateway6"],
+        )
+
+    @property
+    def subnet(self) -> str:
+        return str(ipaddress.ip_interface(f"{self.address}/{self.prefix_length}").network)
+
 
 # Where passt sends a query it is asked to forward.  A constant, and not
 # the host's own resolver: reading the host's nameserver files gave a
@@ -431,10 +448,6 @@ API server through a forward would then fail for a reason that is not the
 one being reproduced."""
 
 
-ROUTER_GATEWAY6 = "fd00:10:0:2::2"
-"""The router's IPv6 gateway, which the egress maps to the host's ::1.
-`prefix6` in modules/router.nix."""
-
 OFFLINE_OUTBOUND6 = "::1"
 
 
@@ -443,14 +456,14 @@ def upstream_dns() -> str:
     return os.environ.get(ENV_DNS) or UPLINK_UPSTREAM_DNS
 
 
-def uplink_notes(offline: bool = False) -> list[str]:
+def uplink_notes(network: UplinkNetwork, offline: bool = False) -> list[str]:
     """The console lines for a guest behind passt or pasta.
 
     passt's own banner is not in a QEMU run's output, and a guest that
     cannot resolve gives no clue which of the two addresses is wrong.
     """
     return [
-        f"[uplink] DNS on {UPLINK_DNS}, forwarded to {upstream_dns()}",
+        f"[uplink] DNS on {network.dns}, forwarded to {upstream_dns()}",
         *(
             [f"[uplink] offline: outbound bound to {OFFLINE_OUTBOUND}, so the guest reaches nothing off this host"]
             if offline
@@ -459,10 +472,10 @@ def uplink_notes(offline: bool = False) -> list[str]:
     ]
 
 
-def egress_notes(offline: bool = False) -> list[str]:
+def egress_notes(network: UplinkNetwork, offline: bool = False) -> list[str]:
     """The console lines for a guest behind the egress: `uplink_notes` for a router."""
     return [
-        f"[uplink] router: DNS on {UPLINK_DNS}, forwarded to {upstream_dns()}",
+        f"[uplink] router: DNS on {network.dns}, forwarded to {upstream_dns()}",
         *(
             [f"[uplink] router offline: outbound bound to {OFFLINE_OUTBOUND} and {OFFLINE_OUTBOUND6}"]
             if offline
@@ -471,18 +484,18 @@ def egress_notes(offline: bool = False) -> list[str]:
     ]
 
 
-def egress_uplink_args(offline: bool = False) -> list[str]:
+def egress_uplink_args(network: UplinkNetwork, offline: bool = False) -> list[str]:
     """The router's egress options that match `uplink_args`: DNS, the IPv6
     gateway, offline."""
     upstream = upstream_dns()
     return [
-        f"--map={UPLINK_DNS}:53={upstream}:53",
-        f"--loopback={ROUTER_GATEWAY6}",
+        f"--map={network.dns}:53={upstream}:53",
+        f"--loopback={network.gateway6}",
         *([f"--outbound={OFFLINE_OUTBOUND}", f"--outbound={OFFLINE_OUTBOUND6}"] if offline else []),
     ]
 
 
-def uplink_args(offline: bool = False) -> list[str]:
+def uplink_args(network: UplinkNetwork, offline: bool = False) -> list[str]:
     """passt arguments giving the guest an address of its own, and DNS.
 
     Both backends pass these -- QEMU straight to passt, UML through
@@ -499,13 +512,13 @@ def uplink_args(offline: bool = False) -> list[str]:
     upstream = upstream_dns()
     return [
         "--address",
-        UPLINK_ADDRESS,
+        network.address,
         "--netmask",
-        str(UPLINK_PREFIX),
+        str(network.prefix_length),
         "--gateway",
-        UPLINK_GATEWAY,
+        network.gateway,
         "--dns-forward",
-        UPLINK_DNS,
+        network.dns,
         "--dns-host",
         upstream,
         *(["--outbound", OFFLINE_OUTBOUND] if offline else []),

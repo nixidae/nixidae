@@ -225,6 +225,7 @@ rec {
       interfaces = machine.vivarium.nics;
       uplink = machine.vivarium.uplink.segment;
       uplinkProxy = machine.vivarium.uplink.proxy;
+      uplinkNetwork = (import ./nix/uplink.nix).spec;
       router = machine.vivarium.router.enable;
       forward = machine.vivarium.forward;
       inherit (machine.vivarium) control;

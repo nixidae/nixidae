@@ -60,6 +60,7 @@ from .control import (
     dialect as find_dialect,
     validate as validate_control,
 )
+from .forward import UplinkNetwork, UplinkNetworkJson
 from .lifetime import die_with_parent
 from .net import Lan
 from .spec import BackendName, Seccomp, UplinkProxy, closed
@@ -227,6 +228,7 @@ class MachineSpecJson(TypedDict):
     interfaces: list[InterfaceJson]
     uplink: str | None
     uplinkProxy: UplinkProxy
+    uplinkNetwork: UplinkNetworkJson
     router: bool
     forward: list[forward.RuleJson]
     storePaths: NotRequired[str]
@@ -352,6 +354,8 @@ class MachineSpec:
     out-of-band management network a peer serves (nixidae/nixidae#958).
     `None` is passt, the default."""
     uplink_proxy: UplinkProxy
+    uplink_network: UplinkNetwork
+    """The addresses on `vec0`, from nix/uplink.nix."""
     router: bool
     """The run's router guest (`vivarium.router.enable`): no `vec0`, and
     vsock to an egress on the host instead (nixidae/nixidae#1404)."""
@@ -417,6 +421,7 @@ class MachineSpec:
             interfaces=tuple(Interface.from_json(one) for one in data["interfaces"]),
             uplink=data["uplink"],
             uplink_proxy=UplinkProxy(data["uplinkProxy"]),
+            uplink_network=UplinkNetwork.from_json(data["uplinkNetwork"]),
             router=data["router"],
             forward=tuple(forward.Rule.from_json(rule) for rule in data["forward"]),
             store_paths=Path(store_paths) if store_paths is not None else None,
@@ -617,7 +622,7 @@ class Machine:
         if self.spec.uplink_address is not None:
             return self.spec.uplink_address
         if self.spec.uplink is None:
-            return forward.UPLINK_ADDRESS
+            return self.spec.uplink_network.address
         return None
 
     def __repr__(self) -> str:

@@ -150,6 +150,7 @@ lib.mkIf (cfg.backend == "uml") {
         --passt ${pkgs.callPackage ../pkgs/passt { }}/bin/passt \
         --ssh-port ${toString cfg.sshPort} \
         --forward ${lib.escapeShellArg (builtins.toJSON cfg.forward)} \
+        --uplink-network ${lib.escapeShellArg (builtins.toJSON (import ../nix/uplink.nix).spec)} \
         --mem ${cfg.memory} \
         --mtu ${toString cfg.mtu} \
         "$@"

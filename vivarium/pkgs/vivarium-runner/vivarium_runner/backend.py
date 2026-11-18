@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import functools
 import importlib.metadata
-import ipaddress
 import itertools
 import json
 import mmap
@@ -629,7 +628,7 @@ def egress_args(machine: Machine, relay: str) -> list[str]:
     for its own."""
     guests = machine.routed if machine.spec.router else (machine,)
     return [
-        *forward.egress_uplink_args(machine.offline),
+        *forward.egress_uplink_args(machine.spec.uplink_network, machine.offline),
         *(
             arg
             for guest in guests
@@ -640,19 +639,19 @@ def egress_args(machine: Machine, relay: str) -> list[str]:
 
 
 def start_egress(
-    egress: Path | None, rundir: Path, listen: str, ready: Path, args: list[str]
+    egress: Path | None, rundir: Path, gateway: str, listen: str, ready: Path, args: list[str]
 ) -> subprocess.Popen[bytes]:
     """Start the router's egress on *listen* and wait until *ready* exists.
 
     The egress binds every forward before it binds *ready*, and maps the
-    gateway, 10.0.2.2, to the host's loopback.
+    uplink's *gateway* to the host's loopback.
     """
     if egress is None:
         raise BackendError("the router needs egress in vivarium.launch.config")
     log = rundir / "egress.log"
     with log.open("wb") as handle:
         proc = subprocess.Popen(
-            [str(egress), listen, forward.UPLINK_GATEWAY, *args],
+            [str(egress), listen, gateway, *args],
             stdin=subprocess.DEVNULL,
             stdout=handle,
             stderr=subprocess.STDOUT,
@@ -748,21 +747,27 @@ class Uml:
             # at boot and fails if nothing listens yet.
             device = uml_dir / "vsock.sock"
             args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
-            notes = forward.egress_notes(machine.offline)
-            helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
+            notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
+            helpers.append(
+                start_egress(config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args)
+            )
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
         elif spec.uplink is None:
             # vec0 is passt, behind the bridge: it forks passt and
             # translates its length-prefixed frames to the fd transport.
-            notes = forward.uplink_notes(machine.offline)
+            notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline)
             argv = [
                 str(config.bridge),
                 "--vec",
                 self._vec(0, 3, spec.mtu),
                 # The bridge forks passt, so the uplink's addressing reaches
                 # it one argument at a time rather than directly.
-                *(arg for value in forward.uplink_args(machine.offline) for arg in ("--passt", value)),
+                *(
+                    arg
+                    for value in forward.uplink_args(machine.spec.uplink_network, machine.offline)
+                    for arg in ("--passt", value)
+                ),
                 *forward.to_args(machine.forward),
                 *kernel,
             ]
@@ -927,7 +932,9 @@ class Qemu:
         spec = machine.spec
         if spec.uplink is not None:
             return f"dgram,id=vec0,local.type=fd,local.str={lan_fds['vec0']}", None
-        passt_fd, passt_proc = self._passt(QemuConfig.of(spec).passt, rundir, machine.forward, machine.offline)
+        passt_fd, passt_proc = self._passt(
+            QemuConfig.of(spec).passt, rundir, spec.uplink_network, machine.forward, machine.offline
+        )
         helpers.append(passt_proc)
         opened.append(passt_fd)
         return f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}", passt_fd
@@ -992,12 +999,14 @@ class Qemu:
             device = sockets / "vsock"
             device.unlink(missing_ok=True)
             args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
-            helpers.append(start_egress(config.egress, rundir, f"vhost-user:{device}", device, args))
+            helpers.append(
+                start_egress(config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args)
+            )
             uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
-            notes = forward.egress_notes(machine.offline)
+            notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
         else:
             netdev, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
-            notes = forward.uplink_notes(machine.offline) if passt_fd is not None else []
+            notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else []
             uplink = ["-netdev", netdev, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)},host_mtu={spec.mtu}"]
 
         argv = [
@@ -1203,7 +1212,7 @@ class Qemu:
             helpers=helpers,
             memory=sockets / "qmp",
             cleanup=cleanup,
-            notes=forward.uplink_notes(machine.offline) if passt_fd is not None else [],
+            notes=forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else [],
         )
 
     @staticmethod
@@ -1338,7 +1347,7 @@ class Qemu:
 
     @staticmethod
     def _passt(
-        passt: Path, rundir: Path, rules: list[forward.Rule], offline: bool = False
+        passt: Path, rundir: Path, network: forward.UplinkNetwork, rules: list[forward.Rule], offline: bool = False
     ) -> tuple[int, subprocess.Popen[bytes]]:
         """Start passt on one end of a socketpair; return QEMU's end.
 
@@ -1366,7 +1375,7 @@ class Qemu:
                 "--foreground",
                 "--fd",
                 str(passt_end.fileno()),
-                *forward.uplink_args(offline),
+                *forward.uplink_args(network, offline),
                 *forward.to_args(rules),
             ],
             stdin=subprocess.DEVNULL,
@@ -1461,18 +1470,19 @@ class Krun:
         sock = rundir / "gvproxy.sock"
         if not unixpath.fits(sock):
             raise BackendError(f"{spec.name}: gvproxy's socket path is too long for AF_UNIX: {sock}")
+        network = spec.uplink_network
         forwards: dict[str, str] = {}
         for rule in rules:
             if rule.protocols != ("tcp",):
                 raise BackendError(f"{spec.name}: gvproxy forwards TCP ports only, not {rule}")
             for port in rule.ports:
-                forwards[f"{rule.address}:{port.host}"] = f"{forward.UPLINK_ADDRESS}:{port.guest}"
+                forwards[f"{rule.address}:{port.host}"] = f"{network.address}:{port.guest}"
         config = {
             "stack": {
                 "mtu": spec.mtu,
-                "subnet": str(ipaddress.ip_interface(f"{forward.UPLINK_ADDRESS}/{forward.UPLINK_PREFIX}").network),
-                "gatewayIP": forward.UPLINK_GATEWAY,
-                "dhcpStaticLeases": {forward.UPLINK_ADDRESS: spec.mac(0)},
+                "subnet": network.subnet,
+                "gatewayIP": network.gateway,
+                "dhcpStaticLeases": {network.address: spec.mac(0)},
                 "forwards": forwards,
             },
             "interfaces": {"qemu": f"unix://{sock}"},
@@ -1558,9 +1568,11 @@ class Krun:
                 for path in (listen, relay):
                     path.unlink(missing_ok=True)
                 args = egress_args(machine, str(relay))
-                helpers.append(start_egress(config.egress, rundir, str(listen), listen, args))
+                helpers.append(
+                    start_egress(config.egress, rundir, spec.uplink_network.gateway, str(listen), listen, args)
+                )
                 uplink = [f"--vsock={RELAY_PORT},{listen}", f"--vsock-listen={RELAY_IN_PORT},{relay}"]
-                notes = forward.egress_notes(machine.offline)
+                notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
             elif spec.uplink is not None:
                 uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]
             else:
@@ -1569,8 +1581,10 @@ class Krun:
                 else:
                     if config.passt is None:
                         raise BackendError(f"{spec.name}: vivarium.launch.config has no passt")
-                    passt_fd, passt_proc = Qemu._passt(config.passt, rundir, machine.forward, machine.offline)
-                    notes = forward.uplink_notes(machine.offline)
+                    passt_fd, passt_proc = Qemu._passt(
+                        config.passt, rundir, spec.uplink_network, machine.forward, machine.offline
+                    )
+                    notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline)
                 helpers.append(passt_proc)
                 opened.append(passt_fd)
                 passt_fds = (passt_fd,)
@@ -1771,7 +1785,7 @@ class Container:
                         "--foreground",
                         "--ns-ifname",
                         "vec0",
-                        *forward.uplink_args(machine.offline),
+                        *forward.uplink_args(machine.spec.uplink_network, machine.offline),
                         *self._pasta_forwards(forward.to_args(machine.forward)),
                     ]
                     if pasta
@@ -1781,7 +1795,7 @@ class Container:
             pass_fds=tuple(lan_fds.values()),
             agent_path=agent_dir / "sock",
             cleanup=cleanup,
-            notes=forward.uplink_notes(machine.offline) if pasta else [],
+            notes=forward.uplink_notes(machine.spec.uplink_network, machine.offline) if pasta else [],
         )
 
     @staticmethod

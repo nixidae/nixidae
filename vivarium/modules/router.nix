@@ -3,7 +3,7 @@
 
   A run with `router.enable` has one: every other guest's uplink (`vec0`)
   is a segment of its own to this guest, and the router bridges them into
-  10.0.2.0/24. Each guest leases its own address by its uplink MAC. TCP,
+  the uplink's subnet (nix/uplink.nix). Each guest leases its own address by its uplink MAC. TCP,
   UDP and ICMP echo to anywhere off the bridge go to `relay`, which
   carries each flow over vsock to the egress on the host.
 
@@ -25,13 +25,14 @@ let
   inherit (lib) mkOption types;
 
   bridge = "uplink";
-  subnet = "10.0.2.0/24";
-  gateway = "10.0.2.2";
-  dns = "10.0.2.3";
-  # A ULA prefix: the egress makes every connection, so the guests'
-  # addresses never leave the run. glibc prefers IPv4 to a ULA source.
-  prefix6 = "fd00:10:0:2::";
-  gateway6 = "${prefix6}2";
+  uplink = import ../nix/uplink.nix;
+  inherit (uplink)
+    subnet
+    gateway
+    dns
+    prefix6
+    gateway6
+    ;
 
   relay = pkgs.callPackage ../pkgs/vivarium-egress/package.nix { };
   # vhost-user is Linux's (epoll, eventfd). A macOS host runs krun only,
@@ -122,14 +123,14 @@ in
       type = types.functionTo types.str;
       internal = true;
       readOnly = true;
-      default = index: "10.0.2.${toString (15 + index)}";
+      default = uplink.address;
       description = "A routed guest's uplink address, by its `vivarium.index`.";
     };
     address6 = mkOption {
       type = types.functionTo types.str;
       internal = true;
       readOnly = true;
-      default = index: "${prefix6}${toString (15 + index)}";
+      default = uplink.address6;
       description = ''
         A routed guest's IPv6 uplink address, by its `vivarium.index`: the
         router's prefix and the digits of its IPv4 address's last octet.
@@ -141,9 +142,8 @@ in
     # A guest behind the router: its address from the router's
     # advertisement, the host part fixed by its index.
     (lib.mkIf (config.vivarium.uplink.proxy == "router") {
-      systemd.network.networks."40-vec0".ipv6AcceptRAConfig.Token = "static:::${
-        toString (15 + config.vivarium.index)
-      }";
+      systemd.network.networks."40-vec0".ipv6AcceptRAConfig.Token =
+        "static:::${toString (uplink.host config.vivarium.index)}";
       # The router's port, lease and forwards for a guest are fixed at
       # evaluation; an instance arrives later and would get none.
       assertions = [
@@ -188,7 +188,7 @@ in
           message = "the router guest runs on UML, QEMU or krun; it is ${config.vivarium.backend}.";
         }
         {
-          # 10.0.2.(15 + index) stays below the pool at .215.
+          # `uplink.address index` stays below the pool at .215.
           assertion = lib.all (node: node.vivarium.index < 200) (lib.attrValues guests);
           message = "the router gives addresses to 200 guests at most.";
         }
@@ -245,7 +245,7 @@ in
             # The gateway address is the router's own; no detection delay.
             IPv6DuplicateAddressDetection = 0;
           };
-          # The guests' resolver is 10.0.2.3; IPv6 carries no DNS.
+          # The guests' resolver is `dns`; IPv6 carries no DNS.
           ipv6SendRAConfig = {
             EmitDNS = false;
             EmitDomains = false;
@@ -324,13 +324,13 @@ in
         useDHCP = lib.mkForce false;
         ipv4.addresses = [
           {
-            address = "10.0.2.15";
-            prefixLength = 24;
+            address = uplink.address 0;
+            inherit (uplink) prefixLength;
           }
         ];
         ipv6.addresses = [
           {
-            address = "${prefix6}15";
+            address = uplink.address6 0;
             prefixLength = 64;
           }
         ];
