@@ -6,7 +6,7 @@
 #
 #   default.nix  the vivarium options and the packages a guest needs
 #   guest.nix    what the guest system itself looks like
-#   image.nix    the root image, /init, and the vivarium-run wrapper
+#   image.nix    the root image and /init
 #
 # lib.nix applies it to the sources, for the packages a guest takes from
 # another source (dinix's dinit-client).
@@ -311,7 +311,6 @@ in
         reporting gives freed pages back, so a high ceiling costs the host
         nothing until the guest uses it. Each guest reads the host on its
         own, so guests that start together can each get the whole host.
-        UML's `vivarium-run` takes a size only.
 
         A ceiling rather than a cost, under UML. The guest's memory is
         a sparse file and the guest punches holes in it as it frees

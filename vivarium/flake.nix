@@ -56,7 +56,7 @@
         speedtest = {
           type = "app";
           meta.description = "Run speedtest-cli inside a UML guest";
-          program = lib.getExe built.internal.speedtest;
+          program = lib.getExe built.internal.speedtest.driver;
         };
       };
     };

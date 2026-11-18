@@ -258,7 +258,6 @@ let
   k8sConfig = (mkNode k8sNodes.cp).config;
   demo = mkNode {
     vivarium.memory = "512M";
-    environment.systemPackages = [ pkgs.speedtest-cli ];
   };
 
   /*
@@ -331,6 +330,28 @@ let
           network = "k8s-pull";
           address = "10.104.0.1/24";
         };
+      };
+    };
+  };
+
+  /*
+    speedtest-cli in a guest, through its uplink to the internet. Not a
+    check: a sandbox has no network.
+
+        nix run --file . internal.speedtest.driver -- --out ./out
+  */
+  speedtest = mkTest {
+    name = "speedtest";
+    nodes.one = {
+      # speedtest-cli holds ~170 MiB; the default guest OOM-kills it.
+      vivarium.memory = "1024M";
+      environment.systemPackages = [ pkgs.speedtest-cli ];
+    };
+    phases = {
+      boot.script = ./phases/boot.py;
+      speedtest = {
+        script = ./phases/speedtest.py;
+        after = [ "boot" ];
       };
     };
   };
@@ -472,6 +493,7 @@ in
       demo
       store
       k8s-pull
+      speedtest
       uplink
       incr
       ;

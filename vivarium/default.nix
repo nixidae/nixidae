@@ -243,10 +243,11 @@ lib.fix (self: {
       demo
       store
       k8s-pull
+      speedtest
       uplink
       incr
       ;
-    inherit (tests.internal.demo.config.system.build) vivariumRunner vivariumRootImage toplevel;
+    inherit (tests.internal.demo.config.system.build) vivariumRootImage toplevel;
 
     /*
       The same kernel, compiled through ccache into `/ccache`, for a patch
@@ -260,11 +261,6 @@ lib.fix (self: {
       `make ARCH=um` in a tree is still the inner loop.
     */
     umlKernelCcache = k8sConfig.system.build.umlKernel.override { ccacheDir = "/ccache"; };
-
-    # A guest to poke at by hand, running one program.
-    speedtest = pkgs.writeShellScriptBin "vivarium-speedtest" ''
-      exec ${tests.internal.demo.config.system.build.vivariumRunner}/bin/vivarium-run --command speedtest-cli "$@"
-    '';
 
     /*
       `vivarium-mcp` driven the way Claude Code drives it: JSON-RPC over stdio,

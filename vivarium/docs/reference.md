@@ -427,11 +427,6 @@ Two things to know:
   port before spawning passt so the error names the guest and the port,
   rather than passt exiting with a bare `Address already in use`.
 
-`vivarium-run` with no `--command` polls the guest for what it is listening on and
-prints where each port answers, so a service you start inside is followed by
-the address to reach it at — or by `not forwarded`, which is the answer worth
-having, since it needs a reboot to fix.
-
 ## Backends
 
 `mkTest` takes `backend`, and a node may override `vivarium.backend` for

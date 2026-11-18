@@ -43,6 +43,5 @@ python3Packages.buildPythonPackage {
     description = "Run NixOS systems as UML, QEMU, libkrun or crun guests and drive them from Python";
     license = lib.licenses.asl20;
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
-    mainProgram = "vivarium-run";
   };
 }

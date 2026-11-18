@@ -137,25 +137,4 @@ lib.mkIf (cfg.backend == "uml") {
         fakeroot -- sh -c 'chown -R 0:0 root && mkfs.ext4 -q -L nixos -d root disk.img'
         mv disk.img $out
       '';
-
-  # `nix run` this to get one guest with everything already pointed at it.
-  system.build.vivariumRunner = pkgs.writeShellApplication {
-    name = "vivarium-run";
-    runtimeInputs = [
-      (pkgs.callPackage ../pkgs/vivarium-runner { vivarium-agent = build.vivariumAgentPackage; })
-    ];
-    text = ''
-      exec vivarium-run \
-        --kernel ${build.umlKernel}/linux \
-        --root-image ${build.vivariumRootImage} \
-        --bridge ${lib.getExe build.umlPasstBridge} \
-        --passt ${pkgs.callPackage ../pkgs/passt { }}/bin/passt \
-        --ssh-port ${toString cfg.sshPort} \
-        --forward ${lib.escapeShellArg (builtins.toJSON cfg.forward)} \
-        --uplink-network ${lib.escapeShellArg (builtins.toJSON (import ../nix/uplink.nix).spec)} \
-        --mem ${cfg.memory} \
-        --mtu ${toString cfg.mtu} \
-        "$@"
-    '';
-  };
 }

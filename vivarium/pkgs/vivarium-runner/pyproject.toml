@@ -11,9 +11,6 @@ description = "Run NixOS systems under User-Mode Linux and drive them from Pytho
 requires-python = ">=3.12"
 dependencies = ["vivarium-agent", "qemu.qmp"]
 
-[project.scripts]
-vivarium-run = "vivarium_runner.cli:main"
-
 # The backends, by the name `vivarium.backend` gives. Another package adds
 # one the same way; `vivarium_runner.backends.get` reads this group.
 [project.entry-points."vivarium.backends"]
