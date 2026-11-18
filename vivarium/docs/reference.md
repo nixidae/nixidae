@@ -451,17 +451,22 @@ nodes.d.vivarium.interfaces.lab.segment = "lab";
   leases, and its default route goes through the lab, ahead of the
   uplink's. A guest of another kind configures the interface itself.
 - Each router network is a VRF on the router, with a relay of its own to
-  the host's egress. The router forwards nothing, and a relay listens in
-  its own VRF only. `checks.router-network` shows that no TCP, UDP or
-  other IP datagram crosses the router between two networks or the
-  uplink, and that a network reaches no other network's relay.
+  the host's egress, on a vsock port of its own. The router forwards
+  nothing, and a relay listens in its own VRF only. `checks.router-network`
+  shows that no TCP, UDP or other IP datagram crosses the router between
+  two networks or the uplink, and that a network reaches no other
+  network's relay.
 - The router names its interface after the segment, and its VRF
   `vrf-<segment>`: a segment name is at most 11 characters.
 - Keep the networks' subnets apart, and apart from the uplink's
   `10.0.2.0/24`; nothing checks this yet. No forward reaches a router
   network's guest.
-- On macOS every forward shares `127.0.0.1`. A lab guest that connects to
-  the gateway `10.0.2.2` reaches every guest's forwards there.
+- A lab guest reaches the host's loopback through the gateway `10.0.2.2`,
+  as an uplink guest does. The egress knows each flow's network by its
+  vsock port, and refuses a lab's flow to a host port that a forward
+  binds. On macOS every forward shares `127.0.0.1`; `checks.router-network`
+  puts forwards there on Linux too, and shows that a lab does not reach
+  them.
 
 ## Backends
 

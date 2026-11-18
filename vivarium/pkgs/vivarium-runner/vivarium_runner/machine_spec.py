@@ -139,6 +139,7 @@ class MachineSpecJson(TypedDict):
     systems: NotRequired[SystemsJson]
     launch: NotRequired[LaunchSpecJson]
     uplinkAddress: NotRequired[str]
+    networkPorts: NotRequired[list[int]]
     requires: NotRequired[list[str]]
 
 
@@ -281,6 +282,9 @@ class MachineSpec:
     uplink_address: str | None = None
     """A guest behind the router: its address there, which the router's
     egress forwards to."""
+    network_ports: tuple[int, ...] = ()
+    """The router: the vsock port of each of its networks' relays to the
+    egress (`vivarium.router.networkPorts`, nixidae/nixidae#1523)."""
     requires: tuple[str, ...] = ()
     """`vivarium.requires`: the guests this one cannot boot without. The
     session boots them first; the runner does nothing with it."""
@@ -328,6 +332,7 @@ class MachineSpec:
             systems=Systems.from_json(systems) if systems is not None else Systems(),
             launch=LaunchSpec.from_json(launch) if launch is not None else None,
             uplink_address=data.get("uplinkAddress"),
+            network_ports=tuple(data.get("networkPorts", ())),
         )
 
     @property

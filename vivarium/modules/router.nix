@@ -156,9 +156,11 @@ let
 
   /*
     The router's networks besides the uplink: each segment with a
-    `router`, in order of name. Network n has VRF table 1000 + n and relay
-    ports 9000 + 2n and 9001 + 2n, after the uplink's 1000, 9000 and 9001.
-    The router's interface on the segment has the segment's name.
+    `router`, in order of name. Network n has VRF table 1000 + n, relay
+    ports 9000 + 2n and 9001 + 2n, and the egress's vsock port 5000 + 2n,
+    after the uplink's 1000, 9000, 9001 and 5000. 5001 + 2n stays free for
+    the network's forwards, as 5001 is the uplink's. The router's
+    interface on the segment has the segment's name.
   */
   networks = lib.imap1 (
     n: name:
@@ -171,13 +173,14 @@ let
       table = 1000 + n;
       tcp = 9000 + 2 * n;
       udp = 9001 + 2 * n;
+      egress = 5000 + 2 * n;
     }
   ) (lib.attrNames (lib.filterAttrs (_: segment: segment.router != null) config.vivarium.segments));
 
   deviceUnit = name: "sys-subsystem-net-devices-${utils.escapeSystemdPath name}.device";
 
-  # The egress's end and the forwards' end. The runner's container backend
-  # names the same two sockets. Every relay shares the egress's end.
+  # The uplink's egress end and forwards' end. The runner's container
+  # backend names the same two sockets. A router network has its own.
   ends =
     if config.vivarium.backend == "container" then
       {
@@ -194,6 +197,7 @@ let
     {
       tcp,
       udp,
+      egress ? ends.egress,
       inward,
     }:
     {
@@ -204,7 +208,7 @@ let
         RELAY_YIELD = "1";
       };
       serviceConfig = {
-        ExecStart = "${relay}/bin/relay ${toString tcp} ${ends.egress} ${toString udp} ${inward}";
+        ExecStart = "${relay}/bin/relay ${toString tcp} ${egress} ${toString udp} ${inward}";
         Restart = "always";
       };
     };
@@ -251,6 +255,17 @@ in
       description = ''
         A routed guest's IPv6 uplink address, by its `vivarium.index`: the
         router's prefix and the digits of its IPv4 address's last octet.
+      '';
+    };
+    networkPorts = mkOption {
+      type = types.listOf types.port;
+      internal = true;
+      readOnly = true;
+      default = map (net: net.egress) networks;
+      description = ''
+        The vsock port on which each router network's relay reaches the
+        egress. The egress knows a flow's network by the port. The runner
+        gives each one to the egress on krun.
       '';
     };
   };
@@ -511,6 +526,7 @@ in
             lib.mkMerge [
               (relayService {
                 inherit (net) tcp udp;
+                egress = toString net.egress;
                 # No forwards reach a router network's guests.
                 inward = "none";
               })

@@ -4,7 +4,7 @@
 //! vhost-device-vsock and libkrun both hand a guest's vsock stream to a
 //! unix socket, so this serves either.
 //!
-//!     egress LISTEN_PATH [GATEWAY [FORWARD...]] [--loopback=ADDR...] [--map=FROM=TO...] [--outbound=ADDR...]
+//!     egress LISTEN_PATH [GATEWAY [FORWARD...]] [--loopback=ADDR...] [--map=FROM=TO...] [--outbound=ADDR...] [--network=PATH...]
 //!
 //! A flow to GATEWAY, or to a `--loopback` ADDR, goes to the host's
 //! loopback of its family, as passt's `--map-host-loopback`. `--map` sends
@@ -12,6 +12,12 @@
 //! upstream one, as `--dns-forward`. `--outbound` binds every outside
 //! socket of ADDR's family to ADDR, as passt's: 127.0.0.1 and ::1 reach
 //! nothing off this host.
+//!
+//! A flow on LISTEN_PATH, or on the device's `UPLINK_PORT`, is from the
+//! router's uplink. A flow on a `--network` PATH, or on any other port of
+//! the device, is from one of the router's networks
+//! (nixidae/nixidae#1523): it reaches no host port a FORWARD binds. On
+//! macOS every forward binds 127.0.0.1, which GATEWAY reaches.
 //!
 //! FORWARD is `[tcp/|udp/]HOST=GUEST_ADDR:PORT@ROUTER`. HOST is
 //! `ADDR:FIRST[-LAST]`, each host port reaching the guest port at the same
@@ -37,15 +43,67 @@ use vivarium_egress::{
     pump, pump_map, socket, splice_both, widen_unix,
 };
 
+/// Where a flow comes from: the router's uplink, or one of its networks.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Network {
+    Uplink,
+    Data,
+}
+
+/// The VSOCK_PORT of the uplink's relay, in modules/router.nix. Every
+/// other port of the device is a network's.
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+const UPLINK_PORT: u32 = 5000;
+
+/// The host ports one FORWARD binds.
+#[derive(Clone, Copy, Debug)]
+struct Ports {
+    proto: u8,
+    bind: IpAddr,
+    first: u16,
+    last: u16,
+}
+
+impl Ports {
+    /// Whether a flow of `proto` to `dst` reaches these listeners. `local`
+    /// tells if an address is one of the host's: a listener on the
+    /// unspecified address takes each of them, and on `::` IPv4 too.
+    fn hold(&self, proto: u8, dst: SocketAddr, local: impl Fn(IpAddr) -> bool) -> bool {
+        proto == self.proto
+            && (self.first..=self.last).contains(&dst.port())
+            && (self.bind == dst.ip()
+                || self.bind.is_unspecified()
+                    && (self.bind.is_ipv6() || dst.is_ipv4())
+                    && local(dst.ip()))
+    }
+}
+
+/// Whether `ip` is one of the host's addresses: a socket binds to it.
+fn local(ip: IpAddr) -> bool {
+    ip.is_loopback() || UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+}
+
 /// Where a flow from the router goes on the host's side.
 #[derive(Default)]
 struct Outside {
     loopback: Vec<IpAddr>,
     maps: Vec<(SocketAddr, SocketAddr)>,
     outbound: Vec<IpAddr>,
+    forwards: Vec<Ports>,
 }
 
 impl Outside {
+    /// Whether a flow from `network` may go to `dst`, the destination
+    /// after `destination`. A network's flow reaches no forward: the
+    /// forwards are the uplink's guests'.
+    fn allows(&self, network: Network, proto: u8, dst: SocketAddr) -> bool {
+        network == Network::Uplink
+            || !self
+                .forwards
+                .iter()
+                .any(|ports| ports.hold(proto, dst, local))
+    }
+
     fn destination(&self, mut dst: SocketAddr) -> SocketAddr {
         if let Some((_, to)) = self.maps.iter().find(|(from, _)| *from == dst) {
             return *to;
@@ -75,12 +133,21 @@ impl Outside {
     }
 }
 
-fn flow(mut relay: UnixStream, outside: &Outside) -> io::Result<()> {
+fn flow(mut relay: UnixStream, outside: &Outside, network: Network) -> io::Result<()> {
     widen_unix(&relay)?;
     let mut raw = [0u8; REQUEST_LEN];
     relay.read_exact(&mut raw)?;
     let (proto, dst) = decode(&raw)?;
     let dst = outside.destination(dst);
+    if !outside.allows(network, proto, dst) {
+        // A UDP flow has no status byte: the relay sees the end.
+        if proto == TCP {
+            relay.write_all(&[1])?;
+        }
+        return Err(io::Error::other(format!(
+            "{dst}: a forward's port, and the flow is from a router network"
+        )));
+    }
     match proto {
         TCP => {}
         UDP => {
@@ -149,14 +216,35 @@ fn forward(client: TcpStream, guest: SocketAddr, router: &Router) -> io::Result<
 }
 
 #[cfg(all(target_os = "linux", feature = "vhost-user"))]
-fn device(outside: Arc<Outside>) -> io::Result<Arc<vsock::Device>> {
-    // Every host port serves egress flows; the relay picks one.
-    let service: vsock::Service = Arc::new(move |relay| {
-        if let Err(err) = flow(relay, &outside) {
-            eprintln!("egress: {err}");
-        }
-    });
-    vsock::Device::new(GUEST_CID, Default::default(), Some(service))
+fn device(outside: &Arc<Outside>) -> io::Result<Arc<vsock::Device>> {
+    // Every host port serves egress flows; the port names the network.
+    let service = |network| -> vsock::Service {
+        let outside = outside.clone();
+        Arc::new(move |relay| {
+            if let Err(err) = flow(relay, &outside, network) {
+                eprintln!("egress: {err}");
+            }
+        })
+    };
+    vsock::Device::new(
+        GUEST_CID,
+        HashMap::from([(UPLINK_PORT, service(Network::Uplink))]),
+        Some(service(Network::Data)),
+    )
+}
+
+/// Each flow on `listener`, from `network`, in a thread of its own.
+fn accept(listener: UnixListener, outside: Arc<Outside>, network: Network) -> io::Result<()> {
+    for relay in listener.incoming() {
+        let relay = relay?;
+        let outside = outside.clone();
+        thread::spawn(move || {
+            if let Err(err) = flow(relay, &outside, network) {
+                eprintln!("egress: {err}");
+            }
+        });
+    }
+    Ok(())
 }
 
 #[cfg(all(target_os = "linux", feature = "vhost-user"))]
@@ -164,12 +252,10 @@ const GUEST_CID: u64 = 3;
 
 /// One FORWARD argument.
 struct Spec {
-    proto: u8,
-    bind: IpAddr,
-    first: u16,
-    last: u16,
+    ports: Ports,
     guest: SocketAddr,
-    router: Router,
+    /// ROUTER as written: `router` resolves it once the device exists.
+    router: String,
 }
 
 fn parse_port(text: &str) -> io::Result<u16> {
@@ -182,7 +268,7 @@ type DeviceRef<'a> = Option<&'a Arc<vsock::Device>>;
 #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
 type DeviceRef<'a> = Option<&'a ()>;
 
-fn parse_spec(text: &str, device: DeviceRef) -> io::Result<Spec> {
+fn parse_spec(text: &str) -> io::Result<Spec> {
     let bad = |why: &str| io::Error::other(format!("forward {text:?}: {why}"));
     let (proto, rest) = if let Some(rest) = text.strip_prefix("tcp/") {
         (TCP, rest)
@@ -205,29 +291,36 @@ fn parse_spec(text: &str, device: DeviceRef) -> io::Result<Spec> {
     if first > last || u32::from(guest.port()) + u32::from(last - first) > 65535 {
         return Err(bad("the guest range leaves 1-65535"));
     }
-    let router = match router.strip_prefix("vsock:") {
+    Ok(Spec {
+        ports: Ports {
+            proto,
+            bind,
+            first,
+            last,
+        },
+        guest,
+        router: router.to_owned(),
+    })
+}
+
+/// A FORWARD's ROUTER: a path, or `vsock:PORT` on the device.
+fn router(text: &str, device: DeviceRef) -> io::Result<Router> {
+    let bad = |why: &str| io::Error::other(format!("router {text:?}: {why}"));
+    match text.strip_prefix("vsock:") {
         #[cfg(all(target_os = "linux", feature = "vhost-user"))]
-        Some(port) => Router::Vsock(
+        Some(port) => Ok(Router::Vsock(
             device
                 .ok_or_else(|| bad("vsock: needs vhost-user:"))?
                 .clone(),
             port.parse().map_err(|_| bad("not a vsock port"))?,
-        ),
+        )),
         #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
         Some(_) => {
             let _ = device;
-            return Err(bad("built without vhost-user"));
+            Err(bad("built without vhost-user"))
         }
-        None => Router::Path(router.to_owned()),
-    };
-    Ok(Spec {
-        proto,
-        bind,
-        first,
-        last,
-        guest,
-        router,
-    })
+        None => Ok(Router::Path(text.to_owned())),
+    }
 }
 
 enum Socket {
@@ -255,10 +348,16 @@ impl Listener {
 fn bind_all(specs: &[Spec]) -> io::Result<Vec<Listener>> {
     let mut listeners = Vec::new();
     for (index, spec) in specs.iter().enumerate() {
-        for port in spec.first..=spec.last {
-            let at = SocketAddr::new(spec.bind, port);
+        let Ports {
+            proto,
+            bind,
+            first,
+            last,
+        } = spec.ports;
+        for port in first..=last {
+            let at = SocketAddr::new(bind, port);
             // std sets SO_REUSEADDR on a TCP listener, as passt does.
-            let socket = match spec.proto {
+            let socket = match proto {
                 UDP => UdpSocket::bind(at).map(|s| Socket::Udp(Arc::new(s))),
                 _ => TcpListener::bind(at).map(Socket::Tcp),
             };
@@ -277,7 +376,7 @@ fn bind_all(specs: &[Spec]) -> io::Result<Vec<Listener>> {
                 Socket::Udp(s) => s.set_nonblocking(true)?,
             }
             let mut guest = spec.guest;
-            guest.set_port(spec.guest.port() + (port - spec.first));
+            guest.set_port(spec.guest.port() + (port - first));
             listeners.push(Listener {
                 socket,
                 guest,
@@ -525,8 +624,11 @@ fn serve(listeners: Vec<Listener>, routers: Vec<Router>) -> io::Result<()> {
 fn main() -> io::Result<()> {
     let mut outside = Outside::default();
     let mut args: Vec<String> = Vec::new();
+    let mut networks: Vec<String> = Vec::new();
     for arg in env::args() {
-        if let Some(map) = arg.strip_prefix("--map=") {
+        if let Some(path) = arg.strip_prefix("--network=") {
+            networks.push(path.to_owned());
+        } else if let Some(map) = arg.strip_prefix("--map=") {
             let (from, to) = map
                 .split_once('=')
                 .ok_or_else(|| io::Error::other(format!("{arg}: not FROM=TO")))?;
@@ -548,35 +650,51 @@ fn main() -> io::Result<()> {
         }
     }
     let path = args.get(1).ok_or_else(|| {
-        io::Error::other("usage: egress LISTEN_PATH|vhost-user:SOCKET [GATEWAY [FORWARD...]] [--loopback=ADDR] [--map=FROM=TO] [--outbound=ADDR]")
+        io::Error::other("usage: egress LISTEN_PATH|vhost-user:SOCKET [GATEWAY [FORWARD...]] [--loopback=ADDR] [--map=FROM=TO] [--outbound=ADDR] [--network=PATH]")
     })?;
     if let Some(gateway) = args.get(2) {
         outside
             .loopback
             .push(gateway.parse().map_err(io::Error::other)?);
     }
+    let specs = args[3.min(args.len())..]
+        .iter()
+        .map(|spec| parse_spec(spec))
+        .collect::<io::Result<Vec<_>>>()?;
+    outside.forwards = specs.iter().map(|spec| spec.ports).collect();
     let outside = Arc::new(outside);
     // vhost-user:SOCKET serves the router's vsock device on SOCKET.
     #[cfg(all(target_os = "linux", feature = "vhost-user"))]
     let device = match path.strip_prefix("vhost-user:") {
-        Some(socket) => Some((device(outside.clone())?, socket.to_owned())),
+        Some(socket) => Some((device(&outside)?, socket.to_owned())),
         None => None,
     };
     #[cfg(all(target_os = "linux", feature = "vhost-user"))]
     let device_ref = device.as_ref().map(|(device, _)| device);
     #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
     let device_ref = None;
-    let specs = args[3.min(args.len())..]
-        .iter()
-        .map(|spec| parse_spec(spec, device_ref))
-        .collect::<io::Result<Vec<_>>>()?;
     if !specs.is_empty() {
         raise_nofile()?;
         let listeners = bind_all(&specs)?;
-        let routers = specs.into_iter().map(|spec| spec.router).collect();
+        let routers = specs
+            .iter()
+            .map(|spec| router(&spec.router, device_ref))
+            .collect::<io::Result<Vec<_>>>()?;
         thread::spawn(move || {
             if let Err(err) = serve(listeners, routers) {
                 eprintln!("egress: forwards: {err}");
+                std::process::exit(1);
+            }
+        });
+    }
+    // Before LISTEN_PATH, which the runner waits for.
+    for path in networks {
+        let listener = UnixListener::bind(&path)
+            .map_err(|err| io::Error::other(format!("--network={path}: {err}")))?;
+        let outside = outside.clone();
+        thread::spawn(move || {
+            if let Err(err) = accept(listener, outside, Network::Data) {
+                eprintln!("egress: --network={path}: {err}");
                 std::process::exit(1);
             }
         });
@@ -585,36 +703,30 @@ fn main() -> io::Result<()> {
     if let Some((device, socket)) = device {
         return device.run(std::path::Path::new(&socket));
     }
-    let listener = UnixListener::bind(path)?;
-    for relay in listener.incoming() {
-        let relay = relay?;
-        let outside = outside.clone();
-        thread::spawn(move || {
-            if let Err(err) = flow(relay, &outside) {
-                eprintln!("egress: {err}");
-            }
-        });
-    }
-    Ok(())
+    accept(UnixListener::bind(path)?, outside, Network::Uplink)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Router, parse_spec};
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use vivarium_egress::{TCP, UDP};
+    use super::{Network, Outside, Ports, Router, parse_spec, router};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+    use vivarium_egress::{ICMP, TCP, UDP};
+
+    fn at(text: &str) -> SocketAddr {
+        text.parse().unwrap()
+    }
 
     // The shape `forward.egress_args` writes (test_the_egress_gets_one_port_each
     // in vivarium-runner's tests/test_forward.py), with a libkrun router's
     // socket path: a vsock router needs a device.
     #[test]
     fn a_forward_the_runner_writes_parses() {
-        let spec = parse_spec("udp/127.0.0.3:14325=10.0.2.16:22@/run/relay.sock", None).unwrap();
-        assert_eq!(spec.proto, UDP);
-        assert_eq!(spec.bind, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
-        assert_eq!((spec.first, spec.last), (14325, 14325));
-        assert_eq!(spec.guest, "10.0.2.16:22".parse::<SocketAddr>().unwrap());
-        match spec.router {
+        let spec = parse_spec("udp/127.0.0.3:14325=10.0.2.16:22@/run/relay.sock").unwrap();
+        assert_eq!(spec.ports.proto, UDP);
+        assert_eq!(spec.ports.bind, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 3)));
+        assert_eq!((spec.ports.first, spec.ports.last), (14325, 14325));
+        assert_eq!(spec.guest, at("10.0.2.16:22"));
+        match router(&spec.router, None).unwrap() {
             Router::Path(path) => assert_eq!(path, "/run/relay.sock"),
             #[allow(unreachable_patterns)]
             _ => panic!("a path router"),
@@ -623,14 +735,79 @@ mod tests {
 
     #[test]
     fn a_range_with_no_protocol_or_address_is_tcp_on_localhost() {
-        let spec = parse_spec("8080-8082=10.0.2.15:80@/r", None).unwrap();
-        assert_eq!(spec.proto, TCP);
-        assert_eq!(spec.bind, IpAddr::V4(Ipv4Addr::LOCALHOST));
-        assert_eq!((spec.first, spec.last), (8080, 8082));
+        let spec = parse_spec("8080-8082=10.0.2.15:80@/r").unwrap();
+        assert_eq!(spec.ports.proto, TCP);
+        assert_eq!(spec.ports.bind, IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_eq!((spec.ports.first, spec.ports.last), (8080, 8082));
     }
 
     #[test]
     fn a_range_past_the_last_guest_port_is_refused() {
-        assert!(parse_spec("1000-1010=10.0.2.15:65530@/r", None).is_err());
+        assert!(parse_spec("1000-1010=10.0.2.15:65530@/r").is_err());
+    }
+
+    fn outside(forwards: &[&str]) -> Outside {
+        Outside {
+            forwards: forwards
+                .iter()
+                .map(|text| parse_spec(text).unwrap().ports)
+                .collect(),
+            ..Outside::default()
+        }
+    }
+
+    #[test]
+    fn a_network_reaches_no_port_of_a_forward() {
+        let outside = outside(&[
+            "8080-8082=10.0.2.15:80@/r",
+            "udp/127.0.0.3:53=10.0.2.16:53@/r",
+        ]);
+        for (proto, dst) in [
+            (TCP, "127.0.0.1:8080"),
+            (TCP, "127.0.0.1:8082"),
+            (UDP, "127.0.0.3:53"),
+        ] {
+            assert!(!outside.allows(Network::Data, proto, at(dst)), "{dst}");
+            assert!(outside.allows(Network::Uplink, proto, at(dst)), "{dst}");
+        }
+    }
+
+    #[test]
+    fn a_network_reaches_the_ports_around_a_forward() {
+        let outside = outside(&[
+            "8080-8082=10.0.2.15:80@/r",
+            "udp/127.0.0.3:53=10.0.2.16:53@/r",
+        ]);
+        for (proto, dst) in [
+            (TCP, "127.0.0.1:8079"),
+            (TCP, "127.0.0.1:8083"),
+            // Another address of the loopback, as each Linux guest has.
+            (TCP, "127.0.0.2:8080"),
+            (UDP, "127.0.0.1:8080"),
+            (TCP, "127.0.0.3:53"),
+            (ICMP, "127.0.0.1:0"),
+            (TCP, "192.0.2.1:8080"),
+        ] {
+            assert!(outside.allows(Network::Data, proto, at(dst)), "{dst}");
+        }
+    }
+
+    #[test]
+    fn a_forward_on_the_unspecified_address_holds_the_loopback() {
+        let v4 = outside(&["0.0.0.0:8080=10.0.2.15:80@/r"]);
+        assert!(!v4.allows(Network::Data, TCP, at("127.0.0.1:8080")));
+        assert!(v4.allows(Network::Data, TCP, at("[::1]:8080")));
+        // 192.0.2.0/24 is TEST-NET-1: no host holds it.
+        assert!(v4.allows(Network::Data, TCP, at("192.0.2.1:8080")));
+        // FORWARD has no IPv6 host address.
+        let v6 = Outside {
+            forwards: vec![Ports {
+                bind: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                ..v4.forwards[0]
+            }],
+            ..Outside::default()
+        };
+        assert!(!v6.allows(Network::Data, TCP, at("[::1]:8080")));
+        assert!(!v6.allows(Network::Data, TCP, at("127.0.0.1:8080")));
     }
 }

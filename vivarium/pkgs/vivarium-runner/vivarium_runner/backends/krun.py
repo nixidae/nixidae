@@ -273,16 +273,24 @@ class Krun:
             if spec.vsock:
                 # No uplink: libkrun's own vsock carries each relay flow to
                 # the egress's socket, and listens for its forwards (E2).
-                sockets, cleanup = socket_dir(rundir, "relay.sock", None)
+                # A router network's relay has a port and a socket of its
+                # own: the socket tells the egress the flow's network.
+                names = {port: f"egress-{port}.sock" for port in spec.network_ports}
+                sockets, cleanup = socket_dir(rundir, max(["relay.sock", *names.values()], key=len), None)
                 listen, relay = sockets / "egress.sock", sockets / "relay.sock"
+                networks = {port: sockets / name for port, name in names.items()}
                 # A reboot finds the last boot's sockets, and neither side binds over one.
-                for path in (listen, relay):
+                for path in (listen, relay, *networks.values()):
                     path.unlink(missing_ok=True)
-                args = egress_args(machine, str(relay))
+                args = [*egress_args(machine, str(relay)), *(f"--network={path}" for path in networks.values())]
                 await start_egress(
                     config.egress, rundir, spec.uplink_network.gateway, str(listen), listen, args, helpers
                 )
-                uplink = [f"--vsock={RELAY_PORT},{listen}", f"--vsock-listen={RELAY_IN_PORT},{relay}"]
+                uplink = [
+                    f"--vsock={RELAY_PORT},{listen}",
+                    f"--vsock-listen={RELAY_IN_PORT},{relay}",
+                    *(f"--vsock={port},{path}" for port, path in networks.items()),
+                ]
                 notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
             elif spec.uplink is not None:
                 uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]

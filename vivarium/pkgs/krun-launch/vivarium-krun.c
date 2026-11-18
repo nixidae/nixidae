@@ -56,7 +56,8 @@
 #define NET_FEATURES ((1u << VIRTIO_NET_F_GUEST_CSUM) | (1u << VIRTIO_NET_F_GUEST_TSO4) | (1u << VIRTIO_NET_F_GUEST_TSO6))
 #define AGENT_PORT "vivarium-agent"
 #define MAX_LAN 16
-#define MAX_VSOCK 4
+/* The router's uplink takes two ports, and each router network one more. */
+#define MAX_VSOCK 64
 
 static bool push_to_stderr(void *userdata, KrunStr s)
 {

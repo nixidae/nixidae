@@ -5,6 +5,10 @@ own network's relay. A guest bound to its data interface uses that
 network's route, whatever the uplink offers. No TCP or UDP flow crosses
 the router between `lab`, `other` and the uplink, and a data network
 reaches no relay of another network on the router's address.
+
+`m`'s forwards bind the host's 127.0.0.1, as every forward on macOS
+does. The uplink's gateway leads there; the egress refuses a flow from
+a data network to a forward's port (nixidae/nixidae#1523).
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ LAB, OTHER = "lab", "other"
 LAB_ROUTER = "10.9.0.1"
 GATEWAY, GATEWAY6 = "10.0.2.2", "fd00:10:0:2::2"
 TCP, UDP = 7777, 7778
+FORWARD_TCP, FORWARD_UDP = 47777, 47778
+"""`m`'s forwards of `TCP` and `UDP` on the host's 127.0.0.1, in default.nix."""
 UPLINK_RELAY, LAB_RELAY, OTHER_RELAY = 9000, 9002, 9004
 RAW = 253
 """An IP protocol for experiments (RFC 3692): no rule on the router names it."""
@@ -148,6 +154,16 @@ async def test(vms: Machines) -> None:
     async with anyio.create_task_group() as group:
         for vm in (d, x, m):
             group.start_soon(serve, vm)
+
+    # The control: d on the uplink reaches m's forwards through the gateway.
+    for udp in (False, True):
+        port = FORWARD_UDP if udp else FORWARD_TCP
+        got = await probe(d, GATEWAY, port, "vec0", udp)
+        if got != m.name:
+            raise AssertionError(f"d: m's forward {GATEWAY}:{port}{'/udp' if udp else ''} on the uplink said {got!r}")
+        print(f"[test] d reaches m's forward {GATEWAY}:{port}{'/udp' if udp else ''} on the uplink")
+        await refused(d, GATEWAY, port, LAB, "lab into m's forward", udp)
+        await refused(x, GATEWAY, port, OTHER, "other into m's forward", udp)
 
     for udp in (False, True):
         port = UDP if udp else TCP

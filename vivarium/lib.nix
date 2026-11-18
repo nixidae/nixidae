@@ -249,6 +249,9 @@ rec {
     // lib.optionalAttrs (machine.vivarium.uplink.proxy == "router") {
       uplinkAddress = machine.vivarium.router.address machine.vivarium.index;
     }
+    // lib.optionalAttrs machine.vivarium.router.enable {
+      inherit (machine.vivarium.router) networkPorts;
+    }
     // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {
       nixStore = machine.vivarium.nixDatabase.loader;
     }
