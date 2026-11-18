@@ -40,6 +40,54 @@ lib.types.submodule {
       '';
     };
 
+    router = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            address = lib.mkOption {
+              type = lib.types.str;
+              example = "10.9.0.1/24";
+              description = ''
+                The router's IPv4 address on this segment, with its prefix
+                length. The prefix is the network: no two router networks
+                and not the uplink's 10.0.2.0/24 may overlap.
+              '';
+            };
+            address6 = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              example = "fd00:9::1/64";
+              description = ''
+                The router's IPv6 address on this segment, with its prefix
+                length. The router advertises the prefix. Null gives the
+                network no IPv6 beyond link-local addresses.
+              '';
+            };
+            dhcp = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = ''
+                Serve DHCP on this segment, with the router as the gateway
+                and no DNS server. A NixOS guest's interface on the segment
+                with no `addresses` leases its address.
+              '';
+            };
+          };
+        }
+      );
+      default = null;
+      example = {
+        address = "10.9.0.1/24";
+      };
+      description = ''
+        Make the run's router a member of this segment, and its gateway to
+        the outside through the egress (nixidae/nixidae#1523). Each such
+        segment is a network of its own on the router, in a VRF: no packet
+        crosses the router from it to the uplink or to another network.
+        The segment's name is at most 11 characters, for the VRF's name.
+      '';
+    };
+
     capture = lib.mkOption {
       type = lib.types.bool;
       default = false;

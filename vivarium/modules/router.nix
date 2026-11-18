@@ -55,73 +55,170 @@ let
   # The uplink's routing table on the router: the bridge is a port of
   # this VRF, and the relay binds every socket to it (nixidae/nixidae#1523).
   vrf = "vrf-${bridge}";
-  vrfDevice = "sys-subsystem-net-devices-${utils.escapeSystemdPath vrf}.device";
 
   /*
-    Everything the guests send off the bridge goes to the relay. TCP by
-    `redirect`, so the relay reads SO_ORIGINAL_DST; UDP by tproxy, and
-    ICMP echo by mark 1 to a raw socket. The bridge's own traffic --
+    Everything a network's guests send off its subnets goes to its relay.
+    TCP by `redirect`, so the relay reads SO_ORIGINAL_DST; UDP by tproxy,
+    and ICMP echo by mark 1 to a raw socket. The network's own traffic --
     DHCP, broadcast, multicast, neighbour discovery, a guest to a guest --
-    stays. IPv6 has the same rules, with no DNS address of its own.
+    stays.
 
-    `tproxyIn` is the device `tproxy` matches. A VRF runs prerouting a
-    second time with itself as the input device, and a socket that
-    `tproxy` assigns on the bridge's pass is lost (E11, router-lab.md).
+    `tproxyIn` is the device `tproxy` matches: the network's VRF. A VRF
+    runs prerouting a second time with itself as the input device, and a
+    socket that `tproxy` assigns on the first pass is lost (E11,
+    router-lab.md). nft masks a CIDR's host bits, so a router address
+    with its prefix length names its subnet.
+
+    `extra4` and `extra6` take further rules into the same chains, a list
+    by chain: the uplink's gateway and DNS addresses.
   */
-  ruleset = tproxyIn: ''
-    define onlink = { ${subnet}, 224.0.0.0/4, 255.255.255.255 }
-    table ip router {
-      chain prerouting {
-        type nat hook prerouting priority dstnat;
-        iifname "${bridge}" ip daddr != $onlink meta l4proto tcp redirect to :9000
-        iifname "${bridge}" ip daddr ${gateway} meta l4proto tcp redirect to :9000
-        iifname "${bridge}" ip daddr ${dns} tcp dport 53 redirect to :9000
-      }
-      chain mangle {
-        type filter hook prerouting priority mangle;
-        iifname "${tproxyIn}" ip daddr != $onlink meta l4proto udp meta mark set 1 tproxy to :9001
-        iifname "${tproxyIn}" ip daddr ${gateway} udp dport != 67 meta mark set 1 tproxy to :9001
-        iifname "${tproxyIn}" ip daddr ${dns} udp dport 53 meta mark set 1 tproxy to :9001
-        iifname "${bridge}" ip daddr != $onlink icmp type echo-request meta mark set 1
-        iifname "${bridge}" ip daddr ${gateway} icmp type echo-request meta mark set 1
-      }
+  offNet =
+    {
+      table,
+      device,
+      tproxyIn,
+      subnets4,
+      subnets6,
+      tcp,
+      udp,
+      extra4 ? { },
+      extra6 ? { },
+    }:
+    let
+      family =
+        name: daddr: echo: onlink: extra:
+        let
+          away = "${daddr} != { ${lib.concatStringsSep ", " onlink} }";
+          rules = chain: lib.concatMapStrings (rule: "\n    ${rule}") (extra.${chain} or [ ]);
+        in
+        ''
+          table ${name} ${table} {
+            chain prerouting {
+              type nat hook prerouting priority dstnat;
+              iifname "${device}" ${away} meta l4proto tcp redirect to :${toString tcp}${rules "prerouting"}
+            }
+            chain mangle {
+              type filter hook prerouting priority mangle;
+              iifname "${tproxyIn}" ${away} meta l4proto udp meta mark set 1 tproxy to :${toString udp}
+              iifname "${device}" ${away} ${echo} meta mark set 1${rules "mangle"}
+            }
+          }
+        '';
+    in
+    family "ip" "ip daddr" "icmp type echo-request" (
+      subnets4
+      ++ [
+        "224.0.0.0/4"
+        "255.255.255.255"
+      ]
+    ) extra4
+    + family "ip6" "ip6 daddr" "icmpv6 type echo-request" (
+      subnets6
+      ++ [
+        "fe80::/10"
+        "ff00::/8"
+      ]
+    ) extra6;
+
+  # The uplink's rules, and its gateway and DNS addresses to the relay
+  # too. IPv6 has no DNS address of its own.
+  ruleset =
+    tproxyIn:
+    offNet {
+      table = "router";
+      device = bridge;
+      inherit tproxyIn;
+      subnets4 = [ subnet ];
+      subnets6 = [ "${prefix6}/64" ];
+      tcp = 9000;
+      udp = 9001;
+      extra4 = {
+        prerouting = [
+          "iifname \"${bridge}\" ip daddr ${gateway} meta l4proto tcp redirect to :9000"
+          "iifname \"${bridge}\" ip daddr ${dns} tcp dport 53 redirect to :9000"
+        ];
+        mangle = [
+          "iifname \"${tproxyIn}\" ip daddr ${gateway} udp dport != 67 meta mark set 1 tproxy to :9001"
+          "iifname \"${tproxyIn}\" ip daddr ${dns} udp dport 53 meta mark set 1 tproxy to :9001"
+          "iifname \"${bridge}\" ip daddr ${gateway} icmp type echo-request meta mark set 1"
+        ];
+      };
+      extra6 = {
+        prerouting = [
+          "iifname \"${bridge}\" ip6 daddr ${gateway6} meta l4proto tcp redirect to :9000"
+        ];
+        mangle = [
+          "iifname \"${tproxyIn}\" ip6 daddr ${gateway6} meta l4proto udp meta mark set 1 tproxy to :9001"
+          "iifname \"${bridge}\" ip6 daddr ${gateway6} icmpv6 type echo-request meta mark set 1"
+        ];
+      };
+    };
+
+  /*
+    The router's networks besides the uplink: each segment with a
+    `router`, in order of name. Network n has VRF table 1000 + n and relay
+    ports 9000 + 2n and 9001 + 2n, after the uplink's 1000, 9000 and 9001.
+    The router's interface on the segment has the segment's name.
+  */
+  networks = lib.imap1 (
+    n: name:
+    let
+      inherit (config.vivarium.segments.${name}) router;
+    in
+    {
+      inherit name router;
+      vrf = "vrf-${name}";
+      table = 1000 + n;
+      tcp = 9000 + 2 * n;
+      udp = 9001 + 2 * n;
     }
-    define onlink6 = { ${prefix6}/64, fe80::/10, ff00::/8 }
-    table ip6 router {
-      chain prerouting {
-        type nat hook prerouting priority dstnat;
-        iifname "${bridge}" ip6 daddr != $onlink6 meta l4proto tcp redirect to :9000
-        iifname "${bridge}" ip6 daddr ${gateway6} meta l4proto tcp redirect to :9000
-      }
-      chain mangle {
-        type filter hook prerouting priority mangle;
-        iifname "${tproxyIn}" ip6 daddr != $onlink6 meta l4proto udp meta mark set 1 tproxy to :9001
-        iifname "${tproxyIn}" ip6 daddr ${gateway6} meta l4proto udp meta mark set 1 tproxy to :9001
-        iifname "${bridge}" ip6 daddr != $onlink6 icmpv6 type echo-request meta mark set 1
-        iifname "${bridge}" ip6 daddr ${gateway6} icmpv6 type echo-request meta mark set 1
-      }
-    }
-  '';
+  ) (lib.attrNames (lib.filterAttrs (_: segment: segment.router != null) config.vivarium.segments));
+
+  deviceUnit = name: "sys-subsystem-net-devices-${utils.escapeSystemdPath name}.device";
 
   # The egress's end and the forwards' end. The runner's container backend
-  # names the same two sockets.
-  hostEnds =
+  # names the same two sockets. Every relay shares the egress's end.
+  ends =
     if config.vivarium.backend == "container" then
-      "unix:/run/host/agent/egress.sock 9001 unix:/run/host/agent/relay.sock"
+      {
+        egress = "unix:/run/host/agent/egress.sock";
+        inward = "unix:/run/host/agent/relay.sock";
+      }
     else
-      "5000 9001 5001";
+      {
+        egress = "5000";
+        inward = "5001";
+      };
 
-  relayService = {
-    wantedBy = [ "multi-user.target" ];
-    environment = {
-      # E8: a 4 MiB vsock window; the yield after a short read.
-      RELAY_VSOCK_BUFFER = "4194304";
-      RELAY_YIELD = "1";
+  relayService =
+    {
+      tcp,
+      udp,
+      inward,
+    }:
+    {
+      wantedBy = [ "multi-user.target" ];
+      environment = {
+        # E8: a 4 MiB vsock window; the yield after a short read.
+        RELAY_VSOCK_BUFFER = "4194304";
+        RELAY_YIELD = "1";
+      };
+      serviceConfig = {
+        ExecStart = "${relay}/bin/relay ${toString tcp} ${ends.egress} ${toString udp} ${inward}";
+        Restart = "always";
+      };
     };
-    serviceConfig = {
-      ExecStart = "${relay}/bin/relay 9000 ${hostEnds}";
-      Restart = "always";
-    };
+
+  # E11: a relay socket bound to no device routes in the main table, and a
+  # reply into the VRF fails. A bind before networkd makes the VRF fails
+  # too.
+  inVrf = name: {
+    environment.RELAY_DEVICE = name;
+    bindsTo = [ (deviceUnit name) ];
+    after = [
+      "nftables.service"
+      (deviceUnit name)
+    ];
   };
 
   # A `vsock` guest's own router: the relay and the ruleset in this
@@ -332,18 +429,97 @@ in
         ruleset = ruleset vrf;
       };
 
-      systemd.services.vivarium-relay = lib.recursiveUpdate relayService {
-        description = "The router's relay to the host";
-        # E11: a relay socket bound to no device routes in the main table,
-        # and a reply into the VRF fails. A bind before networkd makes the
-        # VRF fails too.
-        environment.RELAY_DEVICE = vrf;
-        bindsTo = [ vrfDevice ];
-        after = [
-          "nftables.service"
-          vrfDevice
-        ];
-      };
+      systemd.services.vivarium-relay = lib.mkMerge [
+        (relayService {
+          tcp = 9000;
+          udp = 9001;
+          inherit (ends) inward;
+        })
+        (inVrf vrf)
+        { description = "The router's relay to the host"; }
+      ];
+    })
+    (lib.mkIf cfg.enable {
+      assertions = map (net: {
+        assertion =
+          lib.stringLength net.name <= 11 && net.name != bridge && builtins.match "g[0-9]+" net.name == null;
+        message = "segments.${net.name}.router: the router names its interface after the segment and its VRF vrf-${net.name}, so the name is at most 11 characters, not ${bridge}, and not g and a number.";
+      }) networks;
+
+      vivarium.interfaces = lib.listToAttrs (
+        map (net: lib.nameValuePair net.name { segment = net.name; }) networks
+      );
+
+      systemd.network.netdevs = lib.listToAttrs (
+        map (
+          net:
+          lib.nameValuePair "10-${net.vrf}" {
+            netdevConfig = {
+              Kind = "vrf";
+              Name = net.vrf;
+            };
+            vrfConfig.Table = net.table;
+          }
+        ) networks
+      );
+
+      systemd.network.networks = lib.listToAttrs (
+        lib.concatMap (net: [
+          (lib.nameValuePair "30-${net.vrf}" {
+            matchConfig.Name = net.vrf;
+            networkConfig.ConfigureWithoutCarrier = true;
+          })
+          (lib.nameValuePair "40-${net.name}" {
+            vrf = [ net.vrf ];
+            address = [ net.router.address ] ++ lib.optional (net.router.address6 != null) net.router.address6;
+            networkConfig = {
+              DHCPServer = net.router.dhcp;
+              ConfigureWithoutCarrier = true;
+              IPv6SendRA = net.router.address6 != null;
+              IPv6AcceptRA = false;
+            };
+            dhcpServerConfig = lib.mkIf net.router.dhcp {
+              EmitRouter = true;
+              Router = lib.head (lib.splitString "/" net.router.address);
+              EmitDNS = false;
+            };
+            ipv6SendRAConfig = {
+              EmitDNS = false;
+              EmitDomains = false;
+            };
+            ipv6Prefixes = lib.optional (net.router.address6 != null) { Prefix = net.router.address6; };
+          })
+        ]) networks
+      );
+
+      networking.nftables.ruleset = lib.concatMapStrings (
+        net:
+        offNet {
+          table = "router-${net.name}";
+          device = net.name;
+          tproxyIn = net.vrf;
+          subnets4 = [ net.router.address ];
+          subnets6 = lib.optional (net.router.address6 != null) net.router.address6;
+          inherit (net) tcp udp;
+        }
+      ) networks;
+
+      systemd.services = lib.listToAttrs (
+        map (
+          net:
+          lib.nameValuePair "vivarium-relay-${net.name}" (
+            lib.mkMerge [
+              (relayService {
+                inherit (net) tcp udp;
+                # No forwards reach a router network's guests.
+                inward = "none";
+              })
+              (inVrf net.vrf)
+              { description = "The router's relay for network ${net.name}"; }
+            ]
+          )
+        ) networks
+      );
     })
     # An uplink segment takes precedence: `MachineSpec.vsock` reads the same.
     (lib.mkIf (config.vivarium.uplink.proxy == "vsock" && config.vivarium.uplink.segment == null) {
@@ -420,12 +596,19 @@ in
         preStop = "ip netns delete ${netns}";
       };
 
-      systemd.services.vivarium-relay = lib.recursiveUpdate relayService {
-        description = "The guest's relay to the host";
-        after = [ "vivarium-uplink.service" ];
-        requires = [ "vivarium-uplink.service" ];
-        serviceConfig.NetworkNamespacePath = "/run/netns/${netns}";
-      };
+      systemd.services.vivarium-relay = lib.mkMerge [
+        (relayService {
+          tcp = 9000;
+          udp = 9001;
+          inherit (ends) inward;
+        })
+        {
+          description = "The guest's relay to the host";
+          after = [ "vivarium-uplink.service" ];
+          requires = [ "vivarium-uplink.service" ];
+          serviceConfig.NetworkNamespacePath = "/run/netns/${netns}";
+        }
+      ];
     })
   ];
 }

@@ -533,6 +533,8 @@ rec {
       ) (lib.attrValues nodes ++ lib.attrValues templates);
       unjoined = lib.filter (segment: !lib.elem segment joined) (lib.attrNames cfg.segments);
 
+      routerNetworks = lib.attrNames (lib.filterAttrs (_: segment: segment.router != null) cfg.segments);
+
       # A NixOS guest's toplevel checks its own assertions and warnings.
       # A guest of another kind never builds one, so the run checks them.
       unbuilt = lib.filter (node: node.vivarium.kind != "nixos") (
@@ -552,6 +554,10 @@ rec {
           {
             assertion = unjoined == [ ];
             message = "segments: no guest joins ${lib.concatStringsSep ", " unjoined}; an interface names its segment in vivarium.interfaces.<name>.segment.";
+          }
+          {
+            assertion = routerEnabled || routerNetworks == [ ];
+            message = "segments: ${lib.concatStringsSep ", " routerNetworks} names a router, and router.enable is false.";
           }
         ]
         ++ guestAssertions
@@ -582,6 +588,7 @@ rec {
         # guests' backend and the router's, and leaves `backend` alone.
         else
           (pkgs.stdenv.hostPlatform.isDarwin && cfg.router.backend != "uml")
+          || routerNetworks != [ ]
           || lib.any (hostName: wantsRouter hostName cfg.nodes.${hostName}) (
             lib.filter (hostName: hostName != routerName) (lib.attrNames cfg.nodes)
           );

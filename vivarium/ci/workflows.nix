@@ -212,6 +212,12 @@ let
       timeoutMinutes = 30;
       backend = "uml";
     };
+    router-network = {
+      # Two segments with a router, each in a VRF of its own on it.
+      description = "router networks reach the host and not each other";
+      timeoutMinutes = 30;
+      backend = "uml";
+    };
     forward-router = {
       description = "the forward contract holds behind the router";
       timeoutMinutes = 30;

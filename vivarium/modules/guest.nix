@@ -22,6 +22,15 @@ let
       address = lib.elemAt parts 0;
       prefixLength = lib.toIntBase10 (lib.elemAt parts 1);
     };
+
+  # A segment interface with no static address leases one where the run's
+  # router serves DHCP. Not the router's own interface there.
+  leases =
+    nic:
+    let
+      router = cfg.segments.${nic.segment}.router or null;
+    in
+    nic.addresses == [ ] && router != null && router.dhcp && !cfg.router.enable;
 in
 {
   boot.kernelPackages = lib.mkDefault pkgs.linuxPackages_latest;
@@ -184,7 +193,7 @@ in
           v4 = lib.filter (address: !lib.hasInfix ":" address) nic.addresses;
         in
         lib.nameValuePair nic.name {
-          useDHCP = false;
+          useDHCP = leases nic;
           ipv4.addresses = map parseCidr v4;
           ipv6.addresses = map parseCidr v6;
         }
@@ -208,7 +217,18 @@ in
   }
   // lib.listToAttrs (
     map (
-      nic: lib.nameValuePair "40-${nic.name}" { networkConfig.IPv6DuplicateAddressDetection = 0; }
+      nic:
+      lib.nameValuePair "40-${nic.name}" (
+        lib.mkMerge [
+          { networkConfig.IPv6DuplicateAddressDetection = 0; }
+          # The data network's default route, ahead of the uplink's at
+          # networkd's 1024: the router's uplink is management.
+          (lib.mkIf (leases nic) {
+            dhcpV4Config.RouteMetric = 512;
+            ipv6AcceptRAConfig.RouteMetric = 512;
+          })
+        ]
+      )
     ) cfg.nics
   );
 

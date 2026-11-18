@@ -434,6 +434,35 @@ Two things to know:
   port before spawning passt so the error names the guest and the port,
   rather than passt exiting with a bare `Address already in use`.
 
+### A router network for a lab
+
+The router guest is the management switch: every guest's `vec0` is on its
+uplink. A lab's data plane is a segment of its own. Give the segment a
+`router`, and the router joins it as a gateway to the outside
+(nixidae/nixidae#1523):
+
+```nix
+segments.lab.router = { address = "10.9.0.1/24"; address6 = "fd00:9::1/64"; };
+nodes.d.vivarium.interfaces.lab.segment = "lab";
+```
+
+- The router serves DHCP there, with itself as the gateway and no DNS
+  server. A NixOS guest's interface on the segment with no `addresses`
+  leases, and its default route goes through the lab, ahead of the
+  uplink's. A guest of another kind configures the interface itself.
+- Each router network is a VRF on the router, with a relay of its own to
+  the host's egress. The router forwards nothing, and a relay listens in
+  its own VRF only. `checks.router-network` shows that no TCP, UDP or
+  other IP datagram crosses the router between two networks or the
+  uplink, and that a network reaches no other network's relay.
+- The router names its interface after the segment, and its VRF
+  `vrf-<segment>`: a segment name is at most 11 characters.
+- Keep the networks' subnets apart, and apart from the uplink's
+  `10.0.2.0/24`; nothing checks this yet. No forward reaches a router
+  network's guest.
+- On macOS every forward shares `127.0.0.1`. A lab guest that connects to
+  the gateway `10.0.2.2` reaches every guest's forwards there.
+
 ## Backends
 
 `mkTest` takes `backend`, and a node may override `vivarium.backend` for
