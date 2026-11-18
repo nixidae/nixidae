@@ -35,7 +35,7 @@ import time
 # under anyio's asyncio backend unchanged.
 from asyncio import subprocess  # noqa: TID251 -- see above
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
@@ -45,7 +45,7 @@ from anyio.abc import TaskGroup, UNIXSocketStream
 from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connect
 from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
-from . import backend as backends, container, display, forward, ocr, report, storeview, sysctl
+from . import backend as backends, display, forward, ocr, report, storeview, sysctl
 from .boot import Boot, BootJson, BootspecJson, Display, DisplayJson
 from .capability import ControlError, Controls, Framebuffer, Power, Screen
 from .control import (
@@ -68,6 +68,7 @@ from .held import Held, hold
 from .lifetime import die_with_parent
 from .net import Lan
 from .spec import BackendName, Seccomp, UplinkProxy, closed
+from .store import Store, StoreError
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _CONSOLE_HISTORY = 2000
@@ -347,6 +348,9 @@ class MachineSpec:
     store_paths: Path | None = None
     """A closureInfo's `store-paths`: the guest's closure, and all its view
     holds."""
+    store_allowlist: Path | None = None
+    """The paths a krun guest sees of the whole host store. The runner sets
+    it when the spec names `storePaths`."""
     late_closure: Path | None = None
     """A closureInfo of `vivarium.lateClosure`, which the runner adds to the
     view and registers once the guest is up."""
@@ -567,11 +571,8 @@ class Machine:
         """Resets since the guest last came up: see `RESETS_BEFORE_UP`."""
         self._control: Control | None = None
         self._transcript: anyio.AsyncFile[bytes] | None = None
-        self.store_allowlist: Path | None = None
-        """A krun guest's closure, one store path per line: libkrun's share
-        of the host store shows the guest these and nothing else. It needs
-        no bind mount, which a host without mount namespaces (macOS) lacks.
-        `add_closure` appends to it."""
+        self._store: Store | None = None
+        """What the guest sees of the host's store, when its spec names `storePaths`."""
 
     @property
     def name(self) -> str:
@@ -640,12 +641,8 @@ class Machine:
         if self.spec.store_paths is not None:
             # The two closures share most of their paths, and a view takes each once.
             paths = list(dict.fromkeys([*storeview.read_paths(self.spec.store_paths), *self._late_paths()]))
-            if self.spec.backend == BackendName.KRUN:
-                self.store_allowlist = self._rundir / "store-allowlist"
-                self.store_allowlist.write_text("".join(f"{path}\n" for path in paths))
-            else:
-                view = storeview.build(self._rundir / "nix", paths, writable=self.spec.backend == BackendName.CONTAINER)
-                self.spec = replace(self.spec, store=str(view))
+            self._store = self.backend.store(self._rundir, paths)
+            self.spec = self._store.serve(self.spec)
         # The session closes its copies of the segment fds once every guest
         # has started, so a guest that boots again needs its own.
         if self.backend.reboots:
@@ -660,9 +657,7 @@ class Machine:
 
     async def _load_registration(self, info: str) -> None:
         """Register a closureInfo in the guest's Nix database, if it has one."""
-        # A VM's overlay keeps a negative dentry for a name looked up before
-        # it existed. A container has no overlay here, and may not drop caches.
-        drop = "" if self.spec.backend == BackendName.CONTAINER else "echo 2 > /proc/sys/vm/drop_caches && "
+        drop = "echo 2 > /proc/sys/vm/drop_caches && " if self.backend.has_kernel else ""
         nix_store = self.spec.nix_store
         load = "true" if nix_store is None else f"{shlex.quote(nix_store)} --load-db < {shlex.quote(info)}/registration"
         done = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
@@ -1001,8 +996,10 @@ class Machine:
         with self.recorder.span(self.name, "teardown", f"clean up {self.name}"):
             await self._stop_process()
             self._close_kept()
+            if self._store is not None:
+                self._store.remove()
+                self._store = None
             if self._rundir is not None:
-                storeview.remove(self._rundir / "nix")
                 if not os.environ.get("VIVARIUM_KEEP"):
                     shutil.rmtree(self._rundir, ignore_errors=True)
                 self._rundir = None
@@ -1437,37 +1434,12 @@ class Machine:
         closure. Returns the paths that were new to the view."""
         if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] a {self.control_kind} guest has no store")
-        is_container = self.spec.backend == BackendName.CONTAINER
-        added: list[str] = []
-        if self.store_allowlist is not None:
-            listed = set(storeview.read_paths(self.store_allowlist))
-            added = [path for path in paths if path not in listed]
-            with self.store_allowlist.open("a") as allowlist:
-                allowlist.writelines(f"{path}\n" for path in added)
-        elif self.spec.store_paths is not None and self._rundir is not None:
-            added = storeview.add(self._rundir / "nix", paths, writable=is_container)
-            mounts = [path for path in added if not Path(path).is_symlink()]
-            if is_container and mounts:
-                await self._attach(self._rundir, mounts)
-        return added
-
-    async def _attach(self, rundir: Path, paths: list[str]) -> None:
-        """Mount *paths* inside a container guest; see `container.attach`."""
-        pid = (rundir / "crun" / container.INIT_PID).read_text().strip()
-        proc = await subprocess.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "vivarium_runner.crun_launch",
-            "attach",
-            "--pid",
-            pid,
-            *paths,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        out, _ = await proc.communicate()
-        if proc.returncode != 0:
-            raise MachineError(f"[{self.name}] attaching store paths failed:\n{out.decode(errors='replace')}")
+        if self._store is None:
+            return []
+        try:
+            return await self._store.add(paths)
+        except StoreError as error:
+            raise MachineError(f"[{self.name}] {error}") from error
 
     # ── init ───────────────────────────────────────────────────────
 

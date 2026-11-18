@@ -46,10 +46,12 @@ from . import container, forward, mconsole, qmp, unixpath
 from .capability import Controls, Screen
 from .lifetime import die_with_parent
 from .spec import UplinkProxy
+from .store import AllowList, BoundStore, ContainerStore
 
 if TYPE_CHECKING:
     from .boot import Boot, Kernel
     from .machine import Machine, MachineSpec
+    from .store import Store
 
 
 class BackendError(Exception):
@@ -686,6 +688,10 @@ class Backend(Protocol):
 
     name: str
     reboots: bool
+    has_kernel: bool
+    """The guest runs its own kernel: it may drop its caches, and its
+    overlay keeps a negative dentry for a store path it looked up before
+    the path existed."""
 
     def rebooted(self, stop: Stop) -> bool:
         """Whether a guest process that ended asked for a reboot."""
@@ -693,6 +699,10 @@ class Backend(Protocol):
 
     def host_memory_kib(self, spec: MachineSpec, pid: int) -> int:
         """Kibibytes of host memory the guest whose own process is *pid* costs now."""
+        ...
+
+    def store(self, rundir: Path, paths: list[str]) -> Store:
+        """The guest's view of *paths* in the host's store, made in *rundir*."""
         ...
 
     def validate(self, spec: MachineSpec) -> None:
@@ -782,6 +792,7 @@ class Uml:
 
     name = "uml"
     reboots = False
+    has_kernel = True
 
     @staticmethod
     def rebooted(stop: Stop) -> bool:
@@ -791,6 +802,10 @@ class Uml:
     def host_memory_kib(spec: MachineSpec, pid: int) -> int:
         # The kernel maps an unlinked temporary file as the guest's RAM.
         return memory_file_kib(pid, spec.memory)
+
+    @staticmethod
+    def store(rundir: Path, paths: list[str]) -> Store:
+        return BoundStore.build(rundir / "nix", paths)
 
     @staticmethod
     def validate(spec: MachineSpec) -> None:
@@ -977,6 +992,7 @@ class Qemu:
     reboots = True
     """A reboot inside the guest boots it again, into the system its
     bootloader names. See `Machine._reboot`."""
+    has_kernel = True
 
     @staticmethod
     def rebooted(stop: Stop) -> bool:
@@ -988,6 +1004,10 @@ class Qemu:
     def host_memory_kib(spec: MachineSpec, pid: int) -> int:
         # The guest's RAM is a `memory-backend-memfd`.
         return memory_file_kib(pid, spec.memory)
+
+    @staticmethod
+    def store(rundir: Path, paths: list[str]) -> Store:
+        return BoundStore.build(rundir / "nix", paths)
 
     def validate(self, spec: MachineSpec) -> None:
         if QemuConfig.of(spec).disk is None and (spec.boot is None or spec.boot.kernel is None):
@@ -1611,6 +1631,7 @@ class Krun:
     reboots = True
     """As `Qemu.reboots`. Every stop is a reset, so the exit code says which
     one it was: `KrunExit`."""
+    has_kernel = True
 
     @staticmethod
     def rebooted(stop: Stop) -> bool:
@@ -1622,6 +1643,10 @@ class Krun:
         # also holds this guest's share of the host page cache it maps
         # through the DAX window, which is the store pages it reads.
         return processes_pss_kib(pid)
+
+    @staticmethod
+    def store(rundir: Path, paths: list[str]) -> Store:
+        return AllowList.write(rundir / "store-allowlist", paths)
 
     @staticmethod
     def validate(spec: MachineSpec) -> None:
@@ -1802,8 +1827,8 @@ class Krun:
             *uplink,
             *(f"--lan={lan_fds[nic.name]},{nic.mac}" for nic in spec.interfaces),
         ]
-        if machine.store_allowlist is not None:
-            argv.append(f"--store-allowlist={machine.store_allowlist}")
+        if spec.store_allowlist is not None:
+            argv.append(f"--store-allowlist={spec.store_allowlist}")
         if machine.artifacts is not None:
             argv.append(f"--artifacts={machine.artifacts}")
         if spec.nested:
@@ -1833,6 +1858,7 @@ class Container:
 
     name = "container"
     reboots = False
+    has_kernel = False
 
     def __init__(self) -> None:
         # One per process, as `available` makes it: the probes run once a run.
@@ -1865,6 +1891,10 @@ class Container:
         # where it has none, which is every uid-range build.
         own = container.own_cgroup_memory_kib(pid)
         return own if own is not None else processes_pss_kib(pid)
+
+    @staticmethod
+    def store(rundir: Path, paths: list[str]) -> Store:
+        return ContainerStore.build(rundir / "nix", paths, rundir / "crun")
 
     def launch(
         self,
