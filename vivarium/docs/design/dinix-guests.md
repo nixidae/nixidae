@@ -95,14 +95,13 @@ nothing of vivarium; vivarium writes the mounts each backend needs.
 
 ### 3. Backend contracts
 
-- **krun**: `launch.config.boot`, a typed section (`KrunBoot`: vmlinux,
-  cmdline, optional initrd, acpi), as `disk` is QEMU's and `root` is
-  UML's. Absent, krun boots the NixOS system from `spec.boot`, which
-  `lib.nix` writes for NixOS guests only. krun keeps owning the store
-  allowlist, DAX, the agent and `/artifacts`.
+- **krun**: `vivarium.boot.kernel` with no `system`: the kernel's
+  `cmdline` names dinix's init, and `vmlinux` is what libkrun loads.
+  A NixOS guest writes the same option with its `system`. krun keeps
+  owning the store allowlist, DAX, the agent and `/artifacts`.
 - **QEMU**: `disk` is for a foreign OS with no store and no agent. A
   dinix guest wants the NixOS path's store and agent with its own
-  kernel: the same typed boot section as krun.
+  kernel: the same `vivarium.boot`, which QEMU reads too.
 - **UML**: the kind's own root image with its `/init`; `UmlRoot` gains
   that shape.
 

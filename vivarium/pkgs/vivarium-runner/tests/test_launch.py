@@ -7,10 +7,12 @@ holds the refusals, which no guest check reaches.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from vivarium_runner.backend import BackendError, Krun, KrunConfig, Qemu, QemuConfig, Uml, UmlConfig
+from vivarium_runner.backend import BackendError, Container, Krun, KrunConfig, Qemu, QemuConfig, Uml, UmlConfig
+from vivarium_runner.boot import Boot, Firmware, Kernel
 from vivarium_runner.machine import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json, machine_spec
@@ -33,8 +35,15 @@ def uml(config: Mapping[str, object] | None, backend: str = "uml") -> MachineSpe
     return machine_spec("one", launch=launch)
 
 
+NIXOS = Boot(
+    system="/nix/store/s-nixos-system",
+    kernel=Kernel(image=Path("/nix/store/k/bzImage"), vmlinux=None, initrd=Path("/nix/store/i/initrd"), cmdline=""),
+    firmware=None,
+)
+
+
 def qemu(config: Mapping[str, object]) -> MachineSpec:
-    return machine_spec("q", BackendName.QEMU, launch=LaunchSpec("qemu", config))
+    return machine_spec("q", BackendName.QEMU, launch=LaunchSpec("qemu", config), boot=NIXOS)
 
 
 def test_a_good_config_reads() -> None:
@@ -116,28 +125,80 @@ def test_a_disk_reads() -> None:
     assert disk is not None and disk.format == "qcow2" and disk.uplink is False and disk.kernel is None
 
 
-KRUN = {"krun": "/nix/store/k/bin/vivarium-krun", "qemuImg": "/nix/store/q/bin/qemu-img"}
-DIRECT = {"vmlinux": "/nix/store/k/vmlinux", "cmdline": "root=/dev/vda rw init=/dinix-boot"}
+KRUN = {"krun": "/nix/store/k/bin/vivarium-krun", "qemuImg": "/nix/store/q/bin/qemu-img", "acpi": True}
+DIRECT = Kernel(
+    image=Path("/nix/store/k/bzImage"),
+    vmlinux=Path("/nix/store/k/vmlinux"),
+    initrd=None,
+    cmdline="root=/dev/vda rw init=/dinix-boot",
+)
 
 
-def krun(config: Mapping[str, object]) -> MachineSpec:
-    return machine_spec("k", BackendName.KRUN, launch=LaunchSpec("krun", config))
+DINIX = Boot(system=None, kernel=DIRECT, firmware=None)
 
 
-def test_a_krun_boot_reads() -> None:
-    assert KrunConfig.of(krun(KRUN)).boot is None, "no boot section is the NixOS system"
-    boot = KrunConfig.of(krun({**KRUN, "boot": {**DIRECT, "acpi": True}})).boot
-    assert boot is not None and boot.vmlinux == Path(DIRECT["vmlinux"]) and boot.acpi
-    assert boot.initrd is None, "a direct boot needs no initrd"
+def krun(config: Mapping[str, object], boot: Boot | None = DINIX) -> MachineSpec:
+    return machine_spec("k", BackendName.KRUN, launch=LaunchSpec("krun", config), boot=boot)
+
+
+def test_a_krun_config_reads() -> None:
+    assert KrunConfig.of(krun(KRUN)).acpi
+    Krun.validate(krun(KRUN))
+
+
+FIRMWARE = Firmware(code=Path("/c"), variables=Path("/v"), esp=Path("/e"))
+
+
+@pytest.mark.parametrize(
+    ("config", "boot", "says"),
+    [
+        (
+            {k: v for k, v in KRUN.items() if k != "acpi"},
+            None,
+            "k: vivarium.launch.config lacks fields the krun backend needs: acpi",
+        ),
+        (KRUN, None, "k: a krun guest needs vivarium.boot.kernel"),
+        (KRUN, Boot(system="/s", kernel=None, firmware=None), "needs vivarium.boot.kernel"),
+        (KRUN, Boot(system=None, kernel=DIRECT, firmware=FIRMWARE), "boots no firmware"),
+        (
+            KRUN,
+            Boot(system=None, kernel=replace(DIRECT, vmlinux=None), firmware=None),
+            "boots only the kernel it started with",
+        ),
+    ],
+)
+def test_krun_refuses_a_bad_boot(config: Mapping[str, object], boot: Boot | None, says: str) -> None:
+    with pytest.raises(BackendError, match=says):
+        Krun.validate(krun(config, boot))
 
 
 @pytest.mark.parametrize(
     ("boot", "says"),
     [
-        ({"vmlinux": DIRECT["vmlinux"]}, "k: vivarium.launch.config.boot lacks fields the backend needs: cmdline"),
-        ({**DIRECT, "initramfs": "/x"}, "boot has fields the backend does not know: initramfs"),
+        (None, "q: no vivarium.boot.kernel, and no vivarium.launch.config.disk to boot"),
+        (Boot(system="/s", kernel=None, firmware=FIRMWARE), "no vivarium.boot.kernel"),
     ],
 )
-def test_krun_refuses_a_bad_boot(boot: dict[str, object], says: str) -> None:
+def test_qemu_refuses_a_spec_with_nothing_to_boot(boot: Boot | None, says: str) -> None:
     with pytest.raises(BackendError, match=says):
-        Krun.validate(krun({**KRUN, "boot": boot}))
+        Qemu().validate(replace(qemu(QEMU), boot=boot))
+
+
+def test_qemu_boots_a_disk_with_no_boot() -> None:
+    Qemu().validate(qemu({**QEMU, "disk": {"format": "qcow2"}}))
+
+
+CONTAINER = {"crun": "/c", "setpriv": "/s", "passt": "/p"}
+
+
+@pytest.mark.parametrize(
+    ("boot", "says"),
+    [
+        (None, "c: a container guest needs vivarium.boot.system"),
+        (Boot(system="/s", kernel=DIRECT, firmware=None), "boots no kernel and no firmware"),
+    ],
+)
+def test_a_container_refuses_a_boot_it_cannot_run(boot: Boot | None, says: str) -> None:
+    spec = machine_spec("c", BackendName.CONTAINER, launch=LaunchSpec("container", CONTAINER), boot=boot)
+    with pytest.raises(BackendError, match=says):
+        Container.validate(spec)

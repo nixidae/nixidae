@@ -46,6 +46,7 @@ from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connec
 from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
 from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
+from .boot import Boot, BootJson, BootspecJson, Display, DisplayJson
 from .control import (
     AGENT,
     NONE,
@@ -81,47 +82,6 @@ The guest's `installBootLoader` writes it; see modules/guest.nix."""
 _SYSTEMD_TIMEOUT = 60
 """How long to wait for one `systemctl` round trip.  The agent gives the
 command itself 30s, so anything past this is the guest, not systemd."""
-
-
-@closed
-class Display(TypedDict):
-    """`boot.display`: the screen's size in pixels."""
-
-    width: int
-    height: int
-
-
-@closed
-class EfiBoot(TypedDict):
-    """`boot.efi`: OVMF's firmware and variable store, and the ESP image."""
-
-    firmware: str
-    variables: str
-    esp: str
-
-
-@closed
-class BootSpec(TypedDict, total=False):
-    """What a guest boots, as Nix wrote it. See ``modules/qemu.nix``."""
-
-    kernel: str | None
-    initrd: str
-    cmdline: str
-    toplevel: str
-    nested: bool
-    display: Display | None
-    efi: EfiBoot
-    vmlinux: str
-    acpi: bool
-
-
-class BootloaderSpec(TypedDict):
-    """The bootspec the guest's bootloader wrote, for the system it boots next."""
-
-    kernel: str
-    initrd: str
-    kernelParams: list[str]
-    toplevel: str
 
 
 @closed
@@ -233,10 +193,12 @@ class MachineSpecJson(TypedDict):
     uplinkNetwork: UplinkNetworkJson
     router: bool
     forward: list[forward.RuleJson]
+    boot: BootJson | None
+    nested: bool
+    display: DisplayJson | None
     storePaths: NotRequired[str]
     lateClosure: NotRequired[str]
     nixStore: NotRequired[str]
-    boot: NotRequired[BootSpec]
     systems: NotRequired[SystemsJson]
     launch: NotRequired[LaunchSpecJson]
     uplinkAddress: NotRequired[str]
@@ -365,6 +327,13 @@ class MachineSpec:
     """Host-side port forwards.  Addresses in these are still None until
     :func:`vivarium_runner.forward.resolve` has run over every machine in the
     run at once, which `vivarium run` does before it boots any."""
+    boot: Boot | None
+    """`vivarium.boot`. None under UML and for a kind that boots its own
+    disk: `launch` says what those boot."""
+    nested: bool
+    """`vivarium.nestedVirtualization`."""
+    display: Display | None
+    """`vivarium.display`, when enabled."""
     store: str = "/nix"
     """The directory a guest gets as its `/nix`. The runner points it at
     the guest's store view when the spec names `storePaths`."""
@@ -378,10 +347,6 @@ class MachineSpec:
     """The `nix-store` in the guest that registers a closure after boot.
     `None` is a guest with no Nix database: a path reaches its store view
     only."""
-    boot: BootSpec = field(default_factory=BootSpec)
-    """What a QEMU guest boots: kernel, initrd, toplevel and cmdline, as
-    ``modules/qemu.nix`` worked them out.  Empty under UML, which boots the
-    root image instead."""
     systems: Systems = field(default_factory=Systems)
     launch: LaunchSpec | None = None
     """`vivarium.launch`, for a backend that reads its tools from there.
@@ -426,11 +391,13 @@ class MachineSpec:
             uplink_network=UplinkNetwork.from_json(data["uplinkNetwork"]),
             router=data["router"],
             forward=tuple(forward.Rule.from_json(rule) for rule in data["forward"]),
+            boot=Boot.from_json(boot) if (boot := data["boot"]) is not None else None,
+            nested=data["nested"],
+            display=Display.from_json(shown) if (shown := data["display"]) is not None else None,
             store_paths=Path(store_paths) if store_paths is not None else None,
             late_closure=Path(late_closure) if late_closure is not None else None,
             nix_store=data.get("nixStore"),
             requires=tuple(data.get("requires", ())),
-            boot=data.get("boot", {}),
             systems=Systems.from_json(systems) if systems is not None else Systems(),
             launch=LaunchSpec.from_json(launch) if launch is not None else None,
             uplink_address=data.get("uplinkAddress"),
@@ -697,7 +664,7 @@ class Machine:
         if done.returncode != 0:
             raise MachineError(f"[{self.name}] loading {info} failed (exit {done.returncode}):\n{_both(done)}")
 
-    async def _boot(self, boot: BootSpec | None) -> None:
+    async def _boot(self, boot: Boot | None) -> None:
         """Start the guest's process, on *boot* or the spec's own, and connect."""
         if self._rundir is None:
             raise MachineError(f"[{self.name}] boot before start: no run directory")
@@ -858,27 +825,20 @@ class Machine:
             raise MachineError(f"[{self.name}] stopped with no exit code")
         return self._exit_code
 
-    def _bootloader(self) -> BootSpec | None:
-        """The spec's boot, with what the guest's bootloader chose since."""
-        if "efi" in self.spec.boot:
-            return {**self.spec.boot, "kernel": None}
+    def _bootloader(self) -> BootspecJson | None:
+        """What the guest's bootloader chose since it booted, if it wrote a choice."""
         path = self.artifacts / BOOTLOADER if self.artifacts is not None else None
         if path is None or not path.exists():
             return None
         # The bootloader writes this file, so its shape is Nix's, not the parser's.
-        chosen = cast(BootloaderSpec, json.loads(path.read_text())["org.nixos.bootspec.v1"])
-        return {
-            **self.spec.boot,
-            "kernel": chosen["kernel"],
-            "initrd": chosen["initrd"],
-            "cmdline": " ".join(chosen["kernelParams"]),
-            "toplevel": chosen["toplevel"],
-        }
+        return cast(BootspecJson, json.loads(path.read_text())["org.nixos.bootspec.v1"])
 
     async def _reboot(self) -> None:
         """The process-scoped half of `shutdown`, then `_boot` on the same disk."""
-        boot = self._bootloader() or self.spec.boot
-        self._log(f"rebooting into {boot['toplevel']}" if boot.get("kernel") else "rebooting through the firmware")
+        if self.spec.boot is None:
+            raise MachineError(f"[{self.name}] rebooted, and its spec has no boot to boot again")
+        boot = self.spec.boot.rebooted(self._bootloader())
+        self._log(f"rebooting into {boot.system}" if boot.kernel is not None else "rebooting through the firmware")
         if self._conn is not None:
             self._conn.close()
             self._conn = None
@@ -1694,13 +1654,13 @@ class Machine:
         return size
 
     def _screen(self) -> tuple[qmp.Qmp, tuple[int, int]]:
-        size = self.spec.boot.get("display")
-        if not size or not isinstance(self._memory, qmp.Qmp):
+        size = self.spec.display
+        if size is None or not isinstance(self._memory, qmp.Qmp):
             raise MachineError(
                 f"[{self.name}] has no screen: set `vivarium.display.enable = true`, "
                 f'which needs `vivarium.backend = "qemu"` (this guest is {self.spec.backend})'
             )
-        return self._memory, (size["width"], size["height"])
+        return self._memory, (size.width, size.height)
 
     async def _qmp[T](self, call: Callable[[qmp.Qmp], Awaitable[T]]) -> T:
         monitor, _ = self._screen()

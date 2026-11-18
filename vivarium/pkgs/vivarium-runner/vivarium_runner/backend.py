@@ -47,7 +47,8 @@ from .lifetime import die_with_parent
 from .spec import UplinkProxy
 
 if TYPE_CHECKING:
-    from .machine import BootSpec, Machine, MachineSpec, MemoryControl
+    from .boot import Boot, Kernel
+    from .machine import Machine, MachineSpec, MemoryControl
 
 
 class BackendError(Exception):
@@ -227,28 +228,6 @@ class QemuConfig:
 
 
 @dataclass(frozen=True)
-class KrunBoot:
-    """`launch.config.boot` under krun: a guest kind that boots its own init,
-    not the NixOS system. The kernel mounts the root disk itself when there is
-    no `initrd`."""
-
-    vmlinux: Path
-    cmdline: str
-    initrd: Path | None = None
-    acpi: bool = False
-
-    @classmethod
-    def of(cls, owner: str, value: object) -> KrunBoot:
-        boot = _section(owner, value, frozenset({"vmlinux", "cmdline"}), frozenset({"initrd", "acpi"}))
-        return cls(
-            vmlinux=Path(boot["vmlinux"]),
-            cmdline=str(boot["cmdline"]),
-            initrd=Path(boot["initrd"]) if "initrd" in boot else None,
-            acpi=bool(boot.get("acpi", False)),
-        )
-
-
-@dataclass(frozen=True)
 class KrunConfig:
     """`vivarium.launch.config` under krun."""
 
@@ -260,15 +239,16 @@ class KrunConfig:
     host has none."""
     gvproxy: Path | None
     """For `vivarium.uplink.proxy = "gvproxy"`."""
+    acpi: bool
+    """libkrun describes the guest's devices in ACPI, and ends on its S5.
+    Its ACPI tables are x86 only."""
     egress: Path | None = None
     """The router's host half, on the unix sockets libkrun's vsock reaches."""
-    boot: KrunBoot | None = None
-    """None boots the NixOS system from `spec.boot`."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> KrunConfig:
         config = launch_config(
-            spec, "krun", frozenset({"krun", "qemuImg"}), frozenset({"passt", "gvproxy", "egress", "boot"})
+            spec, "krun", frozenset({"krun", "qemuImg", "acpi"}), frozenset({"passt", "gvproxy", "egress"})
         )
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
@@ -277,8 +257,8 @@ class KrunConfig:
             qemu_img=_path(config, "qemuImg"),
             passt=_maybe(config, "passt"),
             gvproxy=_maybe(config, "gvproxy"),
+            acpi=bool(config["acpi"]),
             egress=_maybe(config, "egress"),
-            boot=KrunBoot.of(f"{spec.name}: vivarium.launch.config.boot", config["boot"]) if "boot" in config else None,
         )
 
 
@@ -576,7 +556,8 @@ class Backend(Protocol):
     """What `Machine` asks of a backend.
 
     `boot` and `disk_fds` are for a reboot, which `Qemu` and `Krun` take
-    (`reboots`); the other backends accept them and ignore them.
+    (`reboots`); the other backends accept them and ignore them. A first
+    boot boots `spec.boot`.
     """
 
     name: str
@@ -603,7 +584,7 @@ class Backend(Protocol):
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        boot: BootSpec | None = None,
+        boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch: ...
 
@@ -702,7 +683,7 @@ class Uml:
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        boot: BootSpec | None = None,
+        boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         spec = machine.spec
@@ -878,12 +859,14 @@ class Qemu:
         return any(REBOOTED in line for line in console)
 
     def validate(self, spec: MachineSpec) -> None:
-        QemuConfig.of(spec)
+        if QemuConfig.of(spec).disk is None and (spec.boot is None or spec.boot.kernel is None):
+            raise BackendError(f"{spec.name}: no vivarium.boot.kernel, and no vivarium.launch.config.disk to boot")
 
     def with_kernel(self, spec: MachineSpec, kernel: Path) -> MachineSpec:
         disk = QemuConfig.of(spec).disk
-        if disk is None and spec.boot.get("kernel"):
-            return replace(spec, boot={**spec.boot, "kernel": str(kernel)})
+        boot = spec.boot
+        if disk is None and boot is not None and boot.kernel is not None:
+            return replace(spec, boot=replace(boot, kernel=replace(boot.kernel, image=kernel)))
         if disk is not None and disk.kernel is not None:
             return _with_config(spec, "kernel", str(kernel), section="disk")
         raise BackendError(f"{spec.name}: the guest's firmware picks its kernel, so there is none to replace")
@@ -897,7 +880,7 @@ class Qemu:
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        boot: BootSpec | None = None,
+        boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         disk_boot = QemuConfig.of(machine.spec).disk is not None
@@ -947,7 +930,7 @@ class Qemu:
         lan_fds: dict[str, int],
         helpers: list[subprocess.Popen[bytes]],
         opened: list[int],
-        boot: BootSpec | None = None,
+        boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         spec = machine.spec
@@ -976,7 +959,9 @@ class Qemu:
         # description, which outlives the QEMU that took it. So a reboot
         # opens the unlinked image afresh and lets the old descriptions go.
         boot = boot or spec.boot
-        efi = boot.get("efi")
+        if boot is None:
+            raise BackendError(f"{spec.name}: no vivarium.boot")
+        firmware = boot.firmware
         if disk_fds:
             disk_fds = tuple(
                 os.open(f"/proc/self/fd/{fd}", flags)
@@ -986,8 +971,8 @@ class Qemu:
         else:
             disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image)
             opened.extend(disk_fds)
-            if efi:
-                esp_fds = self._scratch_disk(config.qemu_img, rundir, Path(efi["esp"]), backing="qcow2")
+            if firmware is not None:
+                esp_fds = self._scratch_disk(config.qemu_img, rundir, firmware.esp, backing="qcow2")
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
 
@@ -1017,7 +1002,7 @@ class Qemu:
             # alone hands every guest the host's vmx or svm, and udev
             # then loads KVM in it. See `nestedVirtualization`.
             "-cpu",
-            "host" if boot.get("nested") else "host,-vmx,-svm",
+            "host" if spec.nested else "host,-vmx,-svm",
             "-smp",
             str(spec.cpus),
             "-m",
@@ -1054,7 +1039,7 @@ class Qemu:
             "-device",
             "virtio-serial",
             "-device",
-            "virtserialport,chardev=agent,name=vivarium-agent" if boot.get("efi") else "virtconsole,chardev=agent",
+            "virtserialport,chardev=agent,name=vivarium-agent" if firmware is not None else "virtconsole,chardev=agent",
             *uplink,
             # The guest tells QEMU which pages it has freed and QEMU
             # madvises them out of the memfd above, so the host stops
@@ -1068,26 +1053,21 @@ class Qemu:
             f"unix:{sockets}/qmp,server=on,wait=off",
         ]
         # A firmware boot has no kernel: systemd-boot on the ESP picks one.
-        if kernel := boot.get("kernel"):
-            argv += [
-                "-kernel",
-                kernel,
-                "-initrd",
-                boot["initrd"],
-                "-append",
-                f"{boot['cmdline']} init={boot['toplevel']}/init",
-            ]
-        if efi:
+        if (kernel := boot.kernel) is not None:
+            argv += ["-kernel", str(kernel.image), "-append", boot.cmdline(kernel)]
+            if kernel.initrd is not None:
+                argv += ["-initrd", str(kernel.initrd)]
+        if firmware is not None:
             # The variables outlive each QEMU, as NVRAM outlives a reset:
             # bootctl's boot entry and systemd-boot's LoaderEntryDefault are
             # there.
             variables = rundir / "efivars.fd"
             if not variables.exists():
-                shutil.copyfile(efi["variables"], variables)
+                shutil.copyfile(firmware.variables, variables)
                 variables.chmod(0o600)
             argv += [
                 "-drive",
-                f"if=pflash,format=raw,unit=0,readonly=on,file={efi['firmware']}",
+                f"if=pflash,format=raw,unit=0,readonly=on,file={firmware.code}",
                 "-drive",
                 f"if=pflash,format=raw,unit=1,file={variables}",
                 "-add-fd",
@@ -1097,12 +1077,12 @@ class Qemu:
                 "-drive",
                 "file=/dev/fdset/2,if=virtio,format=qcow2",
             ]
-        if display := boot.get("display"):
+        if (display := spec.display) is not None:
             argv += [
                 # `-display none` stays: screendump reads the device's
                 # surface, not a window.
                 "-device",
-                f"virtio-gpu-pci,xres={display['width']},yres={display['height']}",
+                f"virtio-gpu-pci,xres={display.width},yres={display.height}",
                 # An absolute pointer, so a click lands where it is aimed
                 # without the guest's acceleration in between. The
                 # keyboard is q35's own PS/2, which `sendkey` drives.
@@ -1432,14 +1412,27 @@ class Krun:
     @staticmethod
     def validate(spec: MachineSpec) -> None:
         KrunConfig.of(spec)
+        Krun._kernel(spec, spec.boot)
+
+    @staticmethod
+    def _kernel(spec: MachineSpec, boot: Boot | None) -> tuple[Boot, Kernel, Path]:
+        """*boot*, its kernel, and that kernel's ELF, which is all libkrun loads."""
+        if boot is None or boot.kernel is None:
+            raise BackendError(f"{spec.name}: a krun guest needs vivarium.boot.kernel")
+        if boot.firmware is not None:
+            raise BackendError(f"{spec.name}: a krun guest boots no firmware")
+        if boot.kernel.vmlinux is None:
+            raise BackendError(
+                f"{spec.name}: the guest's bootloader names kernel {boot.kernel.image}, "
+                "and a krun guest boots only the kernel it started with"
+            )
+        return boot, boot.kernel, boot.kernel.vmlinux
 
     @staticmethod
     def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
-        # libkrun loads the ELF vmlinux. `boot.kernel`, the bzImage, stays:
-        # a reboot compares the bootloader's choice with it.
-        if KrunConfig.of(spec).boot is not None:
-            return _with_config(spec, "vmlinux", str(kernel), section="boot")
-        return replace(spec, boot={**spec.boot, "vmlinux": str(kernel)})
+        # `image` stays: a reboot compares the bootloader's choice with it.
+        boot, own, _ = Krun._kernel(spec, spec.boot)
+        return replace(spec, boot=replace(boot, kernel=replace(own, vmlinux=kernel)))
 
     @staticmethod
     def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
@@ -1525,7 +1518,7 @@ class Krun:
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        boot: BootSpec | None = None,
+        boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         # macOS has no user namespaces, and its libkrun keeps a file's
@@ -1534,15 +1527,7 @@ class Krun:
             _require_ids(machine.spec.name, "krun")
         spec = machine.spec
         config = KrunConfig.of(spec)
-        boot = boot or spec.boot
-        # libkrun loads the ELF vmlinux, and a bootspec names only the
-        # bzImage. The spec's vmlinux is that kernel's only while the
-        # bootloader keeps the kernel the guest booted with.
-        if boot.get("kernel") != spec.boot.get("kernel"):
-            raise BackendError(
-                f"{spec.name}: the guest's bootloader names kernel {boot.get('kernel')}, "
-                "and a krun guest boots only the kernel it started with"
-            )
+        boot, kernel, vmlinux = Krun._kernel(spec, boot or spec.boot)
         opened: list[int] = []
         helpers: list[subprocess.Popen[bytes]] = []
         disk_ro: int | None = None
@@ -1597,21 +1582,11 @@ class Krun:
         if disk_ro is not None:
             os.close(disk_ro)
 
-        if config.boot is not None:
-            kernel = [f"--vmlinux={config.boot.vmlinux}", f"--cmdline={config.boot.cmdline}"]
-            if config.boot.initrd is not None:
-                kernel.append(f"--initrd={config.boot.initrd}")
-            acpi = config.boot.acpi
-        else:
-            kernel = [
-                f"--vmlinux={boot['vmlinux']}",
-                f"--initrd={boot['initrd']}",
-                f"--cmdline={boot['cmdline']} init={boot['toplevel']}/init",
-            ]
-            acpi = bool(boot.get("acpi"))
         argv = [
             str(config.krun),
-            *kernel,
+            f"--vmlinux={vmlinux}",
+            f"--cmdline={boot.cmdline(kernel)}",
+            *([f"--initrd={kernel.initrd}"] if kernel.initrd is not None else []),
             f"--cpus={spec.cpus}",
             f"--memory={memory_bytes(spec.memory) >> 20}",
             f"--disk={'/proc/self' if sys.platform == 'linux' else '/dev'}/fd/{disk_rw}",
@@ -1625,9 +1600,9 @@ class Krun:
             argv.append(f"--store-allowlist={machine.store_allowlist}")
         if machine.artifacts is not None:
             argv.append(f"--artifacts={machine.artifacts}")
-        if boot.get("nested"):
+        if spec.nested:
             argv.append("--nested")
-        if acpi:
+        if config.acpi:
             argv.append("--acpi")
         return Launch(
             argv=argv,
@@ -1660,6 +1635,15 @@ class Container:
     @staticmethod
     def validate(spec: MachineSpec) -> None:
         ContainerConfig.of(spec)
+        Container._init(spec)
+
+    @staticmethod
+    def _init(spec: MachineSpec) -> str:
+        if spec.boot is None or spec.boot.init is None:
+            raise BackendError(f"{spec.name}: a container guest needs vivarium.boot.system")
+        if spec.boot.kernel is not None or spec.boot.firmware is not None:
+            raise BackendError(f"{spec.name}: a container guest boots no kernel and no firmware")
+        return spec.boot.init
 
     @staticmethod
     def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
@@ -1683,7 +1667,7 @@ class Container:
         rundir: Path,
         agent_fd: int,
         lan_fds: dict[str, int],
-        boot: BootSpec | None = None,
+        boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         spec = machine.spec
@@ -1730,7 +1714,7 @@ class Container:
             json.dumps(
                 container.oci_config(
                     hostname=spec.name,
-                    init=f"{spec.boot['toplevel']}/init",
+                    init=Container._init(spec),
                     setpriv=str(config.setpriv),
                     rootfs=rootfs,
                     store=spec.store,
@@ -1742,7 +1726,7 @@ class Container:
                     subgid=subgid,
                     writable_store=container.store_is_one_mount(spec.store),
                     store_view=spec.store_paths is not None,
-                    kvm=bool(spec.boot.get("nested")),
+                    kvm=spec.nested,
                 )
             )
         )

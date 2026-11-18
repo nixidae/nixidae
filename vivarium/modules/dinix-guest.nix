@@ -213,9 +213,13 @@ in
     vivarium.requiredSystemFeatures = [ "uid-range" ];
     # For CI's kernel job (`packages.directKernel`).
     system.build.dinixKernel = kernel;
-    vivarium.launch.config.boot = lib.mkIf krun {
-      inherit vmlinux cmdline;
-      acpi = pkgs.stdenv.hostPlatform.isx86_64;
+    # No initrd: the kernel mounts the root disk itself.
+    vivarium.boot = {
+      kernel = {
+        image = "${kernel}/${config.system.boot.loader.kernelFile}";
+        vmlinux = "${vmlinux}";
+        inherit cmdline;
+      };
     };
   };
 }

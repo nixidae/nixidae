@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from vivarium.session import CpuOverride, Session, SessionError, with_cpus, with_kernel
 from vivarium.spec import PhaseSpec, Spec
-from vivarium_runner.machine import BootSpec, LaunchSpec
+from vivarium_runner.boot import Boot, Kernel
+from vivarium_runner.machine import LaunchSpec
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json, machine_spec
 
@@ -15,16 +16,19 @@ MINE = Path("/home/me/linux/linux")
 class TestWithKernel:
     def test_each_guest_s_backend_names_it(self) -> None:
         uml_config = {"kernel": "/nix/store/k", "bridge": "/b", "passt": "/p"}
-        boot: BootSpec = {"kernel": "/nix/store/bzImage", "vmlinux": "/nix/store/vmlinux"}
+        kernel = Kernel(image=Path("/nix/store/bzImage"), vmlinux=Path("/nix/store/vmlinux"), initrd=None, cmdline="")
+        boot = Boot(system="/nix/store/s", kernel=kernel, firmware=None)
+        krun_config = {"krun": "/k", "qemuImg": "/i", "acpi": False}
         machines = [
             machine_spec("u", launch=LaunchSpec("uml", uml_config)),
-            machine_spec("k", BackendName.KRUN, boot=boot, launch=LaunchSpec("krun", {"krun": "/k", "qemuImg": "/i"})),
+            machine_spec("k", BackendName.KRUN, boot=boot, launch=LaunchSpec("krun", krun_config)),
         ]
         uml, krun = with_kernel(machines, MINE)
         assert uml.launch is not None
         assert uml.launch.config["kernel"] == str(MINE)
-        assert krun.boot["vmlinux"] == str(MINE)
-        assert krun.boot["kernel"] == "/nix/store/bzImage"
+        assert krun.boot is not None and krun.boot.kernel is not None
+        assert krun.boot.kernel.vmlinux == MINE
+        assert krun.boot.kernel.image == Path("/nix/store/bzImage")
 
     def test_a_guest_with_no_kernel_of_its_own_refuses_the_run(self) -> None:
         container = machine_spec(

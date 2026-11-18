@@ -238,7 +238,13 @@ rec {
       uplinkNetwork = (import ./nix/uplink.nix).spec;
       router = machine.vivarium.router.enable;
       forward = machine.vivarium.forward;
-      inherit (machine.vivarium) control;
+      inherit (machine.vivarium) control boot;
+      nested = machine.vivarium.nestedVirtualization;
+      display =
+        if machine.vivarium.display.enable then
+          { inherit (machine.vivarium.display) width height; }
+        else
+          null;
     }
     // lib.optionalAttrs (machine.vivarium.uplink.proxy == "router") {
       uplinkAddress = machine.vivarium.router.address machine.vivarium.index;
@@ -258,16 +264,6 @@ rec {
         toplevel = "${machine.system.build.toplevel}";
         configurations = lib.mapAttrs (_: system: "${system}") machine.system.build.vivariumConfigurations;
       };
-    }
-    // lib.optionalAttrs (
-      lib.elem machine.vivarium.backend [
-        "qemu"
-        "krun"
-      ]
-      && machine.vivarium.kind == "nixos"
-    ) { boot = machine.system.build.qemuBoot; }
-    // lib.optionalAttrs (machine.vivarium.backend == "container") {
-      boot = machine.system.build.containerBoot;
     };
 
   /*

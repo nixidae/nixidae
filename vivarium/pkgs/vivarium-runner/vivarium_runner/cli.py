@@ -124,6 +124,9 @@ async def _drive(args: argparse.Namespace, tasks: TaskGroup) -> int:
             uplink_network=UplinkNetwork.from_json(json.loads(args.uplink_network)),
             router=False,
             forward=tuple(Rule.from_json(rule) for rule in json.loads(args.forward)),
+            boot=None,
+            nested=False,
+            display=None,
             launch=LaunchSpec(
                 "uml", {"kernel": str(args.kernel), "bridge": str(args.bridge), "passt": str(args.passt)}
             ),

@@ -101,10 +101,6 @@ lib.mkIf (cfg.backend == "container") {
       test -s $out/nix-state/nix/db/db.sqlite''}
   '';
 
-  # What the runner starts, named here so a path it reads is a path Nix
-  # built. The same field a QEMU guest carries.
-  system.build.containerBoot = {
-    toplevel = "${config.system.build.toplevel}";
-    nested = cfg.nestedVirtualization;
-  };
+  # No kernel: the launcher execs the system's init.
+  vivarium.boot.system = "${config.system.build.toplevel}";
 }

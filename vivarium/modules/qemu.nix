@@ -79,6 +79,7 @@ lib.mkIf
           backend = "krun";
           config = {
             inherit (tools) krun qemuImg;
+            acpi = krunAcpi;
           }
           # Only where it serves vec0 (`MachineSpec.vsock`): a macOS host
           # has no passt.
@@ -455,26 +456,25 @@ lib.mkIf
       '';
     };
 
-    # What the runner needs to boot this guest, named here rather than
-    # worked out in Python, so a path it reads is a path Nix built.
-    system.build.qemuBoot = {
-      kernel = "${config.system.build.kernel}/${config.system.boot.loader.kernelFile}";
-      initrd = "${config.system.build.initialRamdisk}/${config.system.boot.loader.initrdFile}";
-      toplevel = "${config.system.build.toplevel}";
-      cmdline = lib.concatStringsSep " " config.boot.kernelParams;
-      nested = cfg.nestedVirtualization;
-      display = if cfg.display.enable then { inherit (cfg.display) width height; } else null;
-    }
-    // lib.optionalAttrs cfg.efi {
-      efi = {
-        firmware = "${pkgs.OVMF.firmware}";
-        variables = "${pkgs.OVMF.variables}";
-        esp = "${config.system.build.vivariumEspImage}";
+    # Named here rather than worked out in Python, so a path the runner
+    # reads is a path Nix built. A guest kind's disk is not this NixOS.
+    vivarium.boot = lib.mkIf (cfg.kind == "nixos") {
+      system = "${config.system.build.toplevel}";
+      kernel = {
+        image = "${config.system.build.kernel}/${config.system.boot.loader.kernelFile}";
+        vmlinux = if krun then "${vmlinux}" else null;
+        initrd = "${config.system.build.initialRamdisk}/${config.system.boot.loader.initrdFile}";
+        cmdline = lib.concatStringsSep " " config.boot.kernelParams;
       };
-    }
-    // lib.optionalAttrs krun {
-      vmlinux = "${vmlinux}";
-      acpi = krunAcpi;
+      firmware =
+        if cfg.efi then
+          {
+            code = "${pkgs.OVMF.firmware}";
+            variables = "${pkgs.OVMF.variables}";
+            esp = "${config.system.build.vivariumEspImage}";
+          }
+        else
+          null;
     };
 
     # guest.nix turns the template off, which also takes logind's autovt@.

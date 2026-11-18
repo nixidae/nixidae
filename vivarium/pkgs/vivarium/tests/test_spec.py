@@ -45,11 +45,23 @@ class TestAFieldThisRunnerDoesNotKnow:
         assert spec.vivarium == Path("/nix/store/x-vivarium")
         assert spec.pythonPath == [Path("/lib")]
 
+    def test_in_a_boot(self, tmp_path: Path) -> None:
+        kernel = {"image": "/k", "vmlinux": None, "initrd": None, "cmdline": "", "dtb": "/d"}
+        machine = {**machine_json("one"), "boot": {"system": None, "kernel": kernel, "firmware": None}}
+        with pytest.raises(SpecError, match=r"machines\.0\.boot\.kernel\.dtb"):
+            Spec.read(write(tmp_path, machines=[machine]))
+
 
 class TestAFieldTheSpecLacks:
     def test_is_refused_by_name(self, tmp_path: Path) -> None:
         machine = {key: value for key, value in machine_json("one").items() if key != "uplinkProxy"}
         with pytest.raises(SpecError, match=r"lacks fields this runner needs: machines\.0\.uplinkProxy.*older"):
+            Spec.read(write(tmp_path, machines=[machine]))
+
+    def test_in_a_boot(self, tmp_path: Path) -> None:
+        firmware = {"code": "/c", "esp": "/e"}
+        machine = {**machine_json("one"), "boot": {"system": "/s", "kernel": None, "firmware": firmware}}
+        with pytest.raises(SpecError, match=r"machines\.0\.boot\.firmware\.variables"):
             Spec.read(write(tmp_path, machines=[machine]))
 
 

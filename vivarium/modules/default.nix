@@ -741,6 +741,86 @@ in
       '';
     };
 
+    boot = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            system = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = ''
+                The NixOS system to boot. Its `init` is the guest's PID 1:
+                on the kernel's command line, or exec'd by a container.
+                Null for a guest kind whose `kernel.cmdline` names its own
+                init.
+              '';
+            };
+            kernel = lib.mkOption {
+              type = lib.types.nullOr (
+                lib.types.submodule {
+                  options = {
+                    image = lib.mkOption {
+                      type = lib.types.str;
+                      description = "The kernel, as a bootloader names it: a bzImage on x86_64.";
+                    };
+                    vmlinux = lib.mkOption {
+                      type = lib.types.nullOr lib.types.str;
+                      default = null;
+                      description = "The same kernel as an ELF, for a backend that loads only that (krun).";
+                    };
+                    initrd = lib.mkOption {
+                      type = lib.types.nullOr lib.types.str;
+                      default = null;
+                      description = "Null when the kernel mounts the root itself.";
+                    };
+                    cmdline = lib.mkOption {
+                      type = lib.types.str;
+                      description = "The kernel's parameters. The runner adds `init=` from `system`.";
+                    };
+                  };
+                }
+              );
+              default = null;
+              description = ''
+                A kernel the backend loads itself. With `firmware` too, it
+                boots the first system only, and the bootloader on the ESP
+                boots each one after.
+              '';
+            };
+            firmware = lib.mkOption {
+              type = lib.types.nullOr (
+                lib.types.submodule {
+                  options = {
+                    code = lib.mkOption {
+                      type = lib.types.str;
+                      description = "The firmware image, read-only.";
+                    };
+                    variables = lib.mkOption {
+                      type = lib.types.str;
+                      description = "The variable store's first state. The run keeps a copy across reboots.";
+                    };
+                    esp = lib.mkOption {
+                      type = lib.types.str;
+                      description = "The EFI system partition's image.";
+                    };
+                  };
+                }
+              );
+              default = null;
+              description = "UEFI firmware, for a guest that boots through its own bootloader.";
+            };
+          };
+        }
+      );
+      default = null;
+      internal = true;
+      description = ''
+        What this guest boots, the same for every backend. The backend's own
+        module writes it. Null under UML and for a guest kind that boots its
+        own disk: `launch.config` says what those boot.
+      '';
+    };
+
     control = {
       kind = lib.mkOption {
         type = lib.types.str;

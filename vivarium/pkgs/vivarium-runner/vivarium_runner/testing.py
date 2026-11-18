@@ -42,6 +42,9 @@ def machine_json(name: str, backend: BackendName = BackendName.UML) -> MachineSp
         },
         "router": False,
         "forward": [],
+        "boot": None,
+        "nested": False,
+        "display": None,
     }
 
 
