@@ -337,22 +337,25 @@ let
   /*
     Does `--offline` give a guest the network a sandbox gives it?
 
-    Deliberately not in `tests`, and it cannot be: a sandboxed run has no
-    network whatever the flag says, so the check would pass without the
-    flag doing anything. The only honest proof is by hand, on a connected
-    host, comparing the two:
+    Not a check: a sandboxed run has no network whatever the flag says,
+    so it would pass without the flag doing anything. The proof is a
+    driver on a connected host. The phase fails when anything gets out,
+    so `--offline` must pass and a plain run must fail:
 
-        nix run --file . internal.uplink.driver -- --out ./out
         nix run --file . internal.uplink.driver -- --out ./out --offline
+        nix run --file . internal.uplink.driver -- --out ./out
 
-    and compare both with the build, `nix build --file . internal.uplink`.
-    Measured on 2026-10-26, UML backend, dynhetz and sg1-n3:
+    CI's `test-uplink-offline` job runs the first. A GitHub runner has no
+    public IPv6 (actions/runner-images#668), so the IPv6 half needs a host
+    that has it. Measured on 2026-11-18, UML backend, dynhetz:
 
         plain      tcp4 reachable, tcp6 reachable, the host's IPv6
-                   prefix on vec0, ping answered, dns answered
+                   prefix on vec0, dns answered: the phase fails
         --offline  tcp4 no route, tcp6 no route, link-local only,
-                   no ping, dns no answer
-        build      the same as --offline, line for line
+                   dns no answer: the phase passes
+
+    Both answer a ping to the gateway: passt or the egress on the host
+    answers it, and nothing leaves (`namespace.allow_ping`).
 
     `--offline` runs the session in a network namespace of its own with
     only lo, as a build sandbox does (`vivarium/namespace.py`), so passt

@@ -457,6 +457,7 @@ let
   */
   driven = {
     test-k8s-pull = "internal.k8s-pull";
+    test-uplink-offline = "internal.uplink";
   };
 
   # Building the kernel once and letting the cache hand it to the test
@@ -675,6 +676,26 @@ let
   };
 
   /*
+    `--offline` on a connected runner: the guest reaches nothing past the
+    host. A build cannot ask this, because its sandbox has no network
+    with or without the flag. UML, so the kernel.
+  */
+  offlineJob = job {
+    id = "test-uplink-offline";
+    needs = [ "kernel" ];
+    timeoutMinutes = 30;
+    cond = selectable "test-uplink-offline";
+    ghanix = sandboxBootstrap;
+    steps = [
+      {
+        name = "Run uplink offline: nothing leaves the host";
+        timeout-minutes = 20;
+        run = "nix run --print-build-logs --file . ${driven.test-uplink-offline}.driver -- --out ./out --offline";
+      }
+    ];
+  };
+
+  /*
     The checks that need no guest.
 
     First, and on their own: each is a small derivation, so a stale
@@ -840,6 +861,7 @@ in
       kernel = kernelJob;
       direct-kernel = directKernelJob;
       test-k8s-pull = pullJob;
+      test-uplink-offline = offlineJob;
       test-container = containerJob;
     }
     // testJobs;
