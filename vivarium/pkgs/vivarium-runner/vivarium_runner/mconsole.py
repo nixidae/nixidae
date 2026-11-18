@@ -23,6 +23,8 @@ from pathlib import Path
 
 import anyio
 
+from .capability import ControlError
+
 MAGIC = 0xCAFEBABE
 VERSION = 2
 MAX_DATA = 512
@@ -42,7 +44,7 @@ _REQUEST = struct.Struct("=III")
 _REPLY = struct.Struct("=III")
 
 
-class MconsoleError(RuntimeError):
+class MconsoleError(ControlError):
     """The guest refused a command, or did not answer one."""
 
 

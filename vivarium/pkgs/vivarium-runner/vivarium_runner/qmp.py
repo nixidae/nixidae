@@ -12,19 +12,21 @@ See :meth:`Machine.shrink` and :meth:`Machine.screenshot`.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
 import anyio
 from qemu.qmp import EventListener, QMPClient, QMPError, Runstate
 
+from .capability import ControlError
 from .display import InputEvent
 
 __all__ = ["Qmp", "QmpError"]
 
-QmpError = QMPError
-"""The library's own, re-exported so a caller catches one name whichever
-control channel its guest has."""
+
+class QmpError(ControlError):
+    """QEMU refused a command, or the monitor failed: the library's error, as a `ControlError`."""
 
 
 class Qmp:
@@ -53,9 +55,19 @@ class Qmp:
         async with self._connecting:
             if self._client is None:
                 client = QMPClient("vivarium-runner")
-                await client.connect(str(self.path))
+                try:
+                    await client.connect(str(self.path))
+                except QMPError as error:
+                    raise QmpError(str(error)) from error
                 self._client = client
             return self._client
+
+    async def _execute(self, command: str, arguments: Mapping[str, object] | None = None) -> object:
+        client = await self._connected()
+        try:
+            return await client.execute(command, arguments)
+        except QMPError as error:
+            raise QmpError(str(error)) from error
 
     async def run(self) -> None:
         """Listen for the guest's SHUTDOWN, then start its CPUs.
@@ -66,7 +78,7 @@ class Qmp:
         client = await self._connected()
         self._shutdowns = EventListener("SHUTDOWN")
         client.register_listener(self._shutdowns)
-        await client.execute("cont")
+        await self._execute("cont")
 
     async def shutdown_cause(self, timeout: float = 5.0) -> str | None:
         """Why QEMU stopped the guest: its `ShutdownCause`, such as `guest-reset`.
@@ -91,12 +103,14 @@ class Qmp:
     async def close(self) -> None:
         if self._client is not None:
             client, self._client = self._client, None
-            await client.disconnect()
+            try:
+                await client.disconnect()
+            except QMPError as error:
+                raise QmpError(str(error)) from error
 
     async def screendump(self, path: Path, png: bool = True) -> None:
         """Write the screen to *path*, PNG or PPM. QEMU writes the file."""
-        client = await self._connected()
-        await client.execute("screendump", {"filename": str(path), "format": "png" if png else "ppm"})
+        await self._execute("screendump", {"filename": str(path), "format": "png" if png else "ppm"})
 
     async def sendkey(self, keys: str) -> None:
         """Press and release *keys*, in the monitor's ``sendkey`` syntax.
@@ -105,20 +119,17 @@ class Qmp:
         spelling as is, ``ctrl-alt-delete`` and the ``0x0C`` scancodes in
         its character table alike, and holds the keys 100 ms.
         """
-        client = await self._connected()
-        reply = await client.execute("human-monitor-command", {"command-line": f"sendkey {keys}"})
+        reply = await self._execute("human-monitor-command", {"command-line": f"sendkey {keys}"})
         if reply:
             raise QmpError(f"sendkey {keys}: {reply}")
 
     async def input(self, events: list[InputEvent]) -> None:
         """Send ``input-send-event`` events, as one batch."""
-        client = await self._connected()
-        await client.execute("input-send-event", {"events": events})
+        await self._execute("input-send-event", {"events": events})
 
-    @staticmethod
-    async def _actual(client: QMPClient) -> int:
+    async def _actual(self) -> int:
         # qemu.qmp returns `object`; QEMU's query-balloon reply is `{"actual": int, ...}`.
-        reply = cast("dict[str, int]", await client.execute("query-balloon"))
+        reply = cast("dict[str, int]", await self._execute("query-balloon"))
         return int(reply["actual"])
 
     async def balloon(self, delta: int, timeout: float = 60.0) -> None:
@@ -139,16 +150,16 @@ class Qmp:
         quietly rather than raise -- the guest is already where it can be.
         """
         with anyio.fail_after(timeout):
-            client = await self._connected()
-        actual = await self._actual(client)
+            await self._connected()
+        actual = await self._actual()
         target = max(0, actual + delta)
-        await client.execute("balloon", {"value": target})
+        await self._execute("balloon", {"value": target})
 
         deadline = time.monotonic() + timeout
         last, moved_at = actual, time.monotonic()
         while time.monotonic() < deadline:
             await anyio.sleep(0.2)
-            now = await self._actual(client)
+            now = await self._actual()
             if abs(now - target) <= self.SLACK:
                 return
             if now != last:

@@ -43,12 +43,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from . import container, forward, mconsole, qmp, unixpath
+from .capability import Controls, Screen
 from .lifetime import die_with_parent
 from .spec import UplinkProxy
 
 if TYPE_CHECKING:
     from .boot import Boot, Kernel
-    from .machine import Machine, MachineSpec, MemoryControl
+    from .machine import Machine, MachineSpec
 
 
 class BackendError(Exception):
@@ -617,11 +618,9 @@ class Launch:
     """Side processes the guest needs -- virtiofsd, passt -- for the
     backends that do not hide them behind something else.  Killed when the
     guest is torn down, in this order."""
-    memory: Path | None = None
-    """Where this guest answers a request to change its memory: UML's
-    management console, QEMU's monitor. Which of the two it is follows
-    from the backend, and :class:`Machine` asks the backend rather than
-    the path."""
+    controls: Controls = field(default_factory=Controls)
+    """What the guest's process offers beside its agent. With `power`, the
+    guest's CPUs wait for `Machine` to start them."""
     pid_file: Path | None = None
     """Where the guest wrote its own pid, for a backend whose process is
     not the one the runner spawned. UML forks the kernel from the passt
@@ -629,8 +628,6 @@ class Launch:
     cleanup: list[Path] = field(default_factory=list)
     """Directories the backend made outside the run directory, removed when
     the guest is torn down."""
-    paused: bool = False
-    """The guest's CPUs wait for the monitor (`memory`) to start them."""
     agent_path: Path | None = None
     """A socket to connect to for the agent, once it says it is ready, for
     a backend with no serial line to carry the socketpair."""
@@ -678,12 +675,6 @@ class Backend(Protocol):
         boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch: ...
-
-    def memory_control(self, path: Path) -> MemoryControl: ...
-
-    def ocr(self, spec: MachineSpec) -> tuple[Path, Path] | None:
-        """tesseract and magick, for a backend whose guest has a screen."""
-        ...
 
 
 VIRTIO_ID_VSOCK = 19
@@ -763,10 +754,6 @@ class Uml:
     @staticmethod
     def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
         return _with_config(spec, "kernel", str(kernel))
-
-    @staticmethod
-    def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
-        return None
 
     def launch(
         self,
@@ -865,7 +852,7 @@ class Uml:
             argv=argv,
             pass_fds=pass_fds,
             env=env,
-            memory=mconsole.socket_path(uml_dir),
+            controls=Uml._controls(mconsole.socket_path(uml_dir)),
             pid_file=uml_dir / mconsole.UMID / "pid",
             cleanup=cleanup,
             helpers=helpers,
@@ -873,15 +860,16 @@ class Uml:
         )
 
     @staticmethod
-    def memory_control(path: Path) -> mconsole.Mconsole:
-        """The client for `Launch.memory` under this backend.
+    def _controls(path: Path) -> Controls:
+        """The management console at *path*, as a balloon.
 
         The reply comes back with `sendto` to the address the request came
         from, so the client needs a bound path of its own -- beside the
         guest's socket, which is the one directory already known to fit in
         a `sockaddr_un`.
         """
-        return mconsole.Mconsole(path, path.with_name("client"))
+        console = mconsole.Mconsole(path, path.with_name("client"))
+        return Controls(channel=console, balloon=console)
 
     @staticmethod
     def _root(config: UmlConfig, rundir: Path, spec: MachineSpec) -> list[str]:
@@ -963,9 +951,6 @@ class Qemu:
         if disk is not None and disk.kernel is not None:
             return _with_config(spec, "kernel", str(kernel), section="disk")
         raise BackendError(f"{spec.name}: the guest's firmware picks its kernel, so there is none to replace")
-
-    def ocr(self, spec: MachineSpec) -> tuple[Path, Path] | None:
-        return QemuConfig.of(spec).ocr
 
     def launch(
         self,
@@ -1217,9 +1202,8 @@ class Qemu:
             argv=argv,
             pass_fds=pass_fds,
             helpers=helpers,
-            memory=sockets / "qmp",
+            controls=Qemu._controls(spec, sockets / "qmp"),
             cleanup=cleanup,
-            paused=True,
             disk_fds=disk_fds,
             notes=notes,
         )
@@ -1301,16 +1285,21 @@ class Qemu:
             argv=argv,
             pass_fds=pass_fds,
             helpers=helpers,
-            memory=sockets / "qmp",
+            controls=Qemu._controls(spec, sockets / "qmp"),
             cleanup=cleanup,
-            paused=True,
             notes=forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else [],
         )
 
     @staticmethod
-    def memory_control(path: Path) -> qmp.Qmp:
-        """The client for `Launch.memory` under this backend."""
-        return qmp.Qmp(path)
+    def _controls(spec: MachineSpec, path: Path) -> Controls:
+        """The monitor at *path*: the balloon, the power switch and, with `vivarium.display`, the screen.
+
+        One client for all of them: the monitor serves one connection.
+        """
+        monitor = qmp.Qmp(path)
+        shown = spec.display
+        screen = None if shown is None else Screen(monitor, shown.width, shown.height, QemuConfig.of(spec).ocr)
+        return Controls(channel=monitor, balloon=monitor, power=monitor, screen=screen)
 
     @staticmethod
     def _scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
@@ -1603,14 +1592,6 @@ class Krun:
         return replace(spec, boot=replace(boot, kernel=replace(own, vmlinux=kernel)))
 
     @staticmethod
-    def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
-        return None
-
-    @staticmethod
-    def memory_control(path: Path) -> MemoryControl:
-        raise BackendError("a krun guest has no memory control channel")
-
-    @staticmethod
     def _gvproxy(
         gvproxy: Path | None, rundir: Path, spec: MachineSpec, rules: list[forward.Rule]
     ) -> tuple[int, subprocess.Popen[bytes]]:
@@ -1818,16 +1799,8 @@ class Container:
         raise BackendError(f"{spec.name}: a container guest runs on the host's kernel, so there is none to replace")
 
     @staticmethod
-    def ocr(spec: MachineSpec) -> tuple[Path, Path] | None:
-        return None
-
-    @staticmethod
     def rebooted(stop: Stop) -> bool:
         return False
-
-    @staticmethod
-    def memory_control(path: Path) -> MemoryControl:
-        raise BackendError("a container guest has no memory control channel")
 
     def launch(
         self,

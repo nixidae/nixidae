@@ -45,8 +45,9 @@ from anyio.abc import TaskGroup, UNIXSocketStream
 from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connect
 from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
-from . import backend as backends, container, display, forward, mconsole, ocr, qmp, report, storeview, sysctl
+from . import backend as backends, container, display, forward, ocr, report, storeview, sysctl
 from .boot import Boot, BootJson, BootspecJson, Display, DisplayJson
+from .capability import ControlError, Controls, Framebuffer, Power, Screen
 from .control import (
     AGENT,
     NONE,
@@ -451,10 +452,6 @@ OUTPUT_LIMIT = 2000
 error usually is. The whole output still reaches the caller."""
 
 
-type MemoryControl = mconsole.Mconsole | qmp.Qmp
-"""A guest's channel for resizing its memory: UML's console or QEMU's monitor."""
-
-
 def _agent_rpc(conn: AsyncConnection) -> AgentRpc:
     # rpyc reaches the peer's methods by name, so it carries no types.
     return cast(AgentRpc, conn.root)
@@ -555,7 +552,7 @@ class Machine:
         self._conn: AsyncConnection | None = None
         self._helpers: list[sync_subprocess.Popen[bytes]] = []
         self._spare_fds: list[int] = []
-        self._memory: MemoryControl | None = None
+        self._controls = Controls()
         self._pid_file: Path | None = None
         self._cleanup: list[Path] = []
         self._disk_fds: tuple[int, ...] = ()
@@ -703,8 +700,7 @@ class Machine:
         for fd in set(self._disk_fds) - set(launch.disk_fds):
             os.close(fd)
         self._disk_fds = launch.disk_fds
-        if launch.memory is not None:
-            self._memory = self.backend.memory_control(launch.memory)
+        self._controls = launch.controls
         # Fds the backend opened for the child and no longer needs here.
         self._spare_fds = [
             fd
@@ -735,8 +731,8 @@ class Machine:
         self._spare_fds = []
         self.recorder.step(self.name, "launch", f"launch {self.name}", time.monotonic() - started)
         self._monitor = hold(self._tasks, self._pump_console, None, name=f"console of {self.name}")
-        if launch.paused:
-            await self._run_cpus()
+        if launch.controls.power is not None:
+            await self._run_cpus(launch.controls.power)
 
         if self.control_kind not in (AGENT, NONE):
             await self._start_console(find_dialect(self.name, self.spec.control), started)
@@ -807,17 +803,16 @@ class Machine:
         """Did the guest's process end because the guest asked for a reboot?"""
         if self._process is None or self._process.returncode is None:
             return False
-        cause = await self._memory.shutdown_cause() if isinstance(self._memory, qmp.Qmp) else None
+        power = self._controls.power
+        cause = None if power is None else await power.shutdown_cause()
         return self.backend.rebooted(backends.Stop(self._process.returncode, cause))
 
-    async def _run_cpus(self) -> None:
-        """Start the CPUs of a guest that QEMU started stopped: see `Qmp.run`."""
-        if not isinstance(self._memory, qmp.Qmp):
-            raise MachineError(f"[{self.name}] starts stopped, and has no monitor to start it")
+    async def _run_cpus(self, power: Power) -> None:
+        """Start the CPUs of a guest that its backend started stopped."""
         try:
             with anyio.fail_after(self.boot_timeout):
-                await self._memory.run()
-        except (OSError, EOFError, qmp.QmpError, TimeoutError) as error:
+                await power.run()
+        except (OSError, EOFError, ControlError, TimeoutError) as error:
             raise MachineError(f"[{self.name}] the monitor did not start the guest: {error or 'timed out'}") from None
 
     async def _watch(self) -> None:
@@ -1041,13 +1036,13 @@ class Machine:
             self._serial.close()
             self._serial = None
 
-        if self._memory is not None:
-            memory, self._memory = self._memory, None
+        channel, self._controls = self._controls.channel, Controls()
+        if channel is not None:
             # The guest is already gone by here in the ordinary case, and a
             # monitor that cannot be said goodbye to must not stop the rest
             # of the teardown.
-            with contextlib.suppress(OSError, EOFError, mconsole.MconsoleError, qmp.QmpError):
-                await memory.close()
+            with contextlib.suppress(OSError, EOFError, ControlError):
+                await channel.close()
 
         for directory in self._cleanup:
             shutil.rmtree(directory, ignore_errors=True)
@@ -1682,15 +1677,16 @@ class Machine:
         UML and QEMU have a control channel for it; krun and a container
         do not.
         """
-        return self._memory is not None
+        return self._controls.balloon is not None
 
     async def _balloon(self, delta: int) -> None:
-        if self._memory is None:
+        balloon = self._controls.balloon
+        if balloon is None:
             raise MachineError(f"[{self.name}] has no control channel for its memory, so it cannot be resized")
         with self.recorder.waiting(self.name, f"balloon {delta // 1024 // 1024}M"):
             try:
-                await self._memory.balloon(delta)
-            except (mconsole.MconsoleError, qmp.QmpError) as error:
+                await balloon.balloon(delta)
+            except ControlError as error:
                 raise MachineError(f"[{self.name}] {error}") from error
 
     # ── screen ─────────────────────────────────────────────────────
@@ -1702,23 +1698,22 @@ class Machine:
     @property
     def screen_size(self) -> tuple[int, int]:
         """Width and height of this guest's screen, in pixels."""
-        _, size = self._screen()
-        return size
+        screen = self._screen()
+        return screen.width, screen.height
 
-    def _screen(self) -> tuple[qmp.Qmp, tuple[int, int]]:
-        size = self.spec.display
-        if size is None or not isinstance(self._memory, qmp.Qmp):
+    def _screen(self) -> Screen:
+        if (screen := self._controls.screen) is None:
             raise MachineError(
                 f"[{self.name}] has no screen: set `vivarium.display.enable = true`, "
                 f'which needs `vivarium.backend = "qemu"` (this guest is {self.spec.backend})'
             )
-        return self._memory, (size.width, size.height)
+        return screen
 
-    async def _qmp[T](self, call: Callable[[qmp.Qmp], Awaitable[T]]) -> T:
-        monitor, _ = self._screen()
+    async def _on_screen[T](self, call: Callable[[Framebuffer], Awaitable[T]]) -> T:
+        device = self._screen().device
         try:
-            return await call(monitor)
-        except qmp.QmpError as error:
+            return await call(device)
+        except ControlError as error:
             raise MachineError(f"[{self.name}] {error}") from error
 
     async def screenshot(self, name: str | None = None) -> Path:
@@ -1736,7 +1731,7 @@ class Machine:
         if name is None:
             name = f"{len(list(directory.glob('*.png'))):03d}"
         path = directory / (name if "." in name else f"{name}.png")
-        await self._qmp(lambda monitor: monitor.screendump(path))
+        await self._on_screen(lambda device: device.screendump(path))
         return path
 
     async def read_screen(self) -> list[ocr.Screen]:
@@ -1746,12 +1741,13 @@ class Machine:
         Most callers want :meth:`screen_text`, :meth:`find_text` or
         :meth:`wait_for_text` instead.
         """
-        tools = self.backend.ocr(self.spec)
+        screen = self._controls.screen
+        tools = None if screen is None else screen.ocr
         if tools is None or self._rundir is None:
             raise MachineError(f"[{self.name}] has no OCR: it has no `vivarium.display`")
         with tempfile.TemporaryDirectory(dir=self._rundir) as scratch:
             ppm = Path(scratch) / "screen.ppm"
-            await self._qmp(lambda monitor: monitor.screendump(ppm, png=False))
+            await self._on_screen(lambda device: device.screendump(ppm, png=False))
             try:
                 return await ocr.read(ppm, *tools)
             except ocr.OcrError as error:
@@ -1798,7 +1794,7 @@ class Machine:
         ``"ctrl-alt-f2"``, ``"shift-tab"``, ``"meta_l-d"``.
         """
         for key in keys:
-            await self._qmp(lambda monitor, key=key: monitor.sendkey(key))
+            await self._on_screen(lambda device, key=key: device.sendkey(key))
             await anyio.sleep(delay)
 
     async def send_chars(self, text: str, delay: float = 0.01) -> None:
@@ -1807,18 +1803,18 @@ class Machine:
 
     async def move(self, x: int, y: int) -> None:
         """Put the pointer on pixel (*x*, *y*)."""
-        _, (width, height) = self._screen()
+        width, height = self.screen_size
         events = display.move_events(x, y, width, height)
-        await self._qmp(lambda monitor: monitor.input(events))
+        await self._on_screen(lambda device: device.input(events))
 
     async def press(self, button: display.Button | str = display.Button.LEFT) -> None:
         """Hold a pointer button down, where the pointer is."""
         events = display.button_events(display.Button(button), True)
-        await self._qmp(lambda monitor: monitor.input(events))
+        await self._on_screen(lambda device: device.input(events))
 
     async def release(self, button: display.Button | str = display.Button.LEFT) -> None:
         events = display.button_events(display.Button(button), False)
-        await self._qmp(lambda monitor: monitor.input(events))
+        await self._on_screen(lambda device: device.input(events))
 
     async def click(self, x: int, y: int, button: display.Button | str = display.Button.LEFT, count: int = 1) -> None:
         """Click at (*x*, *y*); *count* 2 is a double click."""

@@ -79,7 +79,7 @@ def test_uml_refuses(spec: MachineSpec, says: str) -> None:
 
 
 def test_ocr_follows_the_display_tools() -> None:
-    assert Qemu().ocr(qemu(QEMU)) is None
+    assert QemuConfig.of(qemu(QEMU)).ocr is None
     tools = {"tesseract": "/nix/store/t/bin/tesseract", "magick": "/nix/store/m/bin/magick"}
     assert QemuConfig.of(qemu({**QEMU, **tools})).ocr == (Path(tools["tesseract"]), Path(tools["magick"]))
 
