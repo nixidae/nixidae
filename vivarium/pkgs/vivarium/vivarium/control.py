@@ -588,7 +588,7 @@ class Subject:
     def of(cls, session: Session, spec: Path | None = None) -> Subject:
         return cls(
             name=session.spec.name,
-            guests=tuple(str(machine["name"]) for machine in session.spec.machines),
+            guests=tuple(machine["name"] for machine in session.spec.machines),
             phases=tuple(phase.name for phase in session.spec.phases),
             spec=spec,
         )
@@ -618,7 +618,7 @@ def run_file(
 
 def first_guest(session: Session) -> str | None:
     """The guest a printed `switch` names; the caller edits it as needed."""
-    return next((str(machine["name"]) for machine in session.spec.machines), None)
+    return next((machine["name"] for machine in session.spec.machines), None)
 
 
 def vivarium_command(session: Session) -> Path:

@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from vivarium.spec import Spec, SpecError
+from vivarium_runner.spec import BackendName
+from vivarium_runner.testing import machine_json
 
 
 def write(tmp_path: Path, **fields: object) -> Path:
@@ -26,7 +29,36 @@ class TestAFieldThisRunnerDoesNotKnow:
         with pytest.raises(SpecError, match=r"phases\.0\.retries"):
             Spec.read(path)
 
+    def test_in_a_machine(self, tmp_path: Path) -> None:
+        machine = {**machine_json("one"), "fromTheFuture": 1}
+        with pytest.raises(SpecError, match=r"machines\.0\.fromTheFuture"):
+            Spec.read(write(tmp_path, machines=[machine]))
+
+    def test_deep_in_a_machine(self, tmp_path: Path) -> None:
+        nic = {"name": "eth1", "nic": 1, "segment": "lan", "addresses": [], "mac": "m", "mtu": 1500, "vlan": 7}
+        machine = {**machine_json("one"), "interfaces": [nic]}
+        with pytest.raises(SpecError, match=r"machines\.0\.interfaces\.0\.vlan"):
+            Spec.read(write(tmp_path, machines=[machine]))
+
     def test_a_known_spec_reads(self, tmp_path: Path) -> None:
         spec = Spec.read(write(tmp_path, vivarium="/nix/store/x-vivarium", pythonPath=["/lib"]))
         assert spec.vivarium == Path("/nix/store/x-vivarium")
         assert spec.pythonPath == [Path("/lib")]
+
+
+class TestAFieldTheSpecLacks:
+    def test_is_refused_by_name(self, tmp_path: Path) -> None:
+        machine = {key: value for key, value in machine_json("one").items() if key != "uplinkProxy"}
+        with pytest.raises(SpecError, match=r"lacks fields this runner needs: machines\.0\.uplinkProxy.*older"):
+            Spec.read(write(tmp_path, machines=[machine]))
+
+
+def test_a_closed_value_is_checked(tmp_path: Path) -> None:
+    machine = {**machine_json("one"), "backend": "vm"}
+    with pytest.raises(ValidationError, match=r"machines\.0\.backend"):
+        Spec.read(write(tmp_path, machines=[machine]))
+
+
+def test_a_machine_reads_as_the_runner_types_it(tmp_path: Path) -> None:
+    [machine] = Spec.read(write(tmp_path, machines=[machine_json("one", BackendName.QEMU)])).machines
+    assert machine["backend"] is BackendName.QEMU

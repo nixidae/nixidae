@@ -413,7 +413,7 @@ class Session:
     @property
     def every(self) -> frozenset[str]:
         """Every guest in the run, up or not."""
-        names = {str(machine["name"]) for machine in self.spec.machines}
+        names = {machine["name"] for machine in self.spec.machines}
         return frozenset(names | set(self.vms or ()))
 
     @property
@@ -428,9 +428,8 @@ class Session:
         Raise `SessionError` for an override the run refuses. The CLI calls
         this before the run starts, so a refusal is one line, not a traceback.
         """
-        # The spec holds the JSON Nix wrote; the runner's TypedDict is its shape.
-        machines = cast("list[MachineSpecJson]", self.spec.machines)
-        templates = cast("list[MachineSpecJson]", self.spec.templates)
+        machines = self.spec.machines
+        templates = self.spec.templates
         # One list, so `--cpus NAME=N` finds a guest or a template.
         both = machines + templates
         if self.cpus is not None:

@@ -38,7 +38,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 import anyio
 from anyio.abc import UNIXSocketStream
@@ -62,6 +62,7 @@ from .control import (
 )
 from .lifetime import die_with_parent
 from .net import Lan
+from .spec import BackendName, Seccomp, UplinkProxy, closed
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _CONSOLE_HISTORY = 2000
@@ -79,6 +80,7 @@ _SYSTEMD_TIMEOUT = 60
 command itself 30s, so anything past this is the guest, not systemd."""
 
 
+@closed
 class Display(TypedDict):
     """`boot.display`: the screen's size in pixels."""
 
@@ -86,6 +88,7 @@ class Display(TypedDict):
     height: int
 
 
+@closed
 class EfiBoot(TypedDict):
     """`boot.efi`: OVMF's firmware and variable store, and the ESP image."""
 
@@ -94,6 +97,7 @@ class EfiBoot(TypedDict):
     esp: str
 
 
+@closed
 class BootSpec(TypedDict, total=False):
     """What a guest boots, as Nix wrote it. See ``modules/qemu.nix``."""
 
@@ -117,7 +121,8 @@ class BootloaderSpec(TypedDict):
     toplevel: str
 
 
-class InterfaceJson(TypedDict, total=False):
+@closed
+class InterfaceJson(TypedDict):
     """`Interface` as Nix wrote it."""
 
     name: str
@@ -128,6 +133,7 @@ class InterfaceJson(TypedDict, total=False):
     mtu: int
 
 
+@closed
 class CpuScale(TypedDict):
     """`vivarium.cpus = { scale = s; }`: the host's cores times `s`."""
 
@@ -158,6 +164,7 @@ def resolve_cpus(cpus: Cpus, host: int) -> int:
     return max(1, round(host * cpus["scale"]))
 
 
+@closed
 class MemoryScale(TypedDict):
     """`vivarium.memory = { scale = s; }`: the host's available memory times `s`."""
 
@@ -195,39 +202,45 @@ def resolve_memory(memory: Memory, available_mib: Callable[[], int] = host_avail
     return f"{max(MEMORY_SCALE_FLOOR_MIB, round(available_mib() * memory['scale']))}M"
 
 
-class MachineSpecJson(TypedDict, total=False):
-    """`MachineSpec` as Nix wrote it. See ``mkTest`` in lib.nix."""
+@closed
+class MachineSpecJson(TypedDict):
+    """`MachineSpec` as Nix wrote it: `machineSpec` in lib.nix.
+
+    `vivarium.spec` checks a spec against it with pydantic. A key is
+    `NotRequired` only where lib.nix leaves it out for some guests.
+    """
 
     name: str
-    backend: str
+    backend: BackendName
     kind: str
+    """Open: `nixos`, or a name from `vivarium.kinds`, which a module may add to."""
     index: int
     image: str
     memory: Memory
-    seccomp: str
+    seccomp: Seccomp
     cpus: Cpus
     sshPort: int
     mtu: int
-    network: str
-    address: str
-    store: str
-    storePaths: str
-    lateClosure: str
-    nixStore: str
-    boot: BootSpec
-    systems: SystemsJson
-    launch: LaunchSpecJson
+    network: str | None
+    address: str | None
     control: ControlSpecJson
     interfaces: list[InterfaceJson]
-    uplink: str
-    uplinkProxy: str
-    uplinkAddress: str
+    uplink: str | None
+    uplinkProxy: UplinkProxy
     router: bool
     forward: list[forward.RuleJson]
-    requires: list[str]
+    storePaths: NotRequired[str]
+    lateClosure: NotRequired[str]
+    nixStore: NotRequired[str]
+    boot: NotRequired[BootSpec]
+    systems: NotRequired[SystemsJson]
+    launch: NotRequired[LaunchSpecJson]
+    uplinkAddress: NotRequired[str]
+    requires: NotRequired[list[str]]
 
 
-class SystemsJson(TypedDict, total=False):
+@closed
+class SystemsJson(TypedDict):
     """`Systems` as Nix wrote it."""
 
     toplevel: str
@@ -247,9 +260,10 @@ class Systems:
 
     @classmethod
     def from_json(cls, data: SystemsJson) -> Systems:
-        return cls(toplevel=data.get("toplevel"), configurations=dict(data.get("configurations", {})))
+        return cls(toplevel=data["toplevel"], configurations=dict(data["configurations"]))
 
 
+@closed
 class LaunchSpecJson(TypedDict):
     """`LaunchSpec` as Nix wrote it."""
 
@@ -270,7 +284,7 @@ class LaunchSpec:
 
     @classmethod
     def from_json(cls, data: LaunchSpecJson) -> LaunchSpec:
-        return cls(backend=data["backend"], config=dict(data.get("config", {})))
+        return cls(backend=data["backend"], config=dict(data["config"]))
 
 
 class MachineError(Exception):
@@ -295,7 +309,7 @@ class Interface:
     segment: str
     addresses: tuple[str, ...]
     mac: str
-    mtu: int = 65000
+    mtu: int
     """Its segment's `mtu`, else the guest's `vivarium.mtu`."""
 
     @classmethod
@@ -304,9 +318,9 @@ class Interface:
             name=data["name"],
             nic=data["nic"],
             segment=data["segment"],
-            addresses=tuple(data.get("addresses", [])),
+            addresses=tuple(data["addresses"]),
             mac=data["mac"],
-            mtu=data.get("mtu", 65000),
+            mtu=data["mtu"],
         )
 
 
@@ -315,20 +329,36 @@ class MachineSpec:
     """What Nix knows about a guest; see ``mkTest`` in lib.nix."""
 
     name: str
-    backend: str = "uml"
-    kind: str = "nixos"
+    backend: BackendName
+    kind: str
     """`vivarium.kind`: `nixos`, or the guest kind it imports from `vivarium.kinds`."""
-    index: int = 0
-    image: Path | None = None
-    memory: str = "128M"
+    index: int
+    image: Path
+    memory: str
     """Resolved: `vivarium.memory` against the host's available memory at start."""
-    seccomp: str = "auto"
-    cpus: int = 1
+    seccomp: Seccomp
+    cpus: int
     """Resolved: `vivarium.cpus` against the host's cores at start."""
-    ssh_port: int = 4325
-    mtu: int = 65000
-    network: str | None = None
-    address: str | None = None
+    ssh_port: int
+    mtu: int
+    network: str | None
+    address: str | None
+    control: ControlSpec
+    """`vivarium.control`: the agent, a console dialect, or nothing."""
+    interfaces: tuple[Interface, ...]
+    """The guest's segment links, in NIC order."""
+    uplink: str | None
+    """The segment the uplink (`vec0`, NIC 0) joins instead of passt: an
+    out-of-band management network a peer serves (nixidae/nixidae#958).
+    `None` is passt, the default."""
+    uplink_proxy: UplinkProxy
+    router: bool
+    """The run's router guest (`vivarium.router.enable`): no `vec0`, and
+    vsock to an egress on the host instead (nixidae/nixidae#1404)."""
+    forward: tuple[forward.Rule, ...]
+    """Host-side port forwards.  Addresses in these are still None until
+    :func:`vivarium_runner.forward.resolve` has run over every machine in the
+    run at once, which `vivarium run` does before it boots any."""
     store: str = "/nix"
     """The directory a guest gets as its `/nix`. The runner points it at
     the guest's store view when the spec names `storePaths`."""
@@ -350,68 +380,53 @@ class MachineSpec:
     launch: LaunchSpec | None = None
     """`vivarium.launch`, for a backend that reads its tools from there.
     The backend checks it when the `Machine` is made."""
-    control: ControlSpec = field(default_factory=ControlSpec)
-    """`vivarium.control`: the agent, a console dialect, or nothing."""
-    interfaces: tuple[Interface, ...] = ()
-    """The guest's segment links, in NIC order."""
-    uplink: str | None = None
-    """The segment the uplink (`vec0`, NIC 0) joins instead of passt: an
-    out-of-band management network a peer serves (nixidae/nixidae#958).
-    `None` is passt, the default."""
-    uplink_proxy: str = "passt"
-    """`vivarium.uplink.proxy`: `passt`, `gvproxy`, `router` or `vsock`."""
     uplink_address: str | None = None
     """A guest behind the router: its address there, which the router's
     egress forwards to."""
-    router: bool = False
-    """The run's router guest (`vivarium.router.enable`): no `vec0`, and
-    vsock to an egress on the host instead (nixidae/nixidae#1404)."""
     requires: tuple[str, ...] = ()
     """`vivarium.requires`: the guests this one cannot boot without. The
     session boots them first; the runner does nothing with it."""
-    forward: tuple[forward.Rule, ...] = ()
-    """Host-side port forwards.  Addresses in these are still None until
-    :func:`vivarium_runner.forward.resolve` has run over every machine in the
-    run at once, which `vivarium run` does before it boots any."""
 
     @property
     def vsock(self) -> bool:
         """No `vec0` from the host: the guest's relay reaches an egress over
         vsock. The router does it for its guests; a `vsock` guest for itself,
         unless its uplink joins a segment."""
-        return self.router or (self.uplink_proxy == "vsock" and self.uplink is None)
+        return self.router or (self.uplink_proxy == UplinkProxy.VSOCK and self.uplink is None)
 
     @classmethod
     def from_json(cls, data: MachineSpecJson) -> MachineSpec:
-        image = data.get("image")
+        store_paths = data.get("storePaths")
+        late_closure = data.get("lateClosure")
+        systems = data.get("systems")
+        launch = data.get("launch")
         return cls(
             name=data["name"],
-            backend=data.get("backend", "uml"),
-            kind=data.get("kind", "nixos"),
-            index=data.get("index", 0),
-            image=Path(image) if image else None,
-            memory=resolve_memory(data.get("memory", "128M")),
-            seccomp=data.get("seccomp", "auto"),
-            cpus=resolve_cpus(data.get("cpus", 1), host_cpus()),
-            ssh_port=data.get("sshPort", 4325),
-            mtu=data.get("mtu", 65000),
-            network=data.get("network"),
-            address=data.get("address"),
-            store=data.get("store", "/nix"),
-            store_paths=Path(data["storePaths"]) if data.get("storePaths") else None,
-            late_closure=Path(data["lateClosure"]) if data.get("lateClosure") else None,
+            backend=BackendName(data["backend"]),
+            kind=data["kind"],
+            index=data["index"],
+            image=Path(data["image"]),
+            memory=resolve_memory(data["memory"]),
+            seccomp=Seccomp(data["seccomp"]),
+            cpus=resolve_cpus(data["cpus"], host_cpus()),
+            ssh_port=data["sshPort"],
+            mtu=data["mtu"],
+            network=data["network"],
+            address=data["address"],
+            control=ControlSpec.from_json(data["control"]),
+            interfaces=tuple(Interface.from_json(one) for one in data["interfaces"]),
+            uplink=data["uplink"],
+            uplink_proxy=UplinkProxy(data["uplinkProxy"]),
+            router=data["router"],
+            forward=tuple(forward.Rule.from_json(rule) for rule in data["forward"]),
+            store_paths=Path(store_paths) if store_paths is not None else None,
+            late_closure=Path(late_closure) if late_closure is not None else None,
             nix_store=data.get("nixStore"),
-            requires=tuple(data.get("requires", [])),
+            requires=tuple(data.get("requires", ())),
             boot=data.get("boot", {}),
-            systems=Systems.from_json(data.get("systems", {})),
-            launch=LaunchSpec.from_json(data["launch"]) if "launch" in data else None,
-            control=ControlSpec.from_json(data.get("control", {})),
-            interfaces=tuple(Interface.from_json(one) for one in data.get("interfaces", [])),
-            uplink=data.get("uplink"),
-            uplink_proxy=data.get("uplinkProxy", "passt"),
+            systems=Systems.from_json(systems) if systems is not None else Systems(),
+            launch=LaunchSpec.from_json(launch) if launch is not None else None,
             uplink_address=data.get("uplinkAddress"),
-            router=data.get("router", False),
-            forward=tuple(forward.Rule.from_json(rule) for rule in data.get("forward", [])),
         )
 
     @property
@@ -641,11 +656,11 @@ class Machine:
         if self.spec.store_paths is not None:
             # The two closures share most of their paths, and a view takes each once.
             paths = list(dict.fromkeys([*storeview.read_paths(self.spec.store_paths), *self._late_paths()]))
-            if self.spec.backend == "krun":
+            if self.spec.backend == BackendName.KRUN:
                 self.store_allowlist = self._rundir / "store-allowlist"
                 self.store_allowlist.write_text("".join(f"{path}\n" for path in paths))
             else:
-                view = storeview.build(self._rundir / "nix", paths, writable=self.spec.backend == "container")
+                view = storeview.build(self._rundir / "nix", paths, writable=self.spec.backend == BackendName.CONTAINER)
                 self.spec = replace(self.spec, store=str(view))
         # The session closes its copies of the segment fds once every guest
         # has started, so a guest that boots again needs its own.
@@ -663,7 +678,7 @@ class Machine:
         """Register a closureInfo in the guest's Nix database, if it has one."""
         # A VM's overlay keeps a negative dentry for a name looked up before
         # it existed. A container has no overlay here, and may not drop caches.
-        drop = "" if self.spec.backend == "container" else "echo 2 > /proc/sys/vm/drop_caches && "
+        drop = "" if self.spec.backend == BackendName.CONTAINER else "echo 2 > /proc/sys/vm/drop_caches && "
         nix_store = self.spec.nix_store
         load = "true" if nix_store is None else f"{shlex.quote(nix_store)} --load-db < {shlex.quote(info)}/registration"
         rc, out = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
@@ -1397,7 +1412,7 @@ class Machine:
         closure. Returns the paths that were new to the view."""
         if self.control_kind != AGENT:
             raise MachineError(f"[{self.name}] a {self.control_kind} guest has no store")
-        is_container = self.spec.backend == "container"
+        is_container = self.spec.backend == BackendName.CONTAINER
         added: list[str] = []
         if self.store_allowlist is not None:
             listed = set(storeview.read_paths(self.store_allowlist))
@@ -1536,7 +1551,7 @@ class Machine:
         """
         if self._process is None:
             raise MachineError(f"[{self.name}] is not running")
-        if self.spec.backend == "container":
+        if self.spec.backend == BackendName.CONTAINER:
             # Its own cgroup's count where it has one; the processes'
             # PSS where it has none, which is every uid-range build.
             own = container.own_cgroup_memory_kib(self._process.pid)
@@ -1546,7 +1561,7 @@ class Machine:
                 return container.tree_pss_kib(self._process.pid)
             except RuntimeError as error:
                 raise MachineError(f"[{self.name}] {error}") from error
-        if self.spec.backend == "krun":
+        if self.spec.backend == BackendName.KRUN:
             # libkrun's RAM is anonymous, so there is no file to count. PSS
             # also holds this guest's share of the host page cache it maps
             # through the DAX window, which is the store pages it reads.

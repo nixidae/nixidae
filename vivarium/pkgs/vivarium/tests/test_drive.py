@@ -26,6 +26,7 @@ from vivarium.phases import PhaseState, Stop
 from vivarium.session import Session
 from vivarium.spec import PhaseSpec, SegmentSpec, Spec
 from vivarium_runner import MachineError, Machines
+from vivarium_runner.testing import machine_json
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterator
@@ -343,7 +344,7 @@ class TestBreakpoints:
     async def test_reload_refuses_changed_guests_and_waits_for_a_pause(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
         spec = tmp_path / "spec.json"
-        spec.write_text(Spec(machines=[{"name": "new"}], phases=session.spec.phases).model_dump_json())
+        spec.write_text(Spec(machines=[machine_json("new")], phases=session.spec.phases).model_dump_json())
         socket = tmp_path / SOCKET
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"]))
@@ -514,7 +515,7 @@ def parallel_session(**phases: list[str]) -> FakeSession:
     """Phases on guests `a` and `b`, each on the guests named, all after `boot`."""
     session = FakeSession()
     session.spec = Spec(
-        machines=[{"name": "a"}, {"name": "b"}],
+        machines=[machine_json("a"), machine_json("b")],
         phases=[
             PhaseSpec(name="boot", script=Path("x")),
             *(PhaseSpec(name=name, script=Path("x"), nodes=nodes, after=["boot"]) for name, nodes in phases.items()),

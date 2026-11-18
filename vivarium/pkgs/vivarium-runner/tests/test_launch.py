@@ -13,6 +13,8 @@ import pytest
 from vivarium_runner.agent import virtio_port
 from vivarium_runner.backend import BackendError, Krun, KrunConfig, Qemu, QemuConfig, Uml, UmlConfig
 from vivarium_runner.machine import LaunchSpec, MachineSpec
+from vivarium_runner.spec import BackendName
+from vivarium_runner.testing import machine_json, machine_spec
 
 GOOD = {
     "kernel": "/nix/store/k/linux",
@@ -29,11 +31,11 @@ QEMU = {
 
 def uml(config: Mapping[str, object] | None, backend: str = "uml") -> MachineSpec:
     launch = None if config is None else LaunchSpec(backend, config)
-    return MachineSpec(name="one", backend="uml", launch=launch)
+    return machine_spec("one", launch=launch)
 
 
 def qemu(config: Mapping[str, object]) -> MachineSpec:
-    return MachineSpec(name="q", backend="qemu", launch=LaunchSpec("qemu", config))
+    return machine_spec("q", BackendName.QEMU, launch=LaunchSpec("qemu", config))
 
 
 def test_a_good_config_reads() -> None:
@@ -69,9 +71,10 @@ def test_ocr_needs_both_tools() -> None:
 
 
 def test_from_json_carries_launch() -> None:
-    spec = MachineSpec.from_json({"name": "one", "launch": {"backend": "uml", "config": GOOD}})
-    assert spec.launch == LaunchSpec("uml", GOOD)
-    assert MachineSpec.from_json({"name": "two"}).launch is None
+    data = machine_json("one")
+    data["launch"] = {"backend": "uml", "config": GOOD}
+    assert MachineSpec.from_json(data).launch == LaunchSpec("uml", GOOD)
+    assert MachineSpec.from_json(machine_json("two")).launch is None
 
 
 SEED = {"seed": "/nix/store/s/seed.img", "partition": 3, "init": "/usr/lib/systemd/systemd", "kernelParams": []}
@@ -119,7 +122,7 @@ DIRECT = {"vmlinux": "/nix/store/k/vmlinux", "cmdline": "root=/dev/vda rw init=/
 
 
 def krun(config: Mapping[str, object]) -> MachineSpec:
-    return MachineSpec(name="k", backend="krun", launch=LaunchSpec("krun", config))
+    return machine_spec("k", BackendName.KRUN, launch=LaunchSpec("krun", config))
 
 
 def test_a_krun_boot_reads() -> None:

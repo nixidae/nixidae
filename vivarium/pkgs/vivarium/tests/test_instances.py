@@ -7,11 +7,12 @@ import re
 import pytest
 from vivarium.instances import InstanceError, free_index, instance_spec, seed, shifted
 from vivarium_runner import Interface, MachineSpec
+from vivarium_runner.testing import machine_spec
 
 
 def _template() -> MachineSpec:
-    nic = Interface(name="eth1", nic=1, segment="fleet", addresses=(), mac="52:54:00:12:01:03")
-    return MachineSpec(name="worker", index=3, interfaces=(nic,))
+    nic = Interface(name="eth1", nic=1, segment="fleet", addresses=(), mac="52:54:00:12:01:03", mtu=65000)
+    return machine_spec("worker", index=3, interfaces=(nic,))
 
 
 def test_the_lowest_free_index_from_the_first_comes_back() -> None:

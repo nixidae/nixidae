@@ -13,6 +13,7 @@ from vivarium_runner.machine import (
     resolve_cpus,
     resolve_memory,
 )
+from vivarium_runner.testing import machine_json
 
 
 class TestResolveCpus:
@@ -37,7 +38,9 @@ class TestHostCpus:
 
 
 def test_the_spec_holds_the_resolved_count() -> None:
-    spec = MachineSpec.from_json({"name": "one", "cpus": {"scale": 1}})
+    data = machine_json("one")
+    data["cpus"] = {"scale": 1}
+    spec = MachineSpec.from_json(data)
     assert spec.cpus == host_cpus()
 
 
@@ -59,5 +62,7 @@ class TestResolveMemory:
 
 
 def test_the_spec_holds_the_resolved_memory() -> None:
-    spec = MachineSpec.from_json({"name": "one", "memory": {"scale": 1}})
+    data = machine_json("one")
+    data["memory"] = {"scale": 1}
+    spec = MachineSpec.from_json(data)
     assert spec.memory == f"{max(MEMORY_SCALE_FLOOR_MIB, host_available_mib())}M"

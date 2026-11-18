@@ -690,7 +690,7 @@ async def _schedule(
     paused always means nothing is running, and `run` or `pytest` by hand
     never races a phase. `exec` and `inject` may: the caller asked for it.
     """
-    every = frozenset(str(machine["name"]) for machine in session.spec.machines)
+    every = frozenset(machine["name"] for machine in session.spec.machines)
     running: dict[str, PhaseSpec] = {}
     failed: list[str] = []
     paused_before: set[str] = set()

@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from . import container, forward, mconsole, qmp, unixpath
 from .lifetime import die_with_parent
+from .spec import UplinkProxy
 
 if TYPE_CHECKING:
     from .machine import BootSpec, Machine, MachineSpec, MemoryControl
@@ -1211,7 +1212,7 @@ class Qemu:
         return qmp.Qmp(path)
 
     @staticmethod
-    def _scratch_disk(qemu_img: Path, rundir: Path, image: Path | None, backing: str = "raw") -> tuple[int, int]:
+    def _scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
         """A writable layer over the read-only root image, with no name.
 
         The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
@@ -1228,8 +1229,6 @@ class Qemu:
         picks from the fd set by access mode.  With one it says
         ``Failed to find file descriptor with matching flags=0x0``.
         """
-        if image is None:
-            raise BackendError("this guest has no root image")
         scratch = rundir / "root.qcow2"
         done = subprocess.run(
             [
@@ -1565,7 +1564,7 @@ class Krun:
             elif spec.uplink is not None:
                 uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]
             else:
-                if spec.uplink_proxy == "gvproxy":
+                if spec.uplink_proxy == UplinkProxy.GVPROXY:
                     passt_fd, passt_proc = Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward)
                 else:
                     if config.passt is None:
@@ -1678,9 +1677,6 @@ class Container:
         missing = self.host.missing(tun=bool(lan_fds))
         if missing:
             raise BackendError("this host cannot run a container guest:\n" + "\n".join(f"  {item}" for item in missing))
-        if spec.image is None:
-            raise BackendError(f"{spec.name}: this guest has no root template")
-
         rootfs = rundir / "root"
         shutil.copytree(spec.image, rootfs, symlinks=True)
         # The template is in the store, so every copy is read-only.

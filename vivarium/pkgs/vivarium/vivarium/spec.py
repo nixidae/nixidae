@@ -18,8 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-
-type JsonObject = dict[str, object]
+from vivarium_runner.machine import MachineSpecJson
 
 
 class SpecError(ValueError):
@@ -140,12 +139,13 @@ class Spec(Strict):
     from a store path -- a JUnit suite named after a hash is a suite
     whose name changes every time anything changes."""
 
-    machines: list[JsonObject]
-    """Passed to `vivarium_runner.MachineSpec.from_json` untouched.  Modelling
-    it twice would be two places to change when a backend gains a flag. The
-    runner's `MachineSpecJson` is the shape; pydantic does not check it here."""
+    machines: list[MachineSpecJson]
+    """The runner's own shape, closed: pydantic checks every key and value
+    here, so `MachineSpec.from_json` reads a spec it knows. Only
+    `launch.config` and `control.config` stay open; the backend and the
+    control kind check those."""
 
-    templates: list[JsonObject] = Field(default_factory=list)
+    templates: list[MachineSpecJson] = Field(default_factory=list)
     """`templates.<name>`: guests a phase boots with `vms.launch`, in `machines`' shape."""
 
     segments: dict[str, SegmentSpec] = Field(default_factory=dict)
@@ -167,15 +167,20 @@ class Spec(Strict):
         try:
             return cls.model_validate(raw)
         except ValidationError as error:
-            unknown = [
-                ".".join(str(part) for part in item["loc"])
-                for item in error.errors()
-                if item["type"] == "extra_forbidden"
-            ]
-            if not unknown:
-                raise
-            raise SpecError(
-                f"the spec has fields this runner does not know: {', '.join(unknown)}."
-                " A newer vivarium wrote it; run it with the `vivarium` it"
-                f" names, {raw.get('vivarium') or '(none named)'}"
-            ) from None
+            named = raw.get("vivarium") or "(none named)"
+            if unknown := _fields(error, "extra_forbidden"):
+                raise SpecError(
+                    f"the spec has fields this runner does not know: {', '.join(unknown)}."
+                    f" A newer vivarium wrote it; run it with the `vivarium` it names, {named}"
+                ) from None
+            if missing := _fields(error, "missing"):
+                raise SpecError(
+                    f"the spec lacks fields this runner needs: {', '.join(missing)}."
+                    f" An older vivarium wrote it; run it with the `vivarium` it names, {named}"
+                ) from None
+            raise
+
+
+def _fields(error: ValidationError, kind: str) -> list[str]:
+    """The dotted path of each field *error* reports as *kind*."""
+    return [".".join(str(part) for part in item["loc"]) for item in error.errors() if item["type"] == kind]

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from . import sysctl
+from .spec import closed
 
 _UNPRIVILEGED_START = Path("/proc/sys/net/ipv4/ip_unprivileged_port_start")
 _LOCAL_PORT_RANGE = Path("/proc/sys/net/ipv4/ip_local_port_range")
@@ -44,15 +45,17 @@ class ForwardError(Exception):
     """A forward cannot be set up: a collision, or nowhere to put it."""
 
 
+@closed
 class PortMapJson(TypedDict):
     host: int | None
     guest: int
 
 
-class RuleJson(TypedDict, total=False):
+@closed
+class RuleJson(TypedDict):
     """A `Rule` as Nix wrote it."""
 
-    address: str
+    address: str | None
     ports: list[PortMapJson | int]
     protocols: list[str]
     remapPrivileged: bool
@@ -94,11 +97,11 @@ class Rule:
     @classmethod
     def from_json(cls, data: RuleJson) -> Rule:
         return cls(
-            address=data.get("address"),
-            ports=tuple(PortMap.from_json(port) for port in data.get("ports", [])),
-            protocols=tuple(data.get("protocols", ["tcp"])),
-            remap_privileged=data.get("remapPrivileged", True),
-            privileged_offset=data.get("privilegedOffset", 10000),
+            address=data["address"],
+            ports=tuple(PortMap.from_json(port) for port in data["ports"]),
+            protocols=tuple(data["protocols"]),
+            remap_privileged=data["remapPrivileged"],
+            privileged_offset=data["privilegedOffset"],
         )
 
     def host_ports(self) -> list[int]:

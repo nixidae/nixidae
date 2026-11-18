@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict
 
 import anyio
 
+from .spec import closed
+
 if TYPE_CHECKING:
     from anyio.abc import ByteStream
 
@@ -38,7 +40,8 @@ class ControlError(Exception):
     """A guest's `vivarium.control` names a kind or a field nobody owns."""
 
 
-class ControlSpecJson(TypedDict, total=False):
+@closed
+class ControlSpecJson(TypedDict):
     """`ControlSpec` as Nix wrote it."""
 
     kind: str
@@ -58,7 +61,7 @@ class ControlSpec:
 
     @classmethod
     def from_json(cls, data: ControlSpecJson) -> ControlSpec:
-        return cls(kind=data.get("kind", AGENT), config=dict(data.get("config", {})))
+        return cls(kind=data["kind"], config=dict(data["config"]))
 
 
 def _config(

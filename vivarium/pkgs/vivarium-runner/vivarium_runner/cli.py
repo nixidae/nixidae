@@ -16,8 +16,10 @@ from pathlib import Path
 
 import anyio
 
+from .control import ControlSpec
 from .forward import ForwardError, Rule
 from .machine import LaunchSpec, Machine, MachineError, MachineSpec
+from .spec import BackendName, Seccomp, UplinkProxy
 
 _WATCH_INTERVAL = 1.0
 """How often to ask the guest what it is listening on: the rate pasta
@@ -30,14 +32,14 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--root-image", type=Path, required=True)
     parser.add_argument("--bridge", type=Path, required=True)
     parser.add_argument("--passt", type=Path, required=True)
-    parser.add_argument("--ssh-port", type=int, default=4325)
+    parser.add_argument("--ssh-port", type=int, required=True)
     parser.add_argument(
         "--forward",
-        default="[]",
+        required=True,
         help="JSON list of forward rules, as vivarium.forward generates",
     )
-    parser.add_argument("--mem", default="128M")
-    parser.add_argument("--mtu", type=int, default=65000)
+    parser.add_argument("--mem", required=True)
+    parser.add_argument("--mtu", type=int, required=True)
     parser.add_argument(
         "--command",
         help="run this in the guest, print its output, and power off",
@@ -87,10 +89,22 @@ async def _run(args: argparse.Namespace) -> int:
     machine = Machine(
         MachineSpec(
             name="uml",
+            backend=BackendName.UML,
+            kind="nixos",
+            index=0,
             image=args.root_image,
             memory=args.mem,
+            seccomp=Seccomp.AUTO,
+            cpus=1,
             ssh_port=args.ssh_port,
             mtu=args.mtu,
+            network=None,
+            address=None,
+            control=ControlSpec(),
+            interfaces=(),
+            uplink=None,
+            uplink_proxy=UplinkProxy.PASST,
+            router=False,
             forward=tuple(Rule.from_json(rule) for rule in json.loads(args.forward)),
             launch=LaunchSpec(
                 "uml", {"kernel": str(args.kernel), "bridge": str(args.bridge), "passt": str(args.passt)}
