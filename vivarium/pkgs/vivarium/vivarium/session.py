@@ -176,39 +176,49 @@ def load_phase(script: Path) -> Callable[[Machines], Awaitable[None]]:
     return cast("Callable[[Machines], Awaitable[None]]", test)
 
 
-def with_kernel(machines: list[MachineSpec], kernel: Path) -> list[MachineSpec]:
-    """The machines, booting `kernel` instead of Nix's.
+@dataclass(frozen=True, slots=True)
+class PerGuest[T]:
+    """A run's value for its guests: one guest's own, then `every` for each
+    guest not named. `--cpus`, `--cpu-scale` and `--kernel`."""
+
+    every: T | None = None
+    guests: dict[str, T] = field(default_factory=dict)
+
+    def of(self, guest: str) -> T | None:
+        return self.guests.get(guest, self.every)
+
+    def check(self, names: list[str], what: str) -> None:
+        """Refuse a guest this names and the run lacks."""
+        unknown = sorted(set(self.guests) - set(names))
+        if unknown:
+            raise SessionError(f"no guest {', '.join(unknown)} to give {what}; the guests: {', '.join(names)}")
+
+
+def with_kernel(machines: list[MachineSpec], kernels: PerGuest[Path]) -> list[MachineSpec]:
+    """The machines, booting the run's kernels instead of Nix's.
 
     Each guest's backend knows where its kernel is named, and refuses a
     guest that boots none of its own. Only ever reached from `--kernel`,
     by hand: the check keeps the kernel Nix built.
     """
-    try:
-        return [backends.get(machine.backend).with_kernel(machine, kernel) for machine in machines]
-    except BackendError as error:
-        raise SessionError(f"--kernel: {error}") from error
+    kernels.check([machine.name for machine in machines], "a kernel")
+    out: list[MachineSpec] = []
+    for machine in machines:
+        kernel = kernels.of(machine.name)
+        try:
+            out.append(machine if kernel is None else backends.get(machine.backend).with_kernel(machine, kernel))
+        except BackendError as error:
+            raise SessionError(f"--kernel: {error}") from error
+    return out
 
 
-@dataclass(frozen=True, slots=True)
-class CpuOverride:
-    """`--cpus` and `--cpu-scale` of one run: one guest's own, then `every`
-    for each guest not named. The runner resolves a scale at start."""
-
-    every: Cpus | None = None
-    guests: dict[str, Cpus] = field(default_factory=dict)
-
-
-def with_cpus(machines: list[MachineSpecJson], override: CpuOverride) -> list[MachineSpecJson]:
+def with_cpus(machines: list[MachineSpecJson], override: PerGuest[Cpus]) -> list[MachineSpecJson]:
     """The machines, with the run's processors in place of `vivarium.cpus`.
     A guest the override names and the run lacks is refused."""
-    unknown = sorted(set(override.guests) - {m["name"] for m in machines})
-    if unknown:
-        raise SessionError(
-            f"no guest {', '.join(unknown)} to give processors; the guests: {', '.join(m['name'] for m in machines)}"
-        )
+    override.check([m["name"] for m in machines], "processors")
     out: list[MachineSpecJson] = []
     for machine in machines:
-        cpus = override.guests.get(machine["name"], override.every)
+        cpus = override.of(machine["name"])
         out.append(machine if cpus is None else {**machine, "cpus": cpus})
     return out
 
@@ -224,11 +234,11 @@ class Session:
         offline: bool = False,
         sink: Sink | None = None,
         pytest_args: list[str] | None = None,
-        kernel: Path | None = None,
-        cpus: CpuOverride | None = None,
+        kernel: PerGuest[Path] | None = None,
+        cpus: PerGuest[Cpus] | None = None,
     ) -> None:
         self.spec = spec
-        # A kernel from a working tree, by hand. See `with_kernel`.
+        # Kernels from a working tree, by hand. See `with_kernel`.
         self.kernel = kernel
         self.cpus = cpus
         self.out = out
@@ -470,13 +480,16 @@ class Session:
         if self._all is not None:
             raise SessionError("already prepared")
         specs, templates = self.specs()
-        if self.kernel is not None:
-            self.emit(
-                Kind.NOTE,
-                f"booting {self.kernel}, not the kernel Nix built; this is not the check",
-                level=Level.ERROR,
-                kernel=str(self.kernel),
-            )
+        kernels = self.kernel or PerGuest[Path]()
+        for one in specs:
+            if (kernel := kernels.of(one.name)) is not None:
+                self.emit(
+                    Kind.NOTE,
+                    f"{one.name} boots {kernel}, not the kernel Nix built; this is not the check",
+                    level=Level.ERROR,
+                    machine=one.name,
+                    kernel=str(kernel),
+                )
         self._requires = {one.name: list(one.requires) for one in specs}
 
         # A segment's members are `<machine>/<interface>`: neither name

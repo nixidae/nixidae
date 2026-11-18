@@ -54,7 +54,7 @@ from .events import Kind, Level
 from .exits import Exit, describe
 from .feed import Feed
 from .phases import END, FAILURE, START, PhaseState, Stop, breakpoints, launchable, ready, selected, summarise
-from .session import CpuOverride, Session, SessionError
+from .session import PerGuest, Session, SessionError
 from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import PhaseSpec, Spec, SpecError
 
@@ -92,23 +92,38 @@ def _cpus_value(kind: type[int] | type[float]) -> Callable[[str], tuple[str | No
     return parsed
 
 
-def cpus_of(args: argparse.Namespace) -> CpuOverride | None:
-    """`--cpus` and `--cpu-scale`, each `N` for every guest or `GUEST=N`."""
-    given: list[tuple[str | None, Cpus]] = [*args.cpus, *args.cpu_scale]
-    if not given:
-        return None
-    every: Cpus | None = None
-    guests: dict[str, Cpus] = {}
-    for guest, cpus in given:
+def _kernel_value(value: str) -> tuple[str | None, Path]:
+    """`PATH` for every guest, or `GUEST=PATH` for one. A guest's name has no
+    `/`, so `=` in a path is a path."""
+    guest, sep, path = value.partition("=")
+    if not sep or "/" in guest:
+        return (None, _absolute(value))
+    return (guest, _absolute(path))
+
+
+def _per_guest[T](given: list[tuple[str | None, T]], what: str) -> PerGuest[T] | None:
+    every: T | None = None
+    guests: dict[str, T] = {}
+    for guest, value in given:
         if guest is None:
             if every is not None:
-                raise SystemExit("vivarium: give the processors of every guest once")
-            every = cpus
+                raise SystemExit(f"vivarium: give the {what} of every guest once")
+            every = value
         elif guest in guests:
-            raise SystemExit(f"vivarium: give {guest}'s processors once")
+            raise SystemExit(f"vivarium: give {guest}'s {what} once")
         else:
-            guests[guest] = cpus
-    return CpuOverride(every=every, guests=guests)
+            guests[guest] = value
+    return PerGuest(every=every, guests=guests) if given else None
+
+
+def cpus_of(args: argparse.Namespace) -> PerGuest[Cpus] | None:
+    """`--cpus` and `--cpu-scale`, each `N` for every guest or `GUEST=N`."""
+    return _per_guest([*args.cpus, *args.cpu_scale], "processors")
+
+
+def kernels_of(args: argparse.Namespace) -> PerGuest[Path] | None:
+    """`--kernel`, `PATH` for every guest or `GUEST=PATH`."""
+    return _per_guest(args.kernel, "kernel")
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
@@ -175,13 +190,16 @@ def add_run_options(add: Callable[..., argparse.Action]) -> None:
     )
     add(
         "--kernel",
-        type=_absolute,
-        metavar="PATH",
+        type=_kernel_value,
+        action="append",
+        default=[],
+        metavar="[GUEST=]PATH",
         help=(
-            "boot this kernel instead of the one Nix built: `linux` from a UML"
-            " tree, a bzImage for QEMU, `vmlinux` for krun (virtio built in)."
-            " A container guest refuses it. For iterating on a kernel without"
-            " a Nix build per change; never the check's kernel"
+            "boot this kernel in GUEST, or in every guest not named, instead of"
+            " the one Nix built: `linux` from a UML tree, a bzImage for QEMU,"
+            " `vmlinux` for krun (virtio built in). A container guest refuses"
+            " it. For iterating on a kernel without a Nix build per change;"
+            " never the check's kernel; repeatable"
         ),
     )
     add(
@@ -415,7 +433,7 @@ async def run(args: argparse.Namespace) -> int:
         offline=args.offline,
         sink=sink,
         pytest_args=args.pytest_args,
-        kernel=args.kernel.resolve() if args.kernel else None,
+        kernel=kernels_of(args),
         cpus=cpus_of(args),
     )
     session.emit(Kind.RUN_STARTED, f"output in {args.out}")

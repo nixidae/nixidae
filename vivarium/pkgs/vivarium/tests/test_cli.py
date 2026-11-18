@@ -10,7 +10,8 @@ from vivarium import cli
 from vivarium.cli import parse
 from vivarium.control import Op, Reply
 from vivarium.exits import Exit
-from vivarium.session import CpuOverride
+from vivarium.session import PerGuest
+from vivarium_runner.machine_spec import Cpus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -28,8 +29,12 @@ def test_a_relative_path_becomes_absolute(argv: list[str], tmp_path: Path, monke
     """A guest mounts `<out>/artifacts/<machine>` from another working directory."""
     monkeypatch.chdir(tmp_path)
     args = parse(argv)
-    for name in ("spec", "out", "kernel"):
-        value = getattr(args, name, None)
+    kernels = cli.kernels_of(args) if argv[0] == "run" else None
+    for name, value in (
+        ("spec", getattr(args, "spec", None)),
+        ("out", getattr(args, "out", None)),
+        ("kernel", kernels.every if kernels is not None else None),
+    ):
         if value is not None:
             assert value.is_absolute(), (name, value)
             assert value.is_relative_to(tmp_path), (name, value)
@@ -83,16 +88,39 @@ async def test_ctl_sends_each_reload_directory_absolute(tmp_path: Path, monkeypa
     ("flags", "cpus"),
     [
         ([], None),
-        (["--cpus", "4"], CpuOverride(every=4)),
-        (["--cpu-scale", "0.5"], CpuOverride(every={"scale": 0.5})),
+        (["--cpus", "4"], PerGuest(every=4)),
+        (["--cpu-scale", "0.5"], PerGuest(every={"scale": 0.5})),
         (
             ["--cpus", "2", "--cpus", "db=8", "--cpu-scale", "web=0.5"],
-            CpuOverride(every=2, guests={"db": 8, "web": {"scale": 0.5}}),
+            PerGuest(every=2, guests={"db": 8, "web": {"scale": 0.5}}),
         ),
     ],
 )
-def test_cpus_of_a_run(flags: list[str], cpus: CpuOverride | None) -> None:
+def test_cpus_of_a_run(flags: list[str], cpus: PerGuest[Cpus] | None) -> None:
     assert cli.cpus_of(parse(["run", "--spec", "s.json", "--out", "o", *flags])) == cpus
+
+
+@pytest.mark.parametrize(
+    ("flags", "kernels"),
+    [
+        ([], None),
+        (["--kernel", "/k/linux"], PerGuest(every=Path("/k/linux"))),
+        (["--kernel", "/k/linux", "--kernel", "db=/d/bzImage"], PerGuest(Path("/k/linux"), {"db": Path("/d/bzImage")})),
+        (["--kernel", "/k/a=b/linux"], PerGuest(every=Path("/k/a=b/linux"))),
+    ],
+)
+def test_kernels_of_a_run(flags: list[str], kernels: PerGuest[Path] | None) -> None:
+    assert cli.kernels_of(parse(["run", "--spec", "s.json", "--out", "o", *flags])) == kernels
+
+
+def test_a_relative_kernel_is_made_absolute() -> None:
+    got = cli.kernels_of(parse(["run", "--spec", "s.json", "--out", "o", "--kernel", "db=linux"]))
+    assert got == PerGuest(guests={"db": Path("linux").absolute()})
+
+
+def test_a_guest_s_kernel_is_given_once() -> None:
+    with pytest.raises(SystemExit, match="give db's kernel once"):
+        cli.kernels_of(parse(["run", "--spec", "s.json", "--out", "o", "--kernel", "db=/a", "--kernel", "db=/b"]))
 
 
 @pytest.mark.parametrize(

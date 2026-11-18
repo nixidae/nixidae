@@ -28,6 +28,7 @@ from vivarium_eval.server import (
     ask,
     budgeted,
     build,
+    kernel_flags,
     run_argv,
     select,
     verdict,
@@ -241,6 +242,16 @@ class TestRunArgv:
         # Before `--`: after it, the flag would go to pytest.
         assert argv[argv.index("--kernel") + 1] == "/home/me/linux/linux"
         assert argv.index("--kernel") < argv.index("--")
+
+    def test_a_kernel_per_guest(self) -> None:
+        assert kernel_flags({"db": "/k/linux", "web": "/w/linux"}) == [
+            "--kernel",
+            "db=/k/linux",
+            "--kernel",
+            "web=/w/linux",
+        ]
+        assert kernel_flags("linux") == ["--kernel", str(Path("linux").absolute())]
+        assert kernel_flags(None) == []
 
     def _cpus_argv(
         self, out: Path, cpus: int | dict[str, int] | None, cpu_scale: float | dict[str, float] | None

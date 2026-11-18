@@ -197,6 +197,17 @@ def cpu_flags(cpus: int | dict[str, int] | None, cpu_scale: float | dict[str, fl
     return flags
 
 
+def kernel_flags(kernel: str | dict[str, str] | None) -> list[str]:
+    """`--kernel` for the run: a path is every guest not named, a mapping one
+    kernel per guest. Each path is made absolute here, in the caller's
+    directory."""
+    flags: list[str] = []
+    for guest, path in ({None: kernel} if isinstance(kernel, str) else kernel or {}).items():
+        absolute = str(Path(path).absolute())
+        flags += ["--kernel", absolute if guest is None else f"{guest}={absolute}"]
+    return flags
+
+
 def run_argv(
     *,
     out: Path,
@@ -209,7 +220,7 @@ def run_argv(
     offline: bool,
     pytest_args: list[str],
     runner: Path | None = None,
-    kernel: str | None = None,
+    kernel: str | dict[str, str] | None = None,
     cpus: int | dict[str, int] | None = None,
     cpu_scale: float | dict[str, float] | None = None,
     hold: bool = False,
@@ -238,8 +249,7 @@ def run_argv(
         argv.append("--offline")
     if hold:
         argv.append("--hold")
-    if kernel is not None:
-        argv += ["--kernel", kernel]
+    argv += kernel_flags(kernel)
     argv += cpu_flags(cpus, cpu_scale)
     if pytest_args:
         argv += ["--", *pytest_args]
@@ -693,7 +703,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         offline: bool = False,
         pytest_args: list[str] | None = None,
         env: dict[str, str] | None = None,
-        kernel: str | None = None,
+        kernel: str | dict[str, str] | None = None,
         cpus: int | dict[str, int] | None = None,
         cpu_scale: float | dict[str, float] | None = None,
         hold: bool = False,
@@ -706,7 +716,8 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         `break_on_failure` pauses on a failed phase. `env` is added to the
         run's environment, which the evaluation reads: a knob's variable.
         `kernel` boots a kernel from a working tree instead of Nix's:
-        `linux` from a UML build, or a bzImage with virtio built in.
+        `linux` from a UML build, or a bzImage with virtio built in; a path
+        is every guest, `{"db": path}` one guest.
         `cpus` is a processor count, `cpu_scale` a share of the host's
         cores (0.5 is half); a number is every guest, `{"db": 8}` one
         guest. Either replaces `vivarium.cpus` for this run.
@@ -732,7 +743,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             offline=offline,
             pytest_args=pytest_args or [],
             runner=Path(written["vivarium"]) if written.get("vivarium") else None,
-            kernel=str(Path(kernel).absolute()) if kernel else None,
+            kernel=kernel,
             cpus=cpus,
             cpu_scale=cpu_scale,
             hold=hold,
