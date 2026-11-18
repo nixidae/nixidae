@@ -1129,6 +1129,9 @@ class Qemu:
             # makes it current: measured, every `abs` event went to it and
             # the tablet saw none.
             argv[argv.index("-machine") + 1] += ",vmport=off"
+        if firmware is not None and firmware.smm:
+            argv[argv.index("-machine") + 1] += ",smm=on"
+            argv += ["-global", "driver=cfi.pflash01,property=secure,value=on"]
         if art_fd is not None:
             argv += [
                 "-chardev",

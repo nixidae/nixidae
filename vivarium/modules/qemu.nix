@@ -37,6 +37,7 @@ let
   # libkrun 2.0 describes an x86 guest's devices in ACPI on request, and
   # ends on the guest's S5. Its ACPI tables are x86 only.
   krunAcpi = krun && pkgs.stdenv.hostPlatform.isx86_64;
+  ovmf = if cfg.secureBoot then pkgs.OVMFFull else pkgs.OVMF;
 
   hex = n: (lib.optionalString (n < 16) "0") + lib.toHexString n;
 
@@ -469,9 +470,12 @@ lib.mkIf
       firmware =
         if cfg.efi then
           {
-            code = "${pkgs.OVMF.firmware}";
-            variables = "${pkgs.OVMF.variables}";
+            code = "${ovmf.firmware}";
+            # The empty store: with no keys, Secure Boot firmware is in
+            # Setup Mode. `variablesMs` would enroll Microsoft's.
+            variables = "${ovmf.variables}";
             esp = "${config.system.build.vivariumEspImage}";
+            smm = ovmf.systemManagementModeRequired;
           }
         else
           null;

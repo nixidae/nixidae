@@ -471,6 +471,17 @@ in
       '';
     };
 
+    secureBoot = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Give a `vivarium.efi` guest firmware with Secure Boot: OVMFFull,
+        with System Management Mode on. The variable store starts empty,
+        so the firmware is in Setup Mode and enforces nothing until the
+        guest enrolls its own keys. The keys last as long as the run.
+      '';
+    };
+
     display = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -803,6 +814,11 @@ in
                       type = lib.types.str;
                       description = "The EFI system partition's image.";
                     };
+                    smm = lib.mkOption {
+                      type = lib.types.bool;
+                      default = false;
+                      description = "The firmware needs System Management Mode and a secure variable store, as Secure Boot firmware does.";
+                    };
                   };
                 }
               );
@@ -1103,6 +1119,10 @@ in
           vivarium.efi needs `backend = "qemu"`: OVMF is QEMU's firmware, and a
           ${config.vivarium.backend} guest boots without firmware.
         '';
+      }
+      {
+        assertion = config.vivarium.secureBoot -> config.vivarium.efi;
+        message = "vivarium.secureBoot needs vivarium.efi: Secure Boot is a property of the firmware.";
       }
       {
         assertion = config.vivarium.display.enable -> config.vivarium.backend == "qemu";

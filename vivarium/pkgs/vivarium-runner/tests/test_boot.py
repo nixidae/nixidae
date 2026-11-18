@@ -50,6 +50,6 @@ def test_another_kernel_drops_the_elf() -> None:
 
 
 def test_firmware_picks_after_the_first_boot() -> None:
-    firmware = Firmware(code=Path("/c"), variables=Path("/v"), esp=Path("/e"))
+    firmware = Firmware(code=Path("/c"), variables=Path("/v"), esp=Path("/e"), smm=False)
     after = replace(FIRST, firmware=firmware).rebooted(chosen())
     assert after == Boot(system=None, kernel=None, firmware=firmware)

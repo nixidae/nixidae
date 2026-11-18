@@ -146,7 +146,7 @@ def test_a_krun_config_reads() -> None:
     Krun.validate(krun(KRUN))
 
 
-FIRMWARE = Firmware(code=Path("/c"), variables=Path("/v"), esp=Path("/e"))
+FIRMWARE = Firmware(code=Path("/c"), variables=Path("/v"), esp=Path("/e"), smm=False)
 
 
 @pytest.mark.parametrize(

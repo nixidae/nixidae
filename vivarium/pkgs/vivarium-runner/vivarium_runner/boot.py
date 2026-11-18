@@ -31,6 +31,7 @@ class FirmwareJson(TypedDict):
     code: str
     variables: str
     esp: str
+    smm: bool
 
 
 @closed
@@ -93,10 +94,19 @@ class Firmware:
     variables: Path
     """Copied once per run: the copy outlives each reboot, as NVRAM does."""
     esp: Path
+    smm: bool
+    """The code runs only with System Management Mode, and only SMM code
+    may write the variable store. Secure Boot firmware needs this, so that
+    the guest's OS cannot write the Secure Boot keys directly."""
 
     @classmethod
     def from_json(cls, data: FirmwareJson) -> Firmware:
-        return cls(code=Path(data["code"]), variables=Path(data["variables"]), esp=Path(data["esp"]))
+        return cls(
+            code=Path(data["code"]),
+            variables=Path(data["variables"]),
+            esp=Path(data["esp"]),
+            smm=data["smm"],
+        )
 
 
 @dataclass(frozen=True)
