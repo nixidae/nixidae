@@ -82,7 +82,14 @@ class ConsoleLines:
             await self._stdout.wait()
 
     async def stop(self) -> None:
-        """End the pumps of this boot. The lines stay."""
+        """End the pumps of this boot, once the guest process is gone. The lines stay.
+
+        Stdout is read to its end first, for `EXIT_DRAIN` at most: the last
+        line can still be in the pipe, and a UML guest's bridge writes its
+        exit status there after the kernel exits.
+        """
+        with anyio.move_on_after(EXIT_DRAIN):
+            await self.drained()
         for task in (self._stdout, self._serial):
             if task is not None:
                 await task.stop()

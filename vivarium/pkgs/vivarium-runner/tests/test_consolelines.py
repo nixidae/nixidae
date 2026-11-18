@@ -146,3 +146,38 @@ def test_stop_keeps_the_lines_and_reset_drops_them() -> None:
             await console.wait_for(READY, checkpoint)
 
     run(main)
+
+
+def test_stop_reads_the_last_line_still_in_the_pipe() -> None:
+    """A UML bridge writes the kernel's exit status after the kernel exits."""
+    console = ConsoleLines()
+
+    async def main() -> None:
+        guest, host = socket.socketpair()
+        stream = await UNIXSocketStream.from_socket(host)
+        async with anyio.create_task_group() as tasks:
+            console.start(tasks, stream, "console")
+            with guest:
+                guest.sendall(b"the kernel exited (0)\n")
+            await console.stop()
+        await stream.aclose()
+
+    run(main)
+    assert console.tail() == ["the kernel exited (0)"]
+
+
+def test_stop_ends_when_a_pipe_stays_open() -> None:
+    """A process the guest started can hold the pipe open past the exit."""
+    console = ConsoleLines()
+
+    async def main() -> None:
+        guest, host = socket.socketpair()
+        stream = await UNIXSocketStream.from_socket(host)
+        with guest:
+            async with anyio.create_task_group() as tasks:
+                console.start(tasks, stream, "console")
+                with anyio.fail_after(5):
+                    await console.stop()
+        await stream.aclose()
+
+    run(main)
