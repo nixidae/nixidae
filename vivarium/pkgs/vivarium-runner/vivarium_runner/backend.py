@@ -153,6 +153,21 @@ class QemuDisk:
 
 
 @dataclass(frozen=True)
+class BlankDisk:
+    """One of `launch.config.disks` under QEMU: an empty raw disk that lasts the run."""
+
+    name: str
+    """The disk's serial, so the guest finds it as /dev/disk/by-id/virtio-<name>."""
+    size: int
+    """In MiB."""
+
+    @classmethod
+    def of(cls, owner: str, value: object) -> BlankDisk:
+        disk = _section(owner, value, frozenset({"name", "size"}))
+        return cls(name=str(disk["name"]), size=int(disk["size"]))
+
+
+@dataclass(frozen=True)
 class UmlConfig:
     """`vivarium.launch.config` under UML."""
 
@@ -204,6 +219,7 @@ class QemuConfig:
     """The router's host half, which serves its vhost-user vsock device."""
     swtpm: Path | None = None
     """A TPM 2.0 for the guest: `vivarium.tpm`."""
+    disks: tuple[BlankDisk, ...] = ()
 
     @classmethod
     def of(cls, spec: MachineSpec) -> QemuConfig:
@@ -211,13 +227,14 @@ class QemuConfig:
             spec,
             "qemu",
             frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}),
-            frozenset({"tesseract", "magick", "disk", "egress", "swtpm"}),
+            frozenset({"tesseract", "magick", "disk", "egress", "swtpm", "disks"}),
         )
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         tesseract, magick = _maybe(config, "tesseract"), _maybe(config, "magick")
         if (tesseract is None) != (magick is None):
             raise BackendError(f"{spec.name}: vivarium.launch.config names one of tesseract and magick; OCR needs both")
+        disks = f"{spec.name}: vivarium.launch.config.disks"
         return cls(
             qemu=_path(config, "qemu"),
             qemu_img=_path(config, "qemuImg"),
@@ -227,6 +244,10 @@ class QemuConfig:
             disk=QemuDisk.of(f"{spec.name}: vivarium.launch.config.disk", config["disk"]) if "disk" in config else None,
             egress=_maybe(config, "egress"),
             swtpm=_maybe(config, "swtpm"),
+            disks=tuple(
+                BlankDisk.of(f"{disks}.{index}", disk)
+                for index, disk in enumerate(_list(disks, config.get("disks", [])))
+            ),
         )
 
 
@@ -295,6 +316,12 @@ def _with_config(spec: MachineSpec, key: str, value: str, section: str | None = 
 
 def _path(config: Mapping[str, object], key: str) -> Path:
     return Path(str(config[key]))
+
+
+def _list(owner: str, value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise BackendError(f"{owner} is not a list")
+    return value
 
 
 def _maybe(config: Mapping[str, object], key: str) -> Path | None:
@@ -500,6 +527,32 @@ def _abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) 
             helper.wait()
     for fd in opened:
         os.close(fd)
+
+
+def _drive_args(disk_fds: tuple[int, ...], drives: list[tuple[str, str | None]]) -> list[str]:
+    """QEMU's arguments for each *drive*, a format and a serial, on its pair of *disk_fds*.
+
+    By fd rather than by name -- see `Qemu._scratch_disk`. Two fds in each
+    set, because QEMU opens an image O_RDONLY to probe its format before it
+    opens it O_RDWR, and takes the fd whose access mode matches.
+
+    Each drive is an explicit `-device`, so the guest numbers them in this
+    order, and the root is /dev/vda, the name `fileSystems."/"` gives it.
+    """
+    args: list[str] = []
+    for index, (form, serial) in enumerate(drives):
+        fdset = index + 1
+        args += [
+            "-add-fd",
+            f"fd={disk_fds[2 * index]},set={fdset}",
+            "-add-fd",
+            f"fd={disk_fds[2 * index + 1]},set={fdset}",
+            "-drive",
+            f"file=/dev/fdset/{fdset},if=none,id=drive{index},format={form}",
+            "-device",
+            f"virtio-blk-pci,drive=drive{index}" + (f",serial={serial}" if serial is not None else ""),
+        ]
+    return args
 
 
 def _monitor(path: Path) -> int:
@@ -1002,6 +1055,11 @@ class Qemu:
         if boot is None:
             raise BackendError(f"{spec.name}: no vivarium.boot")
         firmware = boot.firmware
+        # The root first, so it is /dev/vda: then the ESP, then the blank disks.
+        drives: list[tuple[str, str | None]] = [("qcow2", None)]
+        if firmware is not None:
+            drives.append(("qcow2", None))
+        drives += [("raw", disk.name) for disk in config.disks]
         if disk_fds:
             disk_fds = tuple(
                 os.open(f"/proc/self/fd/{fd}", flags)
@@ -1015,6 +1073,12 @@ class Qemu:
                 esp_fds = self._scratch_disk(config.qemu_img, rundir, firmware.esp, backing="qcow2")
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
+            for disk in config.disks:
+                blank_fds = self._blank_disk(rundir, disk)
+                opened.extend(blank_fds)
+                disk_fds += blank_fds
+        if len(disk_fds) != 2 * len(drives):
+            raise BackendError(f"{spec.name}: {len(disk_fds)} disk fds for {len(drives)} disks")
 
         tpm_fd: int | None = None
         if config.swtpm is not None:
@@ -1062,16 +1126,7 @@ class Qemu:
             # virtiofsd connects and every read returns nothing.
             "-object",
             f"memory-backend-memfd,id=guest-memory,size={spec.memory},share=on",
-            # The root, as /dev/vda, by fd rather than by name -- see
-            # _scratch_disk. Two fds in the set because QEMU opens an
-            # image O_RDONLY to probe its format before reopening it
-            # O_RDWR, and matches the set on the access mode.
-            "-add-fd",
-            f"fd={disk_fds[0]},set=1",
-            "-add-fd",
-            f"fd={disk_fds[1]},set=1",
-            "-drive",
-            "file=/dev/fdset/1,if=virtio,format=qcow2",
+            *_drive_args(disk_fds, drives),
             # The console, read by Machine._pump_console.
             "-serial",
             "stdio",
@@ -1115,12 +1170,6 @@ class Qemu:
                 f"if=pflash,format=raw,unit=0,readonly=on,file={firmware.code}",
                 "-drive",
                 f"if=pflash,format=raw,unit=1,file={variables}",
-                "-add-fd",
-                f"fd={disk_fds[2]},set=2",
-                "-add-fd",
-                f"fd={disk_fds[3]},set=2",
-                "-drive",
-                "file=/dev/fdset/2,if=virtio,format=qcow2",
             ]
         if (display := spec.display) is not None:
             argv += [
@@ -1307,6 +1356,24 @@ class Qemu:
         fds = (os.open(scratch, os.O_RDWR), os.open(scratch, os.O_RDONLY))
         scratch.unlink()
         return fds
+
+    @staticmethod
+    def _blank_disk(rundir: Path, disk: BlankDisk) -> tuple[int, int]:
+        """An empty raw disk of *disk*'s size, unlinked as `_scratch_disk`'s is.
+
+        Sparse, so the host pays only for the blocks the guest writes.
+        """
+        path = rundir / f"disk-{disk.name}.raw"
+        rw = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.ftruncate(rw, disk.size << 20)
+            ro = os.open(path, os.O_RDONLY)
+        except BaseException:
+            os.close(rw)
+            raise
+        finally:
+            path.unlink()
+        return rw, ro
 
     @staticmethod
     def _virtiofsd(virtiofsd: Path, rundir: Path, socket_name: str, shared: str) -> tuple[int, subprocess.Popen[bytes]]:

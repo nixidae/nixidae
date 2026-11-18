@@ -495,6 +495,38 @@ in
       '';
     };
 
+    disks = lib.mkOption {
+      type = lib.types.listOf (
+        lib.types.submodule {
+          options = {
+            name = lib.mkOption {
+              # virtio-blk keeps 20 bytes of a serial.
+              type = lib.types.strMatching "[A-Za-z0-9_-]{1,20}";
+              description = "The disk's serial: the guest finds it as `/dev/disk/by-id/virtio-<name>`.";
+            };
+            size = lib.mkOption {
+              type = lib.types.ints.positive;
+              description = "The disk's size in MiB.";
+            };
+          };
+        }
+      );
+      default = [ ];
+      example = [
+        {
+          name = "data";
+          size = 1024;
+        }
+      ];
+      description = ''
+        Empty raw disks for the guest, after its own. QEMU backend only.
+
+        Each disk lasts as long as the run: a reboot keeps what the guest
+        wrote. The host pays only for the blocks the guest writes. The
+        initrd sees each disk, so a guest can unlock LUKS on one in stage 1.
+      '';
+    };
+
     display = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -1137,6 +1169,20 @@ in
         assertion =
           config.vivarium.tpm.enable -> config.vivarium.backend == "qemu" && config.vivarium.kind == "nixos";
         message = "vivarium.tpm needs `backend = \"qemu\"` and a NixOS guest: swtpm is a QEMU device.";
+      }
+      {
+        assertion =
+          config.vivarium.disks != [ ]
+          -> config.vivarium.backend == "qemu" && config.vivarium.kind == "nixos";
+        message = "vivarium.disks needs `backend = \"qemu\"` and a NixOS guest.";
+      }
+      {
+        assertion =
+          let
+            names = map (disk: disk.name) config.vivarium.disks;
+          in
+          names == lib.unique names;
+        message = "vivarium.disks: two disks of one guest with one name.";
       }
       {
         assertion = config.vivarium.secureBoot -> config.vivarium.efi;

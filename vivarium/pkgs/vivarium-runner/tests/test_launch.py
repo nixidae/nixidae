@@ -11,7 +11,18 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from vivarium_runner.backend import BackendError, Container, Krun, KrunConfig, Qemu, QemuConfig, Uml, UmlConfig
+from vivarium_runner.backend import (
+    BackendError,
+    BlankDisk,
+    Container,
+    Krun,
+    KrunConfig,
+    Qemu,
+    QemuConfig,
+    Uml,
+    UmlConfig,
+    _drive_args,
+)
 from vivarium_runner.boot import Boot, Firmware, Kernel
 from vivarium_runner.machine import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName
@@ -118,6 +129,32 @@ def test_uml_refuses_a_bad_root(root: dict[str, object], says: str) -> None:
 def test_qemu_refuses_a_bad_disk(disk: dict[str, object], says: str) -> None:
     with pytest.raises(BackendError, match=says):
         Qemu().validate(qemu({**QEMU, "disk": disk}))
+
+
+def test_blank_disks_read() -> None:
+    config = QemuConfig.of(qemu({**QEMU, "disks": [{"name": "secret", "size": 64}]}))
+    assert config.disks == (BlankDisk(name="secret", size=64),)
+    assert QemuConfig.of(qemu(QEMU)).disks == ()
+
+
+@pytest.mark.parametrize(
+    ("disks", "says"),
+    [
+        ({"name": "secret", "size": 64}, "q: vivarium.launch.config.disks is not a list"),
+        ([{"name": "secret"}], "q: vivarium.launch.config.disks.0 lacks fields the backend needs: size"),
+    ],
+)
+def test_qemu_refuses_bad_blank_disks(disks: object, says: str) -> None:
+    with pytest.raises(BackendError, match=says):
+        Qemu().validate(qemu({**QEMU, "disks": disks}))
+
+
+def test_the_root_is_the_first_drive_and_only_blank_disks_have_a_serial() -> None:
+    args = _drive_args((10, 11, 12, 13), [("qcow2", None), ("raw", "secret")])
+    devices = [args[i + 1] for i, arg in enumerate(args) if arg == "-device"]
+    assert devices == ["virtio-blk-pci,drive=drive0", "virtio-blk-pci,drive=drive1,serial=secret"]
+    assert "file=/dev/fdset/1,if=none,id=drive0,format=qcow2" in args
+    assert args[8:12] == ["-add-fd", "fd=12,set=2", "-add-fd", "fd=13,set=2"]
 
 
 def test_a_disk_reads() -> None:

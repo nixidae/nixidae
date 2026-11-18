@@ -103,7 +103,10 @@ lib.mkIf
               ;
           }
           // lib.optionalAttrs cfg.display.enable { inherit (tools) tesseract magick; }
-          // lib.optionalAttrs cfg.tpm.enable { inherit (tools) swtpm; };
+          // lib.optionalAttrs cfg.tpm.enable { inherit (tools) swtpm; }
+          // lib.optionalAttrs (cfg.disks != [ ]) {
+            disks = map (disk: { inherit (disk) name size; }) cfg.disks;
+          };
         };
 
     /*
