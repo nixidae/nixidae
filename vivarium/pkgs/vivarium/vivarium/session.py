@@ -55,11 +55,13 @@ from .cloud import Cloud, CloudService
 from .events import Event, Kind, Level
 from .instances import InstanceError, free_index, instance_spec, seed
 from .phases import (
+    VERDICT,
     PhaseState,
     PhaseTimeout,
     Reloaded,
     ReloadRefused,
     Stop,
+    Verdict,
     guests,
     passed,
     reloaded,
@@ -1036,24 +1038,8 @@ class Session:
         """
         self.out.mkdir(parents=True, exist_ok=True)
         (self.out / "status").write_text("0\n" if self.passed else "1\n")
-        (self.out / "phases.json").write_text(
-            json.dumps(
-                {
-                    "passed": self.passed,
-                    "stopped": None if self.stopped is None else self.stopped.reason,
-                    "phases": [
-                        {
-                            "name": name,
-                            "state": str(state),
-                            "error": self.errors.get(name),
-                        }
-                        for name, state in self.state.items()
-                    ],
-                },
-                indent=2,
-            )
-            + "\n"
-        )
+        stopped = None if self.stopped is None else self.stopped.reason
+        (self.out / VERDICT).write_text(Verdict.of(self.state, self.errors, stopped).to_json())
         self.write_report()
         verdict = "passed" if self.passed else "failed"
         if self.stopped is not None:

@@ -18,9 +18,10 @@ is a list of names and not an order number.  See
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from .exits import Exit
 
@@ -277,6 +278,61 @@ def passed(state: dict[str, PhaseState]) -> bool:
     sandboxed check never does, so this cannot make CI green.
     """
     return all(value in (PhaseState.PASSED, PhaseState.DESELECTED) for value in state.values())
+
+
+VERDICT: Final = "phases.json"
+"""The file in `--out` that holds a `Verdict`."""
+
+
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    """One phase in `phases.json`."""
+
+    name: str
+    state: PhaseState
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Verdict:
+    """`phases.json`: what each phase did. The run writes it with its verdict."""
+
+    passed: bool
+    stopped: str | None
+    """Why the run stopped before its verdict, or `None`."""
+    phases: tuple[Outcome, ...]
+
+    @classmethod
+    def of(cls, state: dict[str, PhaseState], errors: dict[str, str], stopped: str | None) -> Verdict:
+        return cls(
+            passed=stopped is None and passed(state),
+            stopped=stopped,
+            phases=tuple(Outcome(name, value, errors.get(name)) for name, value in state.items()),
+        )
+
+    def to_json(self) -> str:
+        document = {
+            "passed": self.passed,
+            "stopped": self.stopped,
+            "phases": [{"name": o.name, "state": str(o.state), "error": o.error} for o in self.phases],
+        }
+        return json.dumps(document, indent=2) + "\n"
+
+    @classmethod
+    def from_json(cls, text: str) -> Verdict:
+        """Raises ValueError on anything that is not a verdict."""
+        try:
+            raw = json.loads(text)
+            return cls(
+                passed=bool(raw["passed"]),
+                stopped=None if raw["stopped"] is None else str(raw["stopped"]),
+                phases=tuple(
+                    Outcome(str(p["name"]), PhaseState(p["state"]), None if p["error"] is None else str(p["error"]))
+                    for p in raw["phases"]
+                ),
+            )
+        except (KeyError, TypeError) as error:
+            raise ValueError(f"not a verdict: {error!r}") from error
 
 
 class ReloadRefused(ValueError):

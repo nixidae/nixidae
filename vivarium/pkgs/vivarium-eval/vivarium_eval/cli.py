@@ -47,6 +47,7 @@ from huggorm.errors import NixError
 from huggorm_bindings import DerivedPathBuilt, OutputsSpec
 from vivarium import access, cli as runner_cli, control, monitor, registry
 from vivarium.exits import Exit, describe
+from vivarium.phases import VERDICT, Verdict
 
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
@@ -552,7 +553,7 @@ def not_ready(code: int, out: Path) -> str:
     still has its socket to answer `ctl state`; an ended one left files."""
     if code == Exit.PAUSED:
         return f"the environment is not ready, it paused; `vivarium ctl --out {out} state` says why"
-    return f"the environment is not ready (monitor exit {code}); see {out / LOG} and {out / 'phases.json'}"
+    return f"the environment is not ready (monitor exit {code}); see {out / LOG} and {out / VERDICT}"
 
 
 def child_args(argv: list[str]) -> list[str]:
@@ -591,15 +592,15 @@ async def down(out: Path) -> Exit:
         say(f"the run did not exit within {runner_cli.STOP_WAIT:g}s of stop")
         return Exit.FAILED
     try:
-        verdict = json.loads(await anyio.Path(out / "phases.json").read_text())
-    except (OSError, json.JSONDecodeError) as error:
-        say(f"the run left no verdict in {out / 'phases.json'}: {error}")
+        verdict = Verdict.from_json(await anyio.Path(out / VERDICT).read_text())
+    except (OSError, ValueError) as error:
+        say(f"the run left no verdict in {out / VERDICT}: {error}")
         return Exit.NO_VERDICT
-    if verdict.get("stopped"):
-        say(f"down; stopped before it was ready ({verdict['stopped']})")
+    if verdict.stopped is not None:
+        say(f"down; stopped before it was ready ({verdict.stopped})")
         return Exit.STOPPED
-    say("down" if verdict.get("passed") else "down; a phase failed")
-    return Exit.PASSED if verdict.get("passed") else Exit.FAILED
+    say("down" if verdict.passed else "down; a phase failed")
+    return Exit.PASSED if verdict.passed else Exit.FAILED
 
 
 async def listing(as_json: bool) -> int:

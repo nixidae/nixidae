@@ -8,13 +8,16 @@ where those two disagree with this.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import ClassVar
 
 import pytest
 from vivarium.phases import (
+    Outcome,
     PhaseState,
     ReloadRefused,
+    Verdict,
     breakpoints,
     dependents,
     guests,
@@ -383,3 +386,32 @@ class TestReload:
 
     def test_nothing_changed(self) -> None:
         assert reloaded([phase("a")], [phase("a")], {"a": PhaseState.PENDING}).describe() == "no phase changed"
+
+
+class TestVerdict:
+    STATE: ClassVar = {"boot": PhaseState.PASSED, "check": PhaseState.FAILED, "after": PhaseState.SKIPPED}
+
+    def test_round_trip(self) -> None:
+        verdict = Verdict.of(self.STATE, {"check": "boom"}, None)
+        assert Verdict.from_json(verdict.to_json()) == verdict
+        assert verdict.phases[1] == Outcome("check", PhaseState.FAILED, "boom")
+        assert not verdict.passed
+
+    def test_the_file_a_reader_already_parses(self) -> None:
+        document = json.loads(Verdict.of({"boot": PhaseState.PASSED}, {}, None).to_json())
+        assert document == {
+            "passed": True,
+            "stopped": None,
+            "phases": [{"name": "boot", "state": "passed", "error": None}],
+        }
+
+    def test_a_stopped_run_never_passes(self) -> None:
+        verdict = Verdict.of({"boot": PhaseState.PASSED}, {}, "ctl stop")
+        assert (verdict.passed, verdict.stopped) == (False, "ctl stop")
+
+    @pytest.mark.parametrize(
+        "text", ["", "[]", '{"passed": true}', '{"passed": true, "stopped": null, "phases": [{}]}']
+    )
+    def test_anything_else_is_a_value_error(self, text: str) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011 -- the one error a reader catches
+            Verdict.from_json(text)
