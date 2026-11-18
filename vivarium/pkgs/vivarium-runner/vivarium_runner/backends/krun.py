@@ -143,6 +143,8 @@ class Krun:
             raise BackendError(f"{spec.name}: a krun guest needs vivarium.boot.kernel")
         if boot.firmware is not None:
             raise BackendError(f"{spec.name}: a krun guest boots no firmware")
+        if boot.root is not None:
+            raise BackendError(f"{spec.name}: a krun guest boots no guest kind's root image")
         if boot.kernel.vmlinux is None:
             raise BackendError(
                 f"{spec.name}: the guest's bootloader names kernel {boot.kernel.image}, "

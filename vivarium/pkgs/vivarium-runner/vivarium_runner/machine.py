@@ -492,7 +492,10 @@ class Machine:
         if self.spec.boot is None:
             raise MachineError(f"[{self.name}] rebooted, and its spec has no boot to boot again")
         boot = self.spec.boot.rebooted(self._bootloader())
-        self._log(f"rebooting into {boot.system}" if boot.kernel is not None else "rebooting through the firmware")
+        if boot.system is not None:
+            self._log(f"rebooting into {boot.system}")
+        else:
+            self._log("rebooting through its firmware" if boot.firmware is not None else "rebooting")
         if self._conn is not None:
             self._conn.close()
             self._conn = None

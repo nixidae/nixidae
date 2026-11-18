@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 
+from .boot import Boot, Kernel
 from .control import ControlSpec
 from .forward import ForwardError, Rule, UplinkNetwork
 from .machine import Machine, MachineError
@@ -125,12 +126,14 @@ async def _drive(args: argparse.Namespace, tasks: TaskGroup) -> int:
             uplink_network=UplinkNetwork.from_json(json.loads(args.uplink_network)),
             router=False,
             forward=tuple(Rule.from_json(rule) for rule in json.loads(args.forward)),
-            boot=None,
+            boot=Boot(
+                system=None,
+                kernel=Kernel(image=args.kernel, vmlinux=None, initrd=None, cmdline=""),
+                firmware=None,
+            ),
             nested=False,
             display=None,
-            launch=LaunchSpec(
-                "uml", {"kernel": str(args.kernel), "bridge": str(args.bridge), "passt": str(args.passt)}
-            ),
+            launch=LaunchSpec("uml", {"bridge": str(args.bridge), "passt": str(args.passt)}),
         ),
         tasks=tasks,
         on_console=lambda name, line: print(f"[{name}] {line}", file=sys.stderr, flush=True),

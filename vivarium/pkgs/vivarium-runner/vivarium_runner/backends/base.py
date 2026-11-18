@@ -59,17 +59,14 @@ def _section(
     return value
 
 
-def _with_config(spec: MachineSpec, key: str, value: str, section: str | None = None) -> MachineSpec:
-    """*spec* with *value* at `vivarium.launch.config.<key>`, or at
-    `vivarium.launch.config.<section>.<key>`."""
-    if spec.launch is None:
-        raise BackendError(f"{spec.name}: no vivarium.launch")
-    config = dict(spec.launch.config)
-    if section is None:
-        config[key] = value
-    else:
-        config[section] = {**config[section], key: value}
-    return replace(spec, launch=replace(spec.launch, config=config))
+def with_boot_image(spec: MachineSpec, kernel: Path) -> MachineSpec:
+    """*spec* booting *kernel* in place of `vivarium.boot.kernel.image`."""
+    if spec.boot is None:
+        raise BackendError(f"{spec.name}: no vivarium.boot")
+    try:
+        return replace(spec, boot=spec.boot.with_image(kernel))
+    except ValueError as error:
+        raise BackendError(f"{spec.name}: {error}") from error
 
 
 def _path(config: Mapping[str, object], key: str) -> Path:

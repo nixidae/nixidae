@@ -254,9 +254,12 @@ in
     vivarium.rootImage = cfg.squashfs;
     vivarium.closure = pkgs.closureInfo { rootPaths = roots; };
     vivarium.nixDatabase.enable = false;
-    vivarium.launch.config.root = lib.mkIf (config.vivarium.backend == "uml") {
-      initrd = "${initrd}/initrd";
-      inherit (cfg) kernelParams;
+    vivarium.boot = {
+      root.format = "squashfs";
+      kernel = {
+        initrd = "${initrd}/initrd";
+        cmdline = lib.concatStringsSep " " cfg.kernelParams;
+      };
     };
   };
 }

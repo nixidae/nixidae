@@ -105,8 +105,7 @@ in
       kind = "routeros";
       config.configure = true;
     };
-    vivarium.launch.config.disk = lib.mkIf (config.vivarium.backend == "qemu") {
-      configDisk = "${configDisk}";
-    };
+    vivarium.boot.root = { };
+    vivarium.launch.config.configDisk = lib.mkIf (config.vivarium.backend == "qemu") "${configDisk}";
   };
 }

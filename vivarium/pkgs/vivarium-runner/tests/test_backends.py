@@ -17,7 +17,7 @@ from vivarium_runner.backends.container import Container
 from vivarium_runner.backends.krun import Krun
 from vivarium_runner.backends.qemu import Qemu
 from vivarium_runner.backends.uml import Uml
-from vivarium_runner.boot import Boot, Kernel
+from vivarium_runner.boot import Boot, Kernel, Root, RootFormat
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json
 
@@ -41,7 +41,7 @@ def test_get_names_what_is_installed() -> None:
 
 
 MINE = Path("/home/me/linux/vmlinux")
-UML = {"kernel": "/nix/store/k-linux", "bridge": "/b", "passt": "/p"}
+UML = {"bridge": "/b", "passt": "/p"}
 QEMU = {"qemu": "/q", "qemuImg": "/i", "virtiofsd": "/v", "passt": "/p"}
 KRUN = {"krun": "/k", "qemuImg": "/i", "acpi": False}
 KERNEL = Kernel(image=Path("/nix/store/bzImage"), vmlinux=Path("/nix/store/vmlinux"), initrd=Path("/i"), cmdline="")
@@ -55,27 +55,25 @@ def _spec(backend_name: BackendName, config: Mapping[str, object], boot: Boot | 
 
 
 class TestWithKernel:
-    def test_uml_names_it_in_launch(self) -> None:
-        spec = _spec(BackendName.UML, UML)
+    def test_uml_names_it_in_boot(self) -> None:
+        spec = _spec(BackendName.UML, UML, NIXOS)
         got = Uml.with_kernel(spec, MINE)
-        assert got.launch is not None
-        assert got.launch.config == {**UML, "kernel": str(MINE)}
-        assert spec.launch is not None
-        assert spec.launch.config["kernel"] == "/nix/store/k-linux", "the spec is not changed"
+        assert got.boot == replace(NIXOS, kernel=replace(KERNEL, image=MINE))
+        assert spec.boot == NIXOS, "the spec is not changed"
 
     def test_qemu_names_it_in_boot(self) -> None:
         got = Qemu().with_kernel(_spec(BackendName.QEMU, QEMU, NIXOS), MINE)
         assert got.boot == replace(NIXOS, kernel=replace(KERNEL, image=MINE))
 
-    def test_qemu_names_a_disk_kind_s_in_its_disk(self) -> None:
-        disk = {"kernel": "/nix/store/b", "initrd": "/i", "cmdline": "console=ttyS0"}
-        got = Qemu().with_kernel(_spec(BackendName.QEMU, {**QEMU, "disk": disk}), MINE)
-        assert got.launch is not None
-        assert got.launch.config["disk"] == {**disk, "kernel": str(MINE)}
+    def test_qemu_names_a_disk_kind_s_in_boot_too(self) -> None:
+        appliance = Boot(system=None, kernel=KERNEL, firmware=None, root=Root(RootFormat.QCOW2, None))
+        got = Qemu().with_kernel(_spec(BackendName.QEMU, QEMU, appliance), MINE)
+        assert got.boot == replace(appliance, kernel=replace(KERNEL, image=MINE))
 
-    def test_qemu_refuses_a_firmware_boot(self) -> None:
-        with pytest.raises(BackendError, match="firmware picks its kernel"):
-            Qemu().with_kernel(_spec(BackendName.QEMU, {**QEMU, "disk": {"format": "qcow2"}}), MINE)
+    def test_qemu_refuses_a_disk_with_its_own_bootloader(self) -> None:
+        own = Boot(system=None, kernel=None, firmware=None, root=Root(RootFormat.QCOW2, None))
+        with pytest.raises(BackendError, match="bootloader picks its kernel"):
+            Qemu().with_kernel(_spec(BackendName.QEMU, QEMU, own), MINE)
 
     def test_krun_names_the_vmlinux_and_keeps_the_bzimage(self) -> None:
         got = Krun.with_kernel(_spec(BackendName.KRUN, KRUN, NIXOS), MINE)

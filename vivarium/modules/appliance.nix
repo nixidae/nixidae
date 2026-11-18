@@ -98,16 +98,15 @@ in
       kind = "none";
       config = { inherit (cfg) ready; };
     };
-    launch.config.disk = lib.mkIf (config.vivarium.backend == "qemu") (
-      {
-        inherit (cfg) format cmdline;
-        uplink = config.vivarium.uplink.enable;
-      }
-      // lib.optionalAttrs (cfg.kernel != null) {
-        kernel = "${cfg.kernel}";
+    boot = {
+      root = { inherit (cfg) format; };
+      kernel = lib.mkIf (cfg.kernel != null) {
+        image = "${cfg.kernel}";
         initrd = "${cfg.initrd}";
-      }
-    );
+        inherit (cfg) cmdline;
+      };
+    };
+    launch.config.uplink = lib.mkIf (config.vivarium.backend == "qemu") config.vivarium.uplink.enable;
   };
 
   config.assertions = [

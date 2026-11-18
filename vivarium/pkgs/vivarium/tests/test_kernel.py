@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -15,17 +16,18 @@ MINE = Path("/home/me/linux/linux")
 
 class TestWithKernel:
     def test_each_guest_s_backend_names_it(self) -> None:
-        uml_config = {"kernel": "/nix/store/k", "bridge": "/b", "passt": "/p"}
+        uml_config = {"bridge": "/b", "passt": "/p"}
+        linux = Kernel(image=Path("/nix/store/k/linux"), vmlinux=None, initrd=None, cmdline="")
         kernel = Kernel(image=Path("/nix/store/bzImage"), vmlinux=Path("/nix/store/vmlinux"), initrd=None, cmdline="")
         boot = Boot(system="/nix/store/s", kernel=kernel, firmware=None)
         krun_config = {"krun": "/k", "qemuImg": "/i", "acpi": False}
         machines = [
-            machine_spec("u", launch=LaunchSpec("uml", uml_config)),
+            machine_spec("u", boot=replace(boot, kernel=linux), launch=LaunchSpec("uml", uml_config)),
             machine_spec("k", BackendName.KRUN, boot=boot, launch=LaunchSpec("krun", krun_config)),
         ]
         uml, krun = with_kernel(machines, MINE)
-        assert uml.launch is not None
-        assert uml.launch.config["kernel"] == str(MINE)
+        assert uml.boot is not None and uml.boot.kernel is not None
+        assert uml.boot.kernel.image == MINE
         assert krun.boot is not None and krun.boot.kernel is not None
         assert krun.boot.kernel.vmlinux == MINE
         assert krun.boot.kernel.image == Path("/nix/store/bzImage")

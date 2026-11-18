@@ -1,13 +1,13 @@
 """What a guest boots, the same for every backend.
 
-`vivarium.boot` in Nix: the backend's module writes it, and each backend
-takes the parts it can boot. UML and the guest kinds that boot their own
-disk have none; their `vivarium.launch.config` says what they boot.
+`vivarium.boot` in Nix: the backend's module and the guest kind's module
+write it, and each backend takes the parts it can boot.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import TypedDict
 
@@ -35,12 +35,21 @@ class FirmwareJson(TypedDict):
 
 
 @closed
+class RootJson(TypedDict):
+    """`vivarium.boot.root`."""
+
+    format: str
+    partition: int | None
+
+
+@closed
 class BootJson(TypedDict):
     """`vivarium.boot`."""
 
     system: str | None
     kernel: KernelJson | None
     firmware: FirmwareJson | None
+    root: RootJson | None
 
 
 @closed
@@ -109,6 +118,29 @@ class Firmware:
         )
 
 
+class RootFormat(StrEnum):
+    """How a guest kind's root image is stored."""
+
+    RAW = "raw"
+    QCOW2 = "qcow2"
+    SQUASHFS = "squashfs"
+    """Read-only: the kind's initrd overlays it."""
+
+
+@dataclass(frozen=True)
+class Root:
+    """A guest kind's own root image (`vivarium.rootImage`): not one vivarium built."""
+
+    format: RootFormat
+    partition: int | None
+    """The partition that holds the root filesystem. None: the kind's
+    initrd finds the root, or its bootloader does."""
+
+    @classmethod
+    def from_json(cls, data: RootJson) -> Root:
+        return cls(format=RootFormat(data["format"]), partition=data["partition"])
+
+
 @dataclass(frozen=True)
 class Boot:
     """What a guest boots.
@@ -121,17 +153,20 @@ class Boot:
     """The NixOS system: its `init` is PID 1. None for a guest kind with its
     own init, named in `kernel.cmdline`."""
     kernel: Kernel | None
-    """None: the firmware's bootloader picks the kernel, or there is no
-    kernel to boot (a container)."""
+    """None: the firmware's bootloader picks the kernel, or the root image's
+    bootloader does, or there is no kernel to boot (a container)."""
     firmware: Firmware | None
+    root: Root | None = None
+    """None: the root image is the NixOS image vivarium built."""
 
     @classmethod
     def from_json(cls, data: BootJson) -> Boot:
-        kernel, firmware = data["kernel"], data["firmware"]
+        kernel, firmware, root = data["kernel"], data["firmware"], data["root"]
         return cls(
             system=data["system"],
             kernel=Kernel.from_json(kernel) if kernel is not None else None,
             firmware=Firmware.from_json(firmware) if firmware is not None else None,
+            root=Root.from_json(root) if root is not None else None,
         )
 
     @property
@@ -141,6 +176,16 @@ class Boot:
     def cmdline(self, kernel: Kernel) -> str:
         """*kernel*'s parameters, with this boot's `init=`."""
         return kernel.cmdline if self.init is None else f"{kernel.cmdline} init={self.init}"
+
+    def with_image(self, image: Path) -> Boot:
+        """This boot with *image* as its kernel: `--kernel`.
+
+        Raises ValueError when the guest names no kernel: its firmware or its
+        root image's bootloader picks one.
+        """
+        if self.kernel is None:
+            raise ValueError("the guest's bootloader picks its kernel, so there is none to replace")
+        return replace(self, kernel=replace(self.kernel, image=image))
 
     def rebooted(self, chosen: BootspecJson | None) -> Boot:
         """The boot after the guest reboots, given what its bootloader chose.

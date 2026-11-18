@@ -16,16 +16,17 @@ from vivarium_runner.backends.container import Container
 from vivarium_runner.backends.krun import Krun, KrunConfig
 from vivarium_runner.backends.qemu import BlankDisk, Qemu, QemuConfig, _drive_args
 from vivarium_runner.backends.uml import Uml, UmlConfig
-from vivarium_runner.boot import Boot, Firmware, Kernel
+from vivarium_runner.boot import Boot, Firmware, Kernel, Root, RootFormat
 from vivarium_runner.machine_spec import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json, machine_spec
 
 GOOD = {
-    "kernel": "/nix/store/k/linux",
     "bridge": "/nix/store/b/bin/uml-passt-bridge",
     "passt": "/nix/store/p/bin/passt",
 }
+LINUX = Kernel(image=Path("/nix/store/k/linux"), vmlinux=None, initrd=None, cmdline="")
+UML_NIXOS = Boot(system="/nix/store/s-nixos-system", kernel=LINUX, firmware=None)
 QEMU = {
     "qemu": "/nix/store/q/bin/qemu-system-x86_64",
     "qemuImg": "/nix/store/q/bin/qemu-img",
@@ -34,9 +35,9 @@ QEMU = {
 }
 
 
-def uml(config: Mapping[str, object] | None, backend: str = "uml") -> MachineSpec:
+def uml(config: Mapping[str, object] | None, backend: str = "uml", boot: Boot | None = UML_NIXOS) -> MachineSpec:
     launch = None if config is None else LaunchSpec(backend, config)
-    return machine_spec("one", launch=launch)
+    return machine_spec("one", launch=launch, boot=boot)
 
 
 NIXOS = Boot(
@@ -52,7 +53,6 @@ def qemu(config: Mapping[str, object]) -> MachineSpec:
 
 def test_a_good_config_reads() -> None:
     config = UmlConfig.of(uml(GOOD))
-    assert config.kernel == Path(GOOD["kernel"])
     assert config.bridge == Path(GOOD["bridge"])
     assert config.qemu_img is None, "an optional field that is absent reads as None"
 
@@ -63,7 +63,14 @@ def test_a_good_config_reads() -> None:
         (uml(None), "one: vivarium.launch is not set"),
         (uml(GOOD, backend="qemu"), "vivarium.launch.backend is 'qemu'"),
         (uml({**GOOD, "kernal": "/x"}), "does not know: kernal"),
-        (uml({"kernel": GOOD["kernel"], "passt": GOOD["passt"]}), "needs: bridge"),
+        (uml({"passt": GOOD["passt"]}), "needs: bridge"),
+        (uml(GOOD, boot=None), "one: a UML guest needs vivarium.boot.kernel"),
+        (uml(GOOD, boot=replace(UML_NIXOS, kernel=None)), "needs vivarium.boot.kernel"),
+        (
+            uml(GOOD, boot=replace(UML_NIXOS, firmware=Firmware(Path("/c"), Path("/v"), Path("/e"), smm=False))),
+            "no firmware",
+        ),
+        (uml(GOOD, boot=replace(UML_NIXOS, root=Root(RootFormat.QCOW2, 3))), "a qcow2 root image needs qemuImg"),
     ],
 )
 def test_uml_refuses(spec: MachineSpec, says: str) -> None:
@@ -89,39 +96,49 @@ def test_from_json_carries_launch() -> None:
     assert MachineSpec.from_json(machine_json("two")).launch is None
 
 
-SEED = {"seed": "/nix/store/s/seed.img", "partition": 3, "init": "/usr/lib/systemd/systemd", "kernelParams": []}
+def test_a_root_reads() -> None:
+    assert Root.from_json({"format": "squashfs", "partition": None}) == Root(RootFormat.SQUASHFS, None)
+    with pytest.raises(ValueError, match="'vmdk' is not a valid RootFormat"):
+        Root.from_json({"format": "vmdk", "partition": None})
 
 
-def test_a_guest_kind_root_reads() -> None:
-    vyos = UmlConfig.of(uml({**GOOD, "root": {"initrd": "/nix/store/i/initrd", "kernelParams": ["boot=live"]}}))
-    assert vyos.root is not None and vyos.root.initrd == Path("/nix/store/i/initrd")
-    image = UmlConfig.of(uml({**GOOD, "qemuImg": "/nix/store/q/bin/qemu-img", "root": SEED}))
-    assert image.root is not None and image.root.partition == 3
+VYOS = Boot(
+    system=None,
+    kernel=replace(LINUX, initrd=Path("/nix/store/i/initrd"), cmdline="boot=live"),
+    firmware=None,
+    root=Root(RootFormat.SQUASHFS, None),
+)
 
 
 @pytest.mark.parametrize(
-    ("root", "says"),
+    ("config", "boot", "argv"),
     [
-        (SEED, "a cloud image needs qemuImg"),
-        ({"initrd": "/nix/store/i/initrd"}, "root lacks fields the backend needs: kernelParams"),
-        ({**SEED, "partiton": 3}, "root has fields the backend does not know: partiton"),
+        (GOOD, UML_NIXOS, ["ubd0=/run/cow,/nix/store/image", "root=/dev/ubda", "init=/init"]),
+        (GOOD, VYOS, ["ubd0r=/nix/store/image", "initrd=/nix/store/i/initrd", "boot=live"]),
+        (
+            {**GOOD, "seed": "/nix/store/s/seed.img"},
+            replace(
+                UML_NIXOS, system=None, kernel=replace(LINUX, cmdline="init=/sbin/init"), root=Root(RootFormat.RAW, 3)
+            ),
+            ["ubd0=/run/cow,/nix/store/image", "ubd1r=/nix/store/s/seed.img", "root=/dev/ubda3", "init=/sbin/init"],
+        ),
     ],
 )
-def test_uml_refuses_a_bad_root(root: dict[str, object], says: str) -> None:
-    with pytest.raises(BackendError, match=says):
-        Uml.validate(uml({**GOOD, "root": root}))
+def test_uml_boots_each_root(config: Mapping[str, object], boot: Boot, argv: list[str]) -> None:
+    spec = replace(uml(config, boot=boot), image=Path("/nix/store/image"))
+    assert boot.kernel is not None
+    assert Uml._root(UmlConfig.of(spec), Path("/run"), spec, boot.root, boot.kernel) == argv
 
 
 @pytest.mark.parametrize(
-    ("disk", "says"),
+    ("config", "says"),
     [
-        ({"fromat": "qcow2"}, "q: vivarium.launch.config.disk has fields the backend does not know: fromat"),
-        ({"kernel": "/nix/store/k/vmlinuz"}, "names one of kernel and initrd"),
+        ({"disk": {"format": "qcow2"}}, "q: vivarium.launch.config has fields the qemu backend does not know: disk"),
     ],
 )
-def test_qemu_refuses_a_bad_disk(disk: dict[str, object], says: str) -> None:
+def test_qemu_refuses_an_unknown_section(config: dict[str, object], says: str) -> None:
     with pytest.raises(BackendError, match=says):
-        Qemu().validate(qemu({**QEMU, "disk": disk}))
+        Qemu().validate(qemu({**QEMU, **config}))
 
 
 def test_blank_disks_read() -> None:
@@ -150,9 +167,10 @@ def test_the_root_is_the_first_drive_and_only_blank_disks_have_a_serial() -> Non
     assert args[8:12] == ["-add-fd", "fd=12,set=2", "-add-fd", "fd=13,set=2"]
 
 
-def test_a_disk_reads() -> None:
-    disk = QemuConfig.of(qemu({**QEMU, "disk": {"format": "qcow2", "uplink": False}})).disk
-    assert disk is not None and disk.format == "qcow2" and disk.uplink is False and disk.kernel is None
+def test_a_disk_kind_s_hardware_reads() -> None:
+    config = QemuConfig.of(qemu({**QEMU, "configDisk": "/nix/store/c/config.img", "uplink": False}))
+    assert config.config_disk == Path("/nix/store/c/config.img") and config.uplink is False
+    assert QemuConfig.of(qemu(QEMU)).uplink, "a guest has an uplink unless it says otherwise"
 
 
 KRUN = {"krun": "/nix/store/k/bin/vivarium-krun", "qemuImg": "/nix/store/q/bin/qemu-img", "acpi": True}
@@ -192,6 +210,11 @@ FIRMWARE = Firmware(code=Path("/c"), variables=Path("/v"), esp=Path("/e"), smm=F
         (KRUN, Boot(system=None, kernel=DIRECT, firmware=FIRMWARE), "boots no firmware"),
         (
             KRUN,
+            Boot(system=None, kernel=DIRECT, firmware=None, root=Root(RootFormat.RAW, None)),
+            "no guest kind's root",
+        ),
+        (
+            KRUN,
             Boot(system=None, kernel=replace(DIRECT, vmlinux=None), firmware=None),
             "boots only the kernel it started with",
         ),
@@ -205,8 +228,9 @@ def test_krun_refuses_a_bad_boot(config: Mapping[str, object], boot: Boot | None
 @pytest.mark.parametrize(
     ("boot", "says"),
     [
-        (None, "q: no vivarium.boot.kernel, and no vivarium.launch.config.disk to boot"),
-        (Boot(system="/s", kernel=None, firmware=FIRMWARE), "no vivarium.boot.kernel"),
+        (None, "q: vivarium.boot names no kernel and no root image to boot"),
+        (Boot(system="/s", kernel=None, firmware=FIRMWARE), "names no kernel and no root image"),
+        (Boot(system=None, kernel=None, firmware=None, root=Root(RootFormat.SQUASHFS, None)), "no squashfs"),
     ],
 )
 def test_qemu_refuses_a_spec_with_nothing_to_boot(boot: Boot | None, says: str) -> None:
@@ -214,8 +238,10 @@ def test_qemu_refuses_a_spec_with_nothing_to_boot(boot: Boot | None, says: str) 
         Qemu().validate(replace(qemu(QEMU), boot=boot))
 
 
-def test_qemu_boots_a_disk_with_no_boot() -> None:
-    Qemu().validate(qemu({**QEMU, "disk": {"format": "qcow2"}}))
+def test_qemu_boots_a_root_image_through_its_own_bootloader() -> None:
+    Qemu().validate(
+        replace(qemu(QEMU), boot=Boot(system=None, kernel=None, firmware=None, root=Root(RootFormat.QCOW2, None)))
+    )
 
 
 CONTAINER = {"crun": "/c", "setpriv": "/s", "passt": "/p"}
@@ -225,7 +251,8 @@ CONTAINER = {"crun": "/c", "setpriv": "/s", "passt": "/p"}
     ("boot", "says"),
     [
         (None, "c: a container guest needs vivarium.boot.system"),
-        (Boot(system="/s", kernel=DIRECT, firmware=None), "boots no kernel and no firmware"),
+        (Boot(system="/s", kernel=DIRECT, firmware=None), "boots no kernel, no firmware and no root image"),
+        (Boot(system="/s", kernel=None, firmware=None, root=Root(RootFormat.RAW, None)), "no root image"),
     ],
 )
 def test_a_container_refuses_a_boot_it_cannot_run(boot: Boot | None, says: str) -> None:

@@ -6,84 +6,48 @@ import mmap
 import os
 import subprocess
 import tempfile
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .. import forward, mconsole
+from ..boot import RootFormat
 from ..capability import Controls
 from ..store import BoundStore
-from .base import BackendError, Launch, Stop, _maybe, _path, _section, _with_config, launch_config
+from .base import BackendError, Launch, Stop, _maybe, _path, launch_config, with_boot_image
 from .host import RELAY_IN_PORT, egress_args, memory_bytes, memory_file_kib, socket_dir, start_egress
 
 if TYPE_CHECKING:
-    from ..boot import Boot
+    from ..boot import Boot, Kernel, Root
     from ..machine import Machine
     from ..machine_spec import MachineSpec
     from ..store import Store
 
 
 @dataclass(frozen=True)
-class UmlRoot:
-    """`launch.config.root` under UML: a guest kind's root that is not a NixOS image.
-
-    VyOS names an `initrd`, which overlays its read-only squashfs. A cloud
-    image names its `seed` disk, root `partition` and `init`.
-    """
-
-    kernel_params: tuple[str, ...]
-    initrd: Path | None = None
-    seed: Path | None = None
-    partition: int | None = None
-    init: str | None = None
-
-    @classmethod
-    def of(cls, owner: str, value: object) -> UmlRoot:
-        if isinstance(value, Mapping) and "initrd" in value:
-            root = _section(owner, value, frozenset({"initrd", "kernelParams"}))
-            return cls(kernel_params=tuple(root["kernelParams"]), initrd=Path(root["initrd"]))
-        root = _section(owner, value, frozenset({"seed", "partition", "init", "kernelParams"}))
-        return cls(
-            kernel_params=tuple(root["kernelParams"]),
-            seed=Path(root["seed"]),
-            partition=int(root["partition"]),
-            init=str(root["init"]),
-        )
-
-
-@dataclass(frozen=True)
 class UmlConfig:
     """`vivarium.launch.config` under UML."""
 
-    kernel: Path
-    """The UML kernel, `linux`, which the guest runs as."""
     bridge: Path
     """`uml-passt-bridge`, which forks passt for the uplink."""
     passt: Path
     qemu_img: Path | None
     """For a cloud image, which is qcow2 and which ubd cannot read."""
-    root: UmlRoot | None = None
-    """None boots the NixOS root image."""
+    seed: Path | None = None
+    """A cloud image's seed disk, read-only: cloud-init finds it by its label."""
     egress: Path | None = None
     """The router's host half, which serves its vsock device."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> UmlConfig:
-        config = launch_config(
-            spec, "uml", frozenset({"kernel", "bridge", "passt"}), frozenset({"qemuImg", "root", "egress"})
-        )
+        config = launch_config(spec, "uml", frozenset({"bridge", "passt"}), frozenset({"qemuImg", "seed", "egress"}))
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
-        root = UmlRoot.of(f"{spec.name}: vivarium.launch.config.root", config["root"]) if "root" in config else None
-        if root is not None and root.seed is not None and "qemuImg" not in config:
-            raise BackendError(f"{spec.name}: a cloud image needs qemuImg in vivarium.launch.config")
         return cls(
-            kernel=_path(config, "kernel"),
             bridge=_path(config, "bridge"),
             passt=_path(config, "passt"),
             qemu_img=_maybe(config, "qemuImg"),
-            root=root,
+            seed=_maybe(config, "seed"),
             egress=_maybe(config, "egress"),
         )
 
@@ -227,11 +191,18 @@ class Uml:
 
     @staticmethod
     def validate(spec: MachineSpec) -> None:
-        UmlConfig.of(spec)
+        config = UmlConfig.of(spec)
+        if spec.boot is None or spec.boot.kernel is None:
+            raise BackendError(f"{spec.name}: a UML guest needs vivarium.boot.kernel, the UML kernel it runs as")
+        if spec.boot.firmware is not None:
+            raise BackendError(f"{spec.name}: UML boots no firmware")
+        root = spec.boot.root
+        if root is not None and root.format is RootFormat.QCOW2 and config.qemu_img is None:
+            raise BackendError(f"{spec.name}: a qcow2 root image needs qemuImg in vivarium.launch.config")
 
     @staticmethod
     def with_kernel(spec: MachineSpec, kernel: Path) -> MachineSpec:
-        return _with_config(spec, "kernel", str(kernel))
+        return with_boot_image(spec, kernel)
 
     def launch(
         self,
@@ -244,11 +215,14 @@ class Uml:
     ) -> Launch:
         spec = machine.spec
         config = UmlConfig.of(spec)
+        boot = boot or spec.boot
+        if boot is None or boot.kernel is None:
+            raise BackendError(f"{spec.name}: no vivarium.boot.kernel")
         ram = physmem_dir(spec.memory)
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
         kernel = [
-            str(config.kernel),
-            *self._root(config, rundir, spec),
+            str(boot.kernel.image),
+            *self._root(config, rundir, spec, boot.root, boot.kernel),
             "rw",
             f"mem={spec.memory}",
             f"ssl0=fd:{agent_fd}",
@@ -350,35 +324,40 @@ class Uml:
         return Controls(channel=console, balloon=console)
 
     @staticmethod
-    def _root(config: UmlConfig, rundir: Path, spec: MachineSpec) -> list[str]:
-        """The disks and the root, for a NixOS image, a cloud image or VyOS.
+    def _root(config: UmlConfig, rundir: Path, spec: MachineSpec, root: Root | None, kernel: Kernel) -> list[str]:
+        """The disks, the root and the kernel's parameters.
 
-        A cloud image is qcow2, which ubd cannot read. It becomes a raw
-        file in the run directory, sparse, and the guest writes to it
-        directly: it is this run's copy already, so it needs no cow.
+        A qcow2 image (a cloud image) is a format ubd cannot read. It
+        becomes a raw file in the run directory, sparse, and the guest
+        writes to it directly: it is this run's copy already, so it needs no
+        cow. A squashfs (VyOS) is read-only, and its initrd overlays it.
         """
-        root = config.root
         if root is None:
-            return [f"ubd0={rundir}/cow,{spec.image}", "root=/dev/ubda", "init=/init"]
-        if root.initrd is not None:
-            # VyOS: a squashfs, read-only, which the initramfs overlays.
-            return [f"ubd0r={spec.image}", f"initrd={root.initrd}", *root.kernel_params]
-        if config.qemu_img is None:
-            raise BackendError(f"{spec.name}: a cloud image needs qemuImg in vivarium.launch.config")
-        raw = rundir / "disk.raw"
-        subprocess.run(
-            [str(config.qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],
-            check=True,
-            capture_output=True,
-        )
-        return [
-            f"ubd0={raw}",
-            # The seed, read-only: cloud-init finds it by its label.
-            f"ubd1r={root.seed}",
-            f"root=/dev/ubda{root.partition}",
-            f"init={root.init}",
-            *root.kernel_params,
-        ]
+            # vivarium's NixOS image: its /init mounts the store, then runs
+            # the system's init. See modules/image.nix.
+            return [f"ubd0={rundir}/cow,{spec.image}", "root=/dev/ubda", "init=/init", *kernel.cmdline.split()]
+        match root.format:
+            case RootFormat.SQUASHFS:
+                disks = [f"ubd0r={spec.image}"]
+            case RootFormat.QCOW2:
+                if config.qemu_img is None:
+                    raise BackendError(f"{spec.name}: a qcow2 root image needs qemuImg in vivarium.launch.config")
+                raw = rundir / "disk.raw"
+                subprocess.run(
+                    [str(config.qemu_img), "convert", "-O", "raw", str(spec.image), str(raw)],
+                    check=True,
+                    capture_output=True,
+                )
+                disks = [f"ubd0={raw}"]
+            case RootFormat.RAW:
+                disks = [f"ubd0={rundir}/cow,{spec.image}"]
+        if config.seed is not None:
+            disks.append(f"ubd1r={config.seed}")
+        if kernel.initrd is not None:
+            disks.append(f"initrd={kernel.initrd}")
+        else:
+            disks.append(f"root=/dev/ubda{root.partition or ''}")
+        return [*disks, *kernel.cmdline.split()]
 
     @staticmethod
     def _vec(unit: int, fd: int, mtu: int, mac: str | None = None) -> str:

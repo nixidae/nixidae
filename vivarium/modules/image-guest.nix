@@ -262,15 +262,24 @@ in
     vivarium.kind = "image";
     vivarium.rootImage = cfg.disk;
     vivarium.nixDatabase.enable = cfg.writableStore;
-    vivarium.launch.config = lib.mkIf (config.vivarium.backend == "uml") {
+    vivarium.boot = {
       root = {
-        inherit (cfg) partition init;
-        # No initrd, so nothing has made /dev/disk/by-uuid when
-        # systemd-remount-fs looks root up in fstab, and it fails the boot.
-        # The kernel mounted root `rw` already. Measured on Leap 16.0.
-        kernelParams = [ "systemd.mask=systemd-remount-fs.service" ] ++ cfg.kernelParams;
-        seed = "${seed}";
+        format = "qcow2";
+        inherit (cfg) partition;
       };
+      # No initrd, so nothing has made /dev/disk/by-uuid when
+      # systemd-remount-fs looks root up in fstab, and it fails the boot.
+      # The kernel mounted root `rw` already. Measured on Leap 16.0.
+      kernel.cmdline = lib.concatStringsSep " " (
+        [
+          "init=${cfg.init}"
+          "systemd.mask=systemd-remount-fs.service"
+        ]
+        ++ cfg.kernelParams
+      );
+    };
+    vivarium.launch.config = lib.mkIf (config.vivarium.backend == "uml") {
+      seed = "${seed}";
       # UML reads raw disks, and a cloud image is qcow2: the runner converts
       # it into the run directory, sparse, rather than the store holding the
       # raw form, which a NAR cannot keep sparse.

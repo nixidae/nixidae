@@ -9,15 +9,16 @@ import socket
 import subprocess
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .. import forward, qmp
+from ..boot import RootFormat
 from ..capability import Controls, Screen
 from ..lifetime import die_with_parent
 from ..store import BoundStore
-from .base import BackendError, Launch, Stop, _list, _maybe, _path, _section, _with_config, launch_config
+from .base import BackendError, Launch, Stop, _list, _maybe, _path, _section, launch_config, with_boot_image
 from .host import (
     RELAY_IN_PORT,
     _abandon,
@@ -36,37 +37,6 @@ if TYPE_CHECKING:
     from ..machine import Machine
     from ..machine_spec import MachineSpec
     from ..store import Store
-
-
-@dataclass(frozen=True)
-class QemuDisk:
-    """`launch.config.disk` under QEMU: a guest kind that boots its own disk,
-    with its own boot loader, or with `kernel`, `initrd` and `cmdline`."""
-
-    format: str = "raw"
-    config_disk: Path | None = None
-    """A second disk, copied writable: RouterOS's configuration."""
-    kernel: Path | None = None
-    initrd: Path | None = None
-    cmdline: str = ""
-    uplink: bool = True
-    """False: no passt uplink, so the first segment is the first NIC."""
-
-    @classmethod
-    def of(cls, owner: str, value: object) -> QemuDisk:
-        disk = _section(
-            owner, value, frozenset(), frozenset({"format", "configDisk", "kernel", "initrd", "cmdline", "uplink"})
-        )
-        if ("kernel" in disk) != ("initrd" in disk):
-            raise BackendError(f"{owner} names one of kernel and initrd; a direct boot needs both")
-        return cls(
-            format=str(disk.get("format", "raw")),
-            config_disk=Path(disk["configDisk"]) if "configDisk" in disk else None,
-            kernel=Path(disk["kernel"]) if "kernel" in disk else None,
-            initrd=Path(disk["initrd"]) if "initrd" in disk else None,
-            cmdline=str(disk.get("cmdline", "")),
-            uplink=bool(disk.get("uplink", True)),
-        )
 
 
 @dataclass(frozen=True)
@@ -94,8 +64,11 @@ class QemuConfig:
     passt: Path
     ocr: tuple[Path, Path] | None
     """tesseract and magick, for a guest with `vivarium.display`."""
-    disk: QemuDisk | None = None
-    """None boots the NixOS system through virtiofs."""
+    config_disk: Path | None = None
+    """A second disk, copied writable: RouterOS's configuration."""
+    uplink: bool = True
+    """False: no passt uplink, so the first segment is the first NIC of a
+    guest kind's own root image."""
     egress: Path | None = None
     """The router's host half, which serves its vhost-user vsock device."""
     swtpm: Path | None = None
@@ -108,7 +81,7 @@ class QemuConfig:
             spec,
             "qemu",
             frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}),
-            frozenset({"tesseract", "magick", "disk", "egress", "swtpm", "disks"}),
+            frozenset({"tesseract", "magick", "configDisk", "uplink", "egress", "swtpm", "disks"}),
         )
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
@@ -122,7 +95,8 @@ class QemuConfig:
             virtiofsd=_path(config, "virtiofsd"),
             passt=_path(config, "passt"),
             ocr=(tesseract, magick) if tesseract is not None and magick is not None else None,
-            disk=QemuDisk.of(f"{spec.name}: vivarium.launch.config.disk", config["disk"]) if "disk" in config else None,
+            config_disk=_maybe(config, "configDisk"),
+            uplink=bool(config.get("uplink", True)),
             egress=_maybe(config, "egress"),
             swtpm=_maybe(config, "swtpm"),
             disks=tuple(
@@ -161,6 +135,18 @@ def _drive_args(disk_fds: tuple[int, ...], drives: list[tuple[str, str | None]])
             f"virtio-blk-pci,drive=drive{index}" + (f",serial={serial}" if serial is not None else ""),
         ]
     return args
+
+
+def _reopen(disk_fds: tuple[int, ...]) -> tuple[int, ...]:
+    """New open file descriptions of the disks a reboot keeps.
+
+    QEMU's image lock is an OFD lock: it belongs to the open file
+    description, which outlives the QEMU that took it. So a reboot opens
+    the unlinked image afresh and lets the old descriptions go.
+    """
+    return tuple(
+        os.open(f"/proc/self/fd/{fd}", flags) for fd, flags in zip(disk_fds, itertools.cycle((os.O_RDWR, os.O_RDONLY)))
+    )
 
 
 def _monitor(path: Path) -> int:
@@ -235,17 +221,16 @@ class Qemu:
         return BoundStore.build(rundir / "nix", paths)
 
     def validate(self, spec: MachineSpec) -> None:
-        if QemuConfig.of(spec).disk is None and (spec.boot is None or spec.boot.kernel is None):
-            raise BackendError(f"{spec.name}: no vivarium.boot.kernel, and no vivarium.launch.config.disk to boot")
+        QemuConfig.of(spec)
+        boot = spec.boot
+        # Firmware boots its first system straight from the kernel too: see `Boot`.
+        if boot is None or (boot.kernel is None and boot.root is None):
+            raise BackendError(f"{spec.name}: vivarium.boot names no kernel and no root image to boot")
+        if boot.root is not None and boot.root.format is RootFormat.SQUASHFS:
+            raise BackendError(f"{spec.name}: QEMU boots no squashfs root image")
 
     def with_kernel(self, spec: MachineSpec, kernel: Path) -> MachineSpec:
-        disk = QemuConfig.of(spec).disk
-        boot = spec.boot
-        if disk is None and boot is not None and boot.kernel is not None:
-            return replace(spec, boot=replace(boot, kernel=replace(boot.kernel, image=kernel)))
-        if disk is not None and disk.kernel is not None:
-            return _with_config(spec, "kernel", str(kernel), section="disk")
-        raise BackendError(f"{spec.name}: the guest's firmware picks its kernel, so there is none to replace")
+        return with_boot_image(spec, kernel)
 
     def launch(
         self,
@@ -256,7 +241,7 @@ class Qemu:
         boot: Boot | None = None,
         disk_fds: tuple[int, ...] = (),
     ) -> Launch:
-        disk_boot = QemuConfig.of(machine.spec).disk is not None
+        disk_boot = machine.spec.boot is not None and machine.spec.boot.root is not None
         # A disk boot has no virtiofsd.
         if not disk_boot:
             _require_ids(machine.spec.name, "QEMU")
@@ -264,7 +249,7 @@ class Qemu:
         opened: list[int] = []
         try:
             if disk_boot:
-                return self._launch_disk(machine, rundir, agent_fd, lan_fds, helpers, opened)
+                return self._launch_disk(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
             return self._launch(machine, rundir, agent_fd, lan_fds, helpers, opened, boot, disk_fds)
         except BaseException:
             _abandon(helpers, opened)
@@ -327,10 +312,8 @@ class Qemu:
             helpers.append(artd)
             opened.append(art_fd)
 
-        # A reboot keeps the disk the guest wrote, and the runner owns it.
-        # QEMU's image lock is an OFD lock: it belongs to the open file
-        # description, which outlives the QEMU that took it. So a reboot
-        # opens the unlinked image afresh and lets the old descriptions go.
+        # A reboot keeps the disk the guest wrote, and the runner owns it:
+        # see `_reopen`.
         boot = boot or spec.boot
         if boot is None:
             raise BackendError(f"{spec.name}: no vivarium.boot")
@@ -341,10 +324,7 @@ class Qemu:
             drives.append(("qcow2", None))
         drives += [("raw", disk.name) for disk in config.disks]
         if disk_fds:
-            disk_fds = tuple(
-                os.open(f"/proc/self/fd/{fd}", flags)
-                for fd, flags in zip(disk_fds, itertools.cycle((os.O_RDWR, os.O_RDONLY)))
-            )
+            disk_fds = _reopen(disk_fds)
             opened.extend(disk_fds)
         else:
             disk_fds = scratch_disk(config.qemu_img, rundir, spec.image)
@@ -511,9 +491,12 @@ class Qemu:
         lan_fds: dict[str, int],
         helpers: list[subprocess.Popen[bytes]],
         opened: list[int],
+        boot: Boot | None = None,
+        disk_fds: tuple[int, ...] = (),
     ) -> Launch:
         """Another operating system from its own disk: its own bootloader
-        and kernel, and none of the store, the agent or virtiofs.
+        and kernel, or `boot.kernel`, and none of the store, the agent or
+        virtiofs.
 
         The serial port is the control channel, the end of the socketpair
         the agent would get: `control.ConsoleControl` drives it, or the
@@ -522,12 +505,15 @@ class Qemu:
         """
         spec = machine.spec
         config = QemuConfig.of(spec)
-        disk = config.disk
-        if disk is None:
-            raise BackendError(f"{spec.name}: vivarium.launch.config has no disk to boot")
+        boot = boot or spec.boot
+        if boot is None or boot.root is None:
+            raise BackendError(f"{spec.name}: vivarium.boot has no root image to boot")
+        kernel = boot.kernel
         sockets, cleanup = socket_dir(rundir, "qmp", None)
 
-        disk_fds = scratch_disk(config.qemu_img, rundir, spec.image, disk.format)
+        disk_fds = (
+            _reopen(disk_fds) if disk_fds else scratch_disk(config.qemu_img, rundir, spec.image, boot.root.format)
+        )
         opened.extend(disk_fds)
 
         argv = [
@@ -553,26 +539,30 @@ class Qemu:
             # Pinned: a second disk otherwise competes for the boot. Not
             # with `-kernel`, which takes boot index 0 itself.
             "-device",
-            "virtio-blk-pci,drive=root" + ("" if disk.kernel else ",bootindex=0"),
+            "virtio-blk-pci,drive=root" + ("" if kernel is not None else ",bootindex=0"),
             "-chardev",
             f"socket,id=control,fd={agent_fd}",
             "-serial",
             "chardev:control",
         ]
         passt_fd: int | None = None
-        if disk.uplink:
+        if config.uplink:
             uplink, passt_fd = self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
             argv += ["-netdev", uplink, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}"]
         monitor_fd = _monitor(sockets / "qmp")
         opened.append(monitor_fd)
         argv += _monitor_args(monitor_fd)
-        if disk.kernel is not None:
-            argv += ["-kernel", str(disk.kernel), "-initrd", str(disk.initrd), "-append", disk.cmdline]
-        if (config_disk := disk.config_disk) is not None:
+        if kernel is not None:
+            argv += ["-kernel", str(kernel.image), "-append", boot.cmdline(kernel)]
+            if kernel.initrd is not None:
+                argv += ["-initrd", str(kernel.initrd)]
+        if (config_disk := config.config_disk) is not None:
             # A copy, writable: RouterOS does not mount a read-only disk.
+            # A reboot keeps what the guest wrote to it.
             copy = rundir / "config.img"
-            shutil.copyfile(config_disk, copy)
-            copy.chmod(0o600)
+            if not copy.exists():
+                shutil.copyfile(config_disk, copy)
+                copy.chmod(0o600)
             argv += ["-drive", f"file={copy},if=virtio,format=raw"]
         argv += _lan_args(spec, lan_fds)
         pass_fds = tuple(fd for fd in (agent_fd, passt_fd, *lan_fds.values(), monitor_fd, *disk_fds) if fd is not None)
@@ -582,6 +572,7 @@ class Qemu:
             helpers=helpers,
             controls=Qemu._controls(spec, sockets / "qmp"),
             cleanup=cleanup,
+            disk_fds=disk_fds,
             notes=forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else [],
         )
 

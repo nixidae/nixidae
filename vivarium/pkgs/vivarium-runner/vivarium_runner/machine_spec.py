@@ -252,8 +252,8 @@ class MachineSpec:
     :func:`vivarium_runner.forward.resolve` has run over every machine in the
     run at once, which `vivarium run` does before it boots any."""
     boot: Boot | None
-    """`vivarium.boot`. None under UML and for a kind that boots its own
-    disk: `launch` says what those boot."""
+    """`vivarium.boot`. None for a guest that names nothing to boot, which
+    every backend refuses."""
     nested: bool
     """`vivarium.nestedVirtualization`."""
     display: Display | None

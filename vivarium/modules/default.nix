@@ -870,15 +870,42 @@ in
               default = null;
               description = "UEFI firmware, for a guest that boots through its own bootloader.";
             };
+            root = lib.mkOption {
+              type = lib.types.nullOr (
+                lib.types.submodule {
+                  options = {
+                    format = lib.mkOption {
+                      type = lib.types.enum [
+                        "raw"
+                        "qcow2"
+                        "squashfs"
+                      ];
+                      default = "raw";
+                      description = "How `vivarium.rootImage` is stored. A squashfs is read-only: the kind's initrd overlays it.";
+                    };
+                    partition = lib.mkOption {
+                      type = lib.types.nullOr lib.types.ints.positive;
+                      default = null;
+                      description = "The partition that holds the root filesystem. Null when the kind's initrd or bootloader finds the root.";
+                    };
+                  };
+                }
+              );
+              default = null;
+              description = ''
+                A guest kind's own root image, not one vivarium built: no
+                store, and no vivarium init in it unless the kind adds one.
+                With no `kernel`, the image's own bootloader boots it.
+              '';
+            };
           };
         }
       );
       default = null;
       internal = true;
       description = ''
-        What this guest boots, the same for every backend. The backend's own
-        module writes it. Null under UML and for a guest kind that boots its
-        own disk: `launch.config` says what those boot.
+        What this guest boots, the same for every backend. The backend's
+        module and the guest kind's module write it; a test does not.
       '';
     };
 
@@ -1096,9 +1123,17 @@ in
     vivarium.launch = lib.mkIf (config.vivarium.backend == "uml") {
       backend = "uml";
       config = {
-        kernel = "${config.system.build.umlKernel}/linux";
         bridge = lib.getExe config.system.build.umlPasstBridge;
         inherit (tools) passt;
+      };
+    };
+    # The guest runs as the UML kernel, whatever its kind. UML boots the
+    # NixOS image through its own /init: see modules/image.nix.
+    vivarium.boot = lib.mkIf (config.vivarium.backend == "uml") {
+      system = lib.mkIf (config.vivarium.kind == "nixos") "${config.system.build.toplevel}";
+      kernel = {
+        image = lib.mkDefault "${config.system.build.umlKernel}/linux";
+        cmdline = lib.mkDefault "";
       };
     };
 

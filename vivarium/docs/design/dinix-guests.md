@@ -34,7 +34,7 @@ on, and nothing else:
 | `vivarium.closure` | the closure of the dinix service tree, the agent and the init's targets |
 | `vivarium.nixDatabase.enable` | false: no Nix in the guest unless a module adds it |
 | `vivarium.control` | `agent`: vivarium's agent runs as a dinit service |
-| `vivarium.launch.config` | the backend's typed boot section (below) |
+| `vivarium.boot` | the kernel, its command line and the root image (below) |
 
 The core's per-guest work stays unchanged: the store view or allowlist,
 `/artifacts`, the agent channel, forwards, segments, the uplink egress,
@@ -99,11 +99,11 @@ nothing of vivarium; vivarium writes the mounts each backend needs.
   `cmdline` names dinix's init, and `vmlinux` is what libkrun loads.
   A NixOS guest writes the same option with its `system`. krun keeps
   owning the store allowlist, DAX, the agent and `/artifacts`.
-- **QEMU**: `disk` is for a foreign OS with no store and no agent. A
-  dinix guest wants the NixOS path's store and agent with its own
-  kernel: the same `vivarium.boot`, which QEMU reads too.
-- **UML**: the kind's own root image with its `/init`; `UmlRoot` gains
-  that shape.
+- **QEMU**: `vivarium.boot.root` is for a foreign OS with no store and
+  no agent. A dinix guest wants the NixOS path's store and agent with its
+  own kernel: the same `vivarium.boot`, which QEMU reads too.
+- **UML**: `vivarium.boot.kernel.image` is the UML kernel, and the kind's
+  own root image goes in `vivarium.boot.root`.
 
 ### 4. The agent's port, without udev
 

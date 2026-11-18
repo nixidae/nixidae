@@ -22,7 +22,7 @@ from harness import Driven, data
 def main() -> None:
     spec, driver, work = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
     os.environ.setdefault("HOME", str(work))
-    kernel = Path(json.loads(spec.read_text())["machines"][0]["launch"]["config"]["kernel"])
+    kernel = Path(json.loads(spec.read_text())["machines"][0]["boot"]["kernel"]["image"])
     copy = work / "linux"
     shutil.copyfile(kernel, copy)
     copy.chmod(0o755)

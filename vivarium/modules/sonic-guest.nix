@@ -61,8 +61,6 @@ in
     vivarium.closure = null;
     vivarium.nixDatabase.enable = false;
     vivarium.control.kind = "sonic";
-    vivarium.launch.config.disk = lib.mkIf (config.vivarium.backend == "qemu") {
-      inherit (cfg) format;
-    };
+    vivarium.boot.root = { inherit (cfg) format; };
   };
 }
