@@ -27,7 +27,9 @@
 //!     relay TCP_PORT VSOCK_PORT UDP_PORT IN_PORT
 //!
 //! VSOCK_PORT and IN_PORT also take `unix:PATH`, for a guest with no vsock
-//! device: a container, whose unix sockets the host shares.
+//! device: a container, whose unix sockets the host shares. IN_PORT `none`
+//! takes no forwards: a second relay in one guest cannot listen on the
+//! first one's port.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -676,7 +678,10 @@ fn main() -> io::Result<()> {
         .get(3)
         .map_or(Ok(9001), |a| a.parse())
         .map_err(io::Error::other)?;
-    let inward = args.get(4).map_or(Ok(Endpoint::Vsock(5001)), |a| Endpoint::parse(a))?;
+    let inward = match args.get(4).map(String::as_str) {
+        Some("none") => None,
+        arg => Some(arg.map_or(Ok(Endpoint::Vsock(5001)), Endpoint::parse)?),
+    };
     if env::var("RELAY_YIELD").is_ok_and(|value| !value.is_empty() && value != "0") {
         vivarium_egress::YIELD_BEFORE_READ.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -684,15 +689,22 @@ fn main() -> io::Result<()> {
     let any6 = |port| SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
     let echoes = Echoes::default();
     let (tcp4, tcp6) = (tcp_listener(any4(tcp))?, tcp_listener(any6(tcp))?);
-    spawn("inbound", move || inbound(inward));
+    if let Some(inward) = inward {
+        spawn("inbound", move || inbound(inward));
+    }
     spawn("udp", move || udp_listener(any4(udp), egress));
     spawn("udp6", move || udp_listener(any6(udp), egress));
     let echoes6 = echoes.clone();
     spawn("icmp", move || icmp_echo(egress, echoes));
     spawn("icmp6", move || icmp6_echo(egress, echoes6));
     spawn("tcp6", move || tcp_accept(tcp6, egress));
-    eprintln!(
-        "relay: tcp {tcp}, udp {udp}, icmp echo, IPv4 and IPv6, to {egress}, forwards from {inward}"
-    );
+    match inward {
+        Some(inward) => eprintln!(
+            "relay: tcp {tcp}, udp {udp}, icmp echo, IPv4 and IPv6, to {egress}, forwards from {inward}"
+        ),
+        None => eprintln!(
+            "relay: tcp {tcp}, udp {udp}, icmp echo, IPv4 and IPv6, to {egress}, no forwards"
+        ),
+    }
     tcp_accept(tcp4, egress)
 }
