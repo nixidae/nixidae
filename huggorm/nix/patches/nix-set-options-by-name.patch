@@ -1,0 +1,180 @@
+Let an ssh-ng client send its settings to a daemon that asks for them.
+
+SSHStore::setOptions sends nothing (ssh-store.cc:81-88, an upstream TODO),
+because a stock daemon applies the fixed header of SetOptions to every
+client: a client's `max-jobs = 0` would stop the builder. So `--option`
+never reaches a daemon over ssh-ng, pynixd included (nixidae/nixidae#1198).
+
+The client names the handshake feature `set-options-by-name`. When the
+daemon names it too:
+
+- SSHStore sends SetOptions.
+- Every overridden setting travels by name, the header ones included. The
+  header cannot say "not set", so the daemon needs the names to tell a
+  choice from a default. The user's nix.conf, NIX_CONFIG and `--option`
+  mark a setting overridden; the system nix.conf does not
+  (`loadConfFile` resets the marks after it).
+- An unregistered setting named `pynixd-*` travels by name. Nix keeps such
+  a name in `unknownSettings` and sends none of them otherwise. A second
+  value for such a name replaces the first, as for a known setting.
+
+The daemon decides which names it accepts from a remote client. A daemon
+that does not name the feature sees what it sees today. 2.35 gates
+SetOptions the other way on `disable-set-options`, for recursive Nix.
+
+--- a/src/libutil/config-global.cc	2026-11-18 09:42:48.261461072 +0100
++++ b/src/libutil/config-global.cc	2026-11-18 10:18:48.143815332 +0100
+@@ -16,7 +16,9 @@
+         if (config->set(name, value))
+             return true;
+ 
+-    unknownSettings.emplace(name, value);
++    /* The last value wins, as for a known setting: `emplace` kept the first,
++       and a `pynixd-*` setting is sent. */
++    unknownSettings.insert_or_assign(name, value);
+ 
+     return false;
+ }
+--- a/src/libutil/configuration.cc	2026-11-18 09:42:48.261461072 +0100
++++ b/src/libutil/configuration.cc	2026-11-18 09:42:54.902772154 +0100
+@@ -77,6 +77,15 @@
+         warn("unknown setting '%s'", s.first);
+ }
+ 
++StringMap AbstractConfig::unknownSettingsWithPrefix(std::string_view prefix) const
++{
++    StringMap res;
++    for (const auto & [name, value] : unknownSettings)
++        if (hasPrefix(name, prefix))
++            res.emplace(name, value);
++    return res;
++}
++
+ void AbstractConfig::reapplyUnknownSettings()
+ {
+     auto unknownSettings2 = std::move(unknownSettings);
+--- a/src/libutil/include/nix/util/configuration.hh	2026-11-18 09:42:48.264480202 +0100
++++ b/src/libutil/include/nix/util/configuration.hh	2026-11-18 09:42:52.938756200 +0100
+@@ -119,6 +119,11 @@
+      */
+     void reapplyUnknownSettings();
+ 
++    /**
++     * The unregistered settings whose name starts with `prefix`.
++     */
++    StringMap unknownSettingsWithPrefix(std::string_view prefix) const;
++
+     virtual ~AbstractConfig() = default;
+ };
+ 
+--- a/src/libstore/include/nix/store/remote-store.hh	2026-11-18 09:42:48.393719278 +0100
++++ b/src/libstore/include/nix/store/remote-store.hh	2026-11-18 09:44:58.700817667 +0100
+@@ -28,6 +28,12 @@
+  */
+ extern std::atomic<int> remoteVerbosity;
+ 
++/**
++ * Unregistered settings with this prefix travel in `SetOptions` under
++ * `WorkerProto::featureSetOptionsByName`: they are the daemon's, not this process's.
++ */
++extern const std::string pynixdSettingPrefix;
++
+ struct RemoteStoreConfig : virtual StoreConfig
+ {
+     using StoreConfig::StoreConfig;
+--- a/src/libstore/include/nix/store/worker-protocol.hh	2026-11-18 09:42:48.241718043 +0100
++++ b/src/libstore/include/nix/store/worker-protocol.hh	2026-11-18 09:45:09.893866273 +0100
+@@ -110,6 +110,13 @@
+     static const Version minimum;
+ 
+     /**
++     * Feature for sending every overridden setting by name in SetOptions,
++     * the header ones included. An `SSHStore` sends SetOptions only when
++     * the daemon names it.
++     */
++    static constexpr std::string_view featureSetOptionsByName = "set-options-by-name";
++
++    /**
+      * A unidirectional read connection, to be used by the read half of the
+      * canonical serializers below.
+      */
+--- a/src/libstore/remote-store.cc	2026-11-18 09:42:48.426191344 +0100
++++ b/src/libstore/remote-store.cc	2026-11-18 09:44:58.700817667 +0100
+@@ -9,6 +9,7 @@
+ #include "nix/store/worker-protocol.hh"
+ #include "nix/store/worker-protocol-impl.hh"
+ #include "nix/util/archive.hh"
++#include "nix/util/config-global.hh"
+ #include "nix/store/globals.hh"
+ #include "nix/store/derivations.hh"
+ #include "nix/util/pool.hh"
+@@ -30,6 +31,8 @@
+ 
+ std::atomic<int> remoteVerbosity{-1};
+ 
++const std::string pynixdSettingPrefix = "pynixd-";
++
+ /* TODO: Separate these store types into different files, give them better names */
+ RemoteStore::RemoteStore(const Config & config)
+     : Store{config}
+@@ -85,7 +88,9 @@
+         StringSink saved;
+         TeeSource tee(conn.from, saved);
+         try {
+-            conn.protoVersion = WorkerProto::BasicClientConnection::handshake(conn.to, tee, WorkerProto::latest);
++            auto local = WorkerProto::latest;
++            local.features.insert(std::string{WorkerProto::featureSetOptionsByName});
++            conn.protoVersion = WorkerProto::BasicClientConnection::handshake(conn.to, tee, local);
+             if (conn.protoVersion.number < WorkerProto::minimum.number)
+                 throw Error("the Nix daemon version is too old");
+         } catch (SerialisationError & e) {
+@@ -127,13 +132,21 @@
+     std::map<std::string, nix::Config::SettingInfo> overrides;
+     settings.getSettings(overrides, true); // libstore settings
+     fileTransferSettings.getSettings(overrides, true);
+-    overrides.erase(settings.keepFailed.name);
+-    overrides.erase(settings.getWorkerSettings().keepGoing.name);
+-    overrides.erase(settings.getWorkerSettings().tryFallback.name);
+-    overrides.erase(settings.getWorkerSettings().maxBuildJobs.name);
+-    overrides.erase(settings.getWorkerSettings().maxSilentTime.name);
+-    overrides.erase(settings.getLocalSettings().buildCores.name);
+-    overrides.erase(settings.getWorkerSettings().useSubstitutes.name);
++    /* The header cannot say "not set". Under the feature, a header setting
++       that is overridden travels by name too, so the daemon can tell the
++       two apart. */
++    if (conn.protoVersion.features.contains(WorkerProto::featureSetOptionsByName)) {
++        for (auto & [name, value] : globalConfig.unknownSettingsWithPrefix(pynixdSettingPrefix))
++            overrides.emplace(name, nix::Config::SettingInfo{.value = value});
++    } else {
++        overrides.erase(settings.keepFailed.name);
++        overrides.erase(settings.getWorkerSettings().keepGoing.name);
++        overrides.erase(settings.getWorkerSettings().tryFallback.name);
++        overrides.erase(settings.getWorkerSettings().maxBuildJobs.name);
++        overrides.erase(settings.getWorkerSettings().maxSilentTime.name);
++        overrides.erase(settings.getLocalSettings().buildCores.name);
++        overrides.erase(settings.getWorkerSettings().useSubstitutes.name);
++    }
+     overrides.erase(loggerSettings.showTrace.name);
+     overrides.erase(experimentalFeatureSettings.experimentalFeatures.name);
+     overrides.erase("plugin-files");
+--- a/src/libstore/ssh-store.cc	2026-11-18 09:42:48.237551688 +0100
++++ b/src/libstore/ssh-store.cc	2026-11-18 09:44:58.700817667 +0100
+@@ -79,12 +79,12 @@
+     SSHMaster master;
+ 
+     void setOptions(RemoteStore::Connection & conn) override {
+-        /* TODO Add a way to explicitly ask for some options to be
+-           forwarded. One option: A way to query the daemon for its
+-           settings, and then a series of params to SSHStore like
+-           forward-cores or forward-overridden-cores that only
+-           override the requested settings.
+-        */
++        /* A stock daemon applies the fixed header unconditionally, so a
++           client's `max-jobs = 0` would stop a builder. A daemon that
++           names `featureSetOptionsByName` reads the settings by name and
++           keeps the ones it accepts from a remote client. */
++        if (conn.protoVersion.features.contains(WorkerProto::featureSetOptionsByName))
++            RemoteStore::setOptions(conn);
+     };
+ };
+ 

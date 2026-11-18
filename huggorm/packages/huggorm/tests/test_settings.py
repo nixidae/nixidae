@@ -176,6 +176,14 @@ def test_an_unknown_name_refuses_to_be_set() -> None:
         set_setting("no-such-setting", "1")
 
 
+def test_a_pynixd_name_is_kept_for_the_daemon() -> None:
+    """No registered setting answers to it; pynixd's `ssh-options` phase proves it is sent."""
+    from huggorm_bindings import get_setting, set_setting
+
+    set_setting("pynixd-test-unused", "1")
+    assert get_setting("pynixd-test-unused") is None
+
+
 def test_a_set_value_reaches_the_next_state(setting: Callable[[str, str], None]) -> None:
     from huggorm_bindings import EvalState, Store
 

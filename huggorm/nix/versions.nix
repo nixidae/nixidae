@@ -90,6 +90,11 @@ let
   recordDerivations = patch "nix-record-derivations";
   recordDerivations236 = patch "nix-2.36-record-derivations";
   recordDerivationsDeterminate = patch "nix-determinate-record-derivations";
+  # An ssh-ng client sends its settings by name to a daemon that names the
+  # `set-options-by-name` feature, `pynixd-*` ones included
+  # (nixidae/nixidae#1198). 2.35 builds its handshake features in a variable.
+  setOptionsByName = patch "nix-set-options-by-name";
+  setOptionsByName235 = patch "nix-2.35-set-options-by-name";
 
   determinate = import ./determinate.nix { inherit pkgs sources; };
 in
@@ -117,6 +122,7 @@ in
       udsLocalFS
       addSignatures
       recordDerivations
+      setOptionsByName
     ];
   };
   nix_2_35 = {
@@ -139,6 +145,7 @@ in
       udsLocalFS
       addSignatures
       recordDerivations
+      setOptionsByName235
     ];
   };
   # Unpinned on purpose: it follows nixpkgs' `nixComponents_git`, so a
@@ -165,6 +172,7 @@ in
       addSignatures
       developOutputChecks
       recordDerivations236
+      setOptionsByName235
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
     # ships gcc-toolset-14 (nixidae/nixidae#660).
@@ -208,6 +216,7 @@ in
       addSignatures
       evalStoreCopy
       recordDerivationsDeterminate
+      setOptionsByName235
     ];
     # The fork's collector is newer bdwgc: the same three changes as
     # `boehmgcPatches` below, where its code moved.
