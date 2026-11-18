@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
-from vivarium_runner.backend import Container
+from vivarium_runner.backends.container import Container
 from vivarium_runner.container import (
     AGENT_DIR,
     CAPABILITIES,

@@ -7,7 +7,11 @@ this holds the decision each backend makes from how the process ended.
 from __future__ import annotations
 
 import pytest
-from vivarium_runner.backend import Container, Krun, KrunExit, Qemu, Stop, Uml
+from vivarium_runner.backends import Stop
+from vivarium_runner.backends.container import Container
+from vivarium_runner.backends.krun import Krun, KrunExit
+from vivarium_runner.backends.qemu import Qemu
+from vivarium_runner.backends.uml import Uml
 
 
 @pytest.mark.parametrize(

@@ -15,12 +15,12 @@ dependencies = ["vivarium-agent", "qemu.qmp"]
 vivarium-run = "vivarium_runner.cli:main"
 
 # The backends, by the name `vivarium.backend` gives. Another package adds
-# one the same way; `vivarium_runner.backend.get` reads this group.
+# one the same way; `vivarium_runner.backends.get` reads this group.
 [project.entry-points."vivarium.backends"]
-uml = "vivarium_runner.backend:Uml"
-qemu = "vivarium_runner.backend:Qemu"
-krun = "vivarium_runner.backend:Krun"
-container = "vivarium_runner.backend:Container"
+uml = "vivarium_runner.backends.uml:Uml"
+qemu = "vivarium_runner.backends.qemu:Qemu"
+krun = "vivarium_runner.backends.krun:Krun"
+container = "vivarium_runner.backends.container:Container"
 
 # The console dialects, by the name `vivarium.control.kind` gives.
 # `vivarium_runner.control.dialects` reads this group.

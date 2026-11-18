@@ -46,8 +46,8 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 import anyio
 import pytest
 from anyio.from_thread import BlockingPortal
-from vivarium_runner import Machine, MachineError, Machines, MachineSpec, backend
-from vivarium_runner.backend import BackendError
+from vivarium_runner import Machine, MachineError, Machines, MachineSpec, backends
+from vivarium_runner.backends import BackendError
 from vivarium_runner.net import build_lans
 from vivarium_runner.report import Report
 
@@ -184,7 +184,7 @@ def with_kernel(machines: list[MachineSpec], kernel: Path) -> list[MachineSpec]:
     by hand: the check keeps the kernel Nix built.
     """
     try:
-        return [backend.get(machine.backend).with_kernel(machine, kernel) for machine in machines]
+        return [backends.get(machine.backend).with_kernel(machine, kernel) for machine in machines]
     except BackendError as error:
         raise SessionError(f"--kernel: {error}") from error
 

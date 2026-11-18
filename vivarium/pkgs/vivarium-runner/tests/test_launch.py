@@ -11,18 +11,11 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from vivarium_runner.backend import (
-    BackendError,
-    BlankDisk,
-    Container,
-    Krun,
-    KrunConfig,
-    Qemu,
-    QemuConfig,
-    Uml,
-    UmlConfig,
-    _drive_args,
-)
+from vivarium_runner.backends import BackendError
+from vivarium_runner.backends.container import Container
+from vivarium_runner.backends.krun import Krun, KrunConfig
+from vivarium_runner.backends.qemu import BlankDisk, Qemu, QemuConfig, _drive_args
+from vivarium_runner.backends.uml import Uml, UmlConfig
 from vivarium_runner.boot import Boot, Firmware, Kernel
 from vivarium_runner.machine_spec import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName

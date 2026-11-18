@@ -1,7 +1,7 @@
 /*
   `vivarium-krun`, the process a krun guest runs as: a small C program over
   libkrun 2.0's builder API. The runner builds its command line from the
-  guest's spec (`vivarium_runner.backend.Krun`).
+  guest's spec (`vivarium_runner.backends.krun.Krun`).
 
   On macOS the binary carries the hypervisor entitlement, signed ad hoc.
 */

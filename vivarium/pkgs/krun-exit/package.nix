@@ -1,7 +1,7 @@
 # A krun guest ends with a reset whatever it meant, so it tells libkrun
 # which: libkrun's process exits with the code the guest last set through
 # virtio-fs ioctl 0x7602 on any file of a share, as libkrun's own init
-# does. `KrunExit` in vivarium_runner/backend.py reads `codes`.
+# does. `KrunExit` in vivarium_runner/backends/krun.py reads `codes`.
 #
 #     vivarium-krun-exit PATH CODE
 { writeCBin }:

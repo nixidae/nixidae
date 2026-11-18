@@ -8,7 +8,7 @@ The runner gives every backend the same fds:
 
 Commands go over the socketpair, so nothing here depends on guest
 networking having come up, and everything works inside a Nix build
-sandbox.  :mod:`vivarium_runner.backend` turns those fds into an argv; this
+sandbox.  :mod:`vivarium_runner.backends` turns those fds into an argv; this
 file does not know which kind of machine it started.
 """
 
@@ -43,7 +43,8 @@ from anyio.abc import TaskGroup, UNIXSocketStream
 from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connect
 from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
-from . import backend as backends, display, forward, ocr, report, storeview
+from . import backends, display, forward, ocr, report, storeview
+from .backends.host import memory_bytes
 from .boot import Boot, BootspecJson
 from .capability import ControlError, Controls, Framebuffer, Power, Screen
 from .control import (
@@ -1262,7 +1263,7 @@ class Machine:
         already does that, on both backends, within seconds and without
         being asked. This is for squeezing a guest on purpose.
         """
-        await self._balloon(-backends.memory_bytes(amount))
+        await self._balloon(-memory_bytes(amount))
 
     async def grow(self, amount: str) -> None:
         """Give this guest back up to *amount* of what :meth:`shrink` took.
@@ -1270,7 +1271,7 @@ class Machine:
         Never past the memory it booted with. Both backends clamp there
         rather than failing.
         """
-        await self._balloon(backends.memory_bytes(amount))
+        await self._balloon(memory_bytes(amount))
 
     @property
     def can_resize(self) -> bool:

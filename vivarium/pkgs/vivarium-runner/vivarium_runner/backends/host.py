@@ -1,0 +1,187 @@
+"""Host plumbing more than one backend uses: sockets, memory, helper processes, the router's egress."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import tempfile
+import time
+from collections.abc import Iterable
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from .. import container, forward, unixpath
+from ..lifetime import die_with_parent
+from .base import BackendError
+
+if TYPE_CHECKING:
+    from ..machine import Machine
+
+
+def _tail(path: Path, lines: int = 20) -> str:
+    """The end of *path*, for a helper that has already exited.
+
+    The end and not the start: passt names the port it could not bind
+    once per port and says why it gave up on the last line.
+    """
+    try:
+        text = path.read_text(errors="replace")
+    except OSError as error:
+        return f"({path} unreadable: {error})"
+    return "\n".join(text.splitlines()[-lines:]) or f"({path} is empty)"
+
+
+RUN_ROOT_ENV = "VIVARIUM_RUN_ROOT"
+"""A short directory `vivarium run` removes however it ends; see
+`vivarium/runroot.py`."""
+
+
+def short_tmp() -> str:
+    """Where a socket path short enough for `sockaddr_un` goes: the run
+    root when there is one, which is cleaned up; else /tmp."""
+    return os.environ.get(RUN_ROOT_ENV) or "/tmp"
+
+
+def memory_bytes(memory: str) -> int:
+    """``mem=`` as a number, the way UML's ``memparse`` reads it."""
+    scale = {"k": 1024, "m": 1024**2, "g": 1024**3}
+    if memory[-1:].lower() in scale:
+        return int(memory[:-1]) * scale[memory[-1].lower()]
+    return int(memory)
+
+
+def memory_file_kib(pid: int, memory: str) -> int:
+    """Kibibytes allocated to the guest's RAM file, which process *pid* holds open.
+
+    Unlinked and exactly *memory* long. QEMU also holds its scratch disk
+    by fd and unlinked, so a `memfd:` target wins over a bare size match
+    -- a qcow2 that happened to be exactly this long would otherwise be
+    read as the guest's memory.
+    """
+    want = memory_bytes(memory)
+    found: int | None = None
+    for entry in (Path("/proc") / str(pid) / "fd").iterdir():
+        try:
+            target = str(entry.readlink())
+            if not target.endswith("(deleted)"):
+                continue
+            stat = entry.stat()
+        except OSError:
+            continue
+        if stat.st_size != want:
+            continue
+        if "memfd:" in target:
+            return stat.st_blocks // 2
+        found = stat.st_blocks // 2
+    if found is not None:
+        return found
+    raise BackendError(f"found no memory file under /proc/{pid}/fd")
+
+
+def processes_pss_kib(pid: int) -> int:
+    """`container.tree_pss_kib`, raising `BackendError`."""
+    try:
+        return container.tree_pss_kib(pid)
+    except RuntimeError as error:
+        raise BackendError(str(error)) from error
+
+
+def socket_dir(rundir: Path, name: str, fallback: str | None) -> tuple[Path, list[Path]]:
+    """A directory to put *name* in where the kernel will accept the path.
+
+    *rundir* where it fits, and a directory of its own where it does not:
+    a unix socket's path goes in a ``sockaddr_un``, which holds 108 bytes,
+    and a caller whose TMPDIR is long -- an agent's scratch directory is
+    often 90 characters on its own -- would otherwise lose the control
+    channel with nothing but a log line about it.
+
+    Returns the directory and whatever has to be removed afterwards.
+    """
+    if unixpath.fits(rundir / name):
+        return rundir, []
+    made = Path(tempfile.mkdtemp(prefix="vivarium-", dir=fallback or short_tmp()))
+    return made, [made]
+
+
+def _require_ids(name: str, kind: str) -> None:
+    """Refuse a guest whose file server needs the namespace's subordinate ids.
+
+    virtiofsd and libkrun's virtio-fs serve a file as the guest user that
+    made it, so a guest user outside the namespace's ids gets EINVAL on its
+    first write to /artifacts, minutes in.
+    """
+    if not container.owns_ids():
+        raise BackendError(
+            f"{name}: a {kind} guest needs {container.SUBORDINATE_IDS} ids "
+            "in the run's namespace, and it maps fewer\n"
+            "    fix: give your user subordinate ids in /etc/subuid and /etc/subgid, "
+            "with newuidmap and newgidmap installed; a Nix build asks for uid-range"
+        )
+
+
+def _abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) -> None:
+    """Kill the helpers and close the fds of a launch that failed part way.
+
+    Nothing owns these until a Launch carries them back, so a failure
+    between the first one and the last would leave a daemon running, or an
+    unlinked disk image alive with no name and no way to find it. A test
+    that fails while booting is exactly when that happens.
+    """
+    for helper in helpers:
+        if helper.poll() is None:
+            helper.kill()
+            helper.wait()
+    for fd in opened:
+        os.close(fd)
+
+
+RELAY_IN_PORT = 5001
+"""Where the router's relay takes forwards in: its IN_PORT, in modules/router.nix."""
+
+
+def egress_args(machine: Machine, relay: str) -> list[str]:
+    """The egress's options and forwards for *machine*, whose relay is at
+    *relay*: a router's for each of its guests' rules, a `vsock` guest's
+    for its own."""
+    guests = machine.routed if machine.spec.router else (machine,)
+    return [
+        *forward.egress_uplink_args(machine.spec.uplink_network, machine.offline),
+        *(
+            arg
+            for guest in guests
+            if (address := guest.uplink_ip) is not None
+            for arg in forward.egress_args(guest.forward, address, relay)
+        ),
+    ]
+
+
+def start_egress(
+    egress: Path | None, rundir: Path, gateway: str, listen: str, ready: Path, args: list[str]
+) -> subprocess.Popen[bytes]:
+    """Start the router's egress on *listen* and wait until *ready* exists.
+
+    The egress binds every forward before it binds *ready*, and maps the
+    uplink's *gateway* to the host's loopback.
+    """
+    if egress is None:
+        raise BackendError("the router needs egress in vivarium.launch.config")
+    log = rundir / "egress.log"
+    with log.open("wb") as handle:
+        proc = subprocess.Popen(
+            [str(egress), listen, gateway, *args],
+            stdin=subprocess.DEVNULL,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            preexec_fn=die_with_parent,
+        )
+    # A poll: the egress says nothing when it listens.
+    deadline = time.monotonic() + 10
+    while not ready.exists():
+        if proc.poll() is not None:
+            raise BackendError(f"the egress exited ({proc.returncode}):\n{_tail(log)}")
+        if time.monotonic() > deadline:
+            proc.kill()
+            raise BackendError(f"the egress did not listen on {ready}:\n{_tail(log)}")
+        time.sleep(0.02)
+    return proc

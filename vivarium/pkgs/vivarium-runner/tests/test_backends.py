@@ -11,8 +11,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from vivarium_runner import MachineSpec, backend
-from vivarium_runner.backend import BackendError, Container, Krun, Qemu, Uml
+from vivarium_runner import MachineSpec, backends
+from vivarium_runner.backends import BackendError
+from vivarium_runner.backends.container import Container
+from vivarium_runner.backends.krun import Krun
+from vivarium_runner.backends.qemu import Qemu
+from vivarium_runner.backends.uml import Uml
 from vivarium_runner.boot import Boot, Kernel
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json
@@ -22,7 +26,7 @@ if TYPE_CHECKING:
 
 
 def test_the_four_are_installed() -> None:
-    assert {name: type(one) for name, one in backend.available().items()} == {
+    assert {name: type(one) for name, one in backends.available().items()} == {
         "uml": Uml,
         "qemu": Qemu,
         "krun": Krun,
@@ -31,9 +35,9 @@ def test_the_four_are_installed() -> None:
 
 
 def test_get_names_what_is_installed() -> None:
-    assert isinstance(backend.get("uml"), Uml)
+    assert isinstance(backends.get("uml"), Uml)
     with pytest.raises(ValueError, match="no backend 'vm'; have container, krun, qemu, uml"):
-        backend.get("vm")
+        backends.get("vm")
 
 
 MINE = Path("/home/me/linux/vmlinux")
