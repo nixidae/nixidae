@@ -78,6 +78,18 @@ impl Ports {
     }
 }
 
+/// `dst` as the kernel connects to it: an IPv4-mapped IPv6 address is
+/// IPv4, and the unspecified address is the loopback of its family. Both
+/// reach a listener on 127.0.0.1 (measured), so `allows` sees this form.
+fn canonical(dst: SocketAddr) -> SocketAddr {
+    let ip = match dst.ip().to_canonical() {
+        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    SocketAddr::new(ip, dst.port())
+}
+
 /// Whether `ip` is one of the host's addresses: a socket binds to it.
 fn local(ip: IpAddr) -> bool {
     ip.is_loopback() || UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
@@ -104,7 +116,8 @@ impl Outside {
                 .any(|ports| ports.hold(proto, dst, local))
     }
 
-    fn destination(&self, mut dst: SocketAddr) -> SocketAddr {
+    fn destination(&self, dst: SocketAddr) -> SocketAddr {
+        let mut dst = canonical(dst);
         if let Some((_, to)) = self.maps.iter().find(|(from, _)| *from == dst) {
             return *to;
         }
@@ -809,5 +822,18 @@ mod tests {
         };
         assert!(!v6.allows(Network::Data, TCP, at("[::1]:8080")));
         assert!(!v6.allows(Network::Data, TCP, at("127.0.0.1:8080")));
+    }
+
+    // Each reached a forward on 127.0.0.1 before `destination` made it
+    // canonical (alias_probe, 2026-11-18).
+    #[test]
+    fn an_alias_of_a_forward_address_reaches_no_forward() {
+        let outside = outside(&["8080=10.0.2.15:80@/r"]);
+        for dst in ["0.0.0.0:8080", "[::ffff:127.0.0.1]:8080"] {
+            let mapped = outside.destination(at(dst));
+            assert_eq!(mapped, at("127.0.0.1:8080"), "{dst}");
+            assert!(!outside.allows(Network::Data, TCP, mapped), "{dst}");
+        }
+        assert_eq!(outside.destination(at("[::]:8080")), at("[::1]:8080"));
     }
 }
