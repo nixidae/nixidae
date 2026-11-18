@@ -550,6 +550,11 @@ kernel under krun with dinit as PID 1 and no NixOS
 It is the distribution's userspace on our kernel: good for building and
 configuring on SUSE quickly, not for certifying anything.
 
+A run with such a guest gets a router guest, and every guest of the run
+goes behind it (nixidae/nixidae#1521). The cloud image leases its uplink
+address from the router, because `vsock` cannot serve a guest that is
+not NixOS. A run that sets `router.enable = false` keeps passt for it.
+
 - The runner converts the qcow2 to a sparse raw file in the run
   directory. The store keeps the qcow2: a NAR cannot hold a sparse file.
 - A cloud-init NoCloud seed, built in Nix, mounts the guest's store view

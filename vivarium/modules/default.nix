@@ -1062,6 +1062,21 @@ in
       '';
     };
 
+    uplink.wantsRouter = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Whether this guest gives its run a router guest when the run
+        leaves `router.enable` null (nixidae/nixidae#1521). Every guest of
+        the run then goes behind the router. A kind sets it when `vsock`
+        cannot serve the guest and the guest is measured to lease `vec0`
+        by DHCP: a cloud image (`vivarium.kinds.image`) does.
+
+        Nothing this reads may depend on the router: the run reads it to
+        decide whether there is one.
+      '';
+    };
+
     segments = lib.mkOption {
       internal = true;
       type = lib.types.attrsOf (import ./segment.nix lib);

@@ -568,6 +568,94 @@ rec {
         builtins.toJSON checkedConfig.settings
       );
 
+      routerName = cfg.router.name;
+
+      /*
+        Whether the run has a router guest. Read from the user's guests,
+        so nothing their `wantsRouter` reads may depend on it: a guest's
+        router settings sit under `mkIf`, never in `imports`, and the
+        router joins `evaluated` after `cfg.nodes`.
+      */
+      routerEnabled =
+        if cfg.router.enable != null then
+          cfg.router.enable
+        # `router.backend`, not `backend`: a `.krun` variant forces the
+        # guests' backend and the router's, and leaves `backend` alone.
+        else
+          (pkgs.stdenv.hostPlatform.isDarwin && cfg.router.backend != "uml")
+          || lib.any (hostName: wantsRouter hostName cfg.nodes.${hostName}) (
+            lib.filter (hostName: hostName != routerName) (lib.attrNames cfg.nodes)
+          );
+
+      # A second evaluation, without the check for definitions no option
+      # declares. On the guest's own evaluation that check reads every
+      # definition's shape, networkd's gateway among them, which reads
+      # `uplink.proxy`, which reads this decision.
+      wantsRouter =
+        hostName: module:
+        ((evaluate hostName module).extendModules {
+          modules = [ { _module.check = lib.mkForce false; } ];
+        }).config.vivarium.uplink.wantsRouter;
+
+      # The router's index is its own, so adding it moves no guest's
+      # index, MAC or ssh port. The highest: a MAC octet is one byte.
+      guestNames = lib.filter (hostName: !(routerEnabled && hostName == routerName)) (
+        lib.attrNames cfg.nodes
+      );
+      indexOf =
+        hostName:
+        if routerEnabled && hostName == routerName then
+          254
+        else
+          lib.lists.findFirstIndex (name: name == hostName) null guestNames;
+
+      # What `router.enable` does to a guest. A guest of the router's
+      # name merges into the router.
+      routerModule =
+        hostName:
+        { config, ... }:
+        {
+          config = lib.mkIf routerEnabled (
+            if hostName == routerName then
+              {
+                vivarium.router.enable = true;
+                # Above `.qemu`'s and `.container`'s mkForce on `defaults`: the
+                # router takes `router.backend`, whatever its guests take.
+                vivarium.backend = lib.mkOverride 40 cfg.router.backend;
+              }
+            else
+              {
+                # A template's instance is never behind it (router.nix says why),
+                # and keeps the uplink a guest has without a router.
+                vivarium.uplink.proxy = lib.mkIf (!config.vivarium.template) (lib.mkDefault "router");
+                # A guest behind the router has no lease and no forwards without it.
+                vivarium.requires = lib.mkIf (config.vivarium.uplink.proxy == "router") [ routerName ];
+              }
+          );
+        };
+
+      evaluate =
+        hostName: module:
+        let
+          index = indexOf hostName;
+        in
+        mkNode {
+          imports = [
+            cfg.defaults
+            module
+            peersModule
+            (routerModule hostName)
+          ];
+          _module.args.nodes = nodes;
+          # For `vivarium.lateClosure`: a guest names the settings paths it reads.
+          _module.args.settings = cfg.settings;
+          networking.hostName = lib.mkDefault hostName;
+          vivarium.sshPort = lib.mkDefault (4325 + index);
+          vivarium.backend = lib.mkDefault cfg.backend;
+          vivarium.index = index;
+          vivarium.segments = cfg.segments;
+        };
+
       /*
         Every guest, evaluated, by name. Each one receives all of them as
         the module argument `nodes`, as in nixos-test, so a guest may read
@@ -578,41 +666,11 @@ rec {
         From the unchecked `cfg`: the run's assertions read its phases, and
         a recipe may derive a phase from these guests.
       */
-      # The router's index is its own, so adding it moves no guest's
-      # index, MAC or ssh port. The highest: a MAC octet is one byte.
-      guestNames = lib.filter (hostName: !(cfg.router.enable && hostName == cfg.router.name)) (
-        lib.attrNames cfg.nodes
-      );
-      indexOf =
-        hostName:
-        if cfg.router.enable && hostName == cfg.router.name then
-          254
-        else
-          lib.lists.findFirstIndex (name: name == hostName) null guestNames;
-
-      evaluated = lib.listToAttrs (
-        map (
-          hostName:
-          let
-            index = indexOf hostName;
-          in
-          lib.nameValuePair hostName (mkNode {
-            imports = [
-              cfg.defaults
-              cfg.nodes.${hostName}
-              peersModule
-            ];
-            _module.args.nodes = nodes;
-            # For `vivarium.lateClosure`: a guest names the settings paths it reads.
-            _module.args.settings = cfg.settings;
-            networking.hostName = lib.mkDefault hostName;
-            vivarium.sshPort = lib.mkDefault (4325 + index);
-            vivarium.backend = lib.mkDefault cfg.backend;
-            vivarium.index = index;
-            vivarium.segments = cfg.segments;
-          })
-        ) (lib.attrNames cfg.nodes)
-      );
+      evaluated =
+        lib.mapAttrs evaluate cfg.nodes
+        // lib.optionalAttrs (routerEnabled && !(cfg.nodes ? ${routerName})) {
+          ${routerName} = evaluate routerName { };
+        };
 
       nodes = lib.mapAttrs (_: node: node.config) evaluated;
 
@@ -645,7 +703,7 @@ rec {
         lib.concatMap (template: map (nic: nic.segment) template.vivarium.nics) (lib.attrValues templates)
       );
 
-      machines = map (hostName: nodes.${hostName}) (lib.attrNames checkedConfig.nodes);
+      machines = lib.attrValues nodes;
 
       pythonPackages = lib.unique (
         checkedConfig.python.packages ++ lib.concatMap (machine: machine.vivarium.python.packages) machines

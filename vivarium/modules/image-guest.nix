@@ -260,6 +260,8 @@ in
       }
     ];
     vivarium.kind = "image";
+    # Measured: Leap leases `vec0` from the router (checks.suse-router).
+    vivarium.uplink.wantsRouter = lib.mkDefault true;
     vivarium.rootImage = cfg.disk;
     vivarium.nixDatabase.enable = cfg.writableStore;
     vivarium.boot = {
