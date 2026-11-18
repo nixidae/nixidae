@@ -26,10 +26,11 @@ from .host import (
     egress_args,
     memory_bytes,
     processes_pss_kib,
+    scratch_disk,
     socket_dir,
     start_egress,
+    start_passt,
 )
-from .qemu import Qemu
 
 if TYPE_CHECKING:
     from ..boot import Boot, Kernel
@@ -253,9 +254,9 @@ class Krun:
             if disk_fds:
                 disk_rw = disk_fds[0]
             else:
-                disk_rw, disk_ro = Qemu._scratch_disk(config.qemu_img, rundir, spec.image)
+                disk_rw, disk_ro = scratch_disk(config.qemu_img, rundir, spec.image)
                 opened += [disk_rw, disk_ro]
-            # As Qemu._uplink: an uplink segment (a router's, nixidae/nixidae#1404)
+            # As Qemu._uplink_netdev: an uplink segment (a router's, nixidae/nixidae#1404)
             # replaces passt, and its fd is the run's.
             if spec.vsock:
                 # No uplink: libkrun's own vsock carries each relay flow to
@@ -279,7 +280,7 @@ class Krun:
                 else:
                     if config.passt is None:
                         raise BackendError(f"{spec.name}: vivarium.launch.config has no passt")
-                    passt_fd, passt_proc = Qemu._passt(
+                    passt_fd, passt_proc = start_passt(
                         config.passt, rundir, spec.uplink_network, machine.forward, machine.offline
                     )
                     notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline)

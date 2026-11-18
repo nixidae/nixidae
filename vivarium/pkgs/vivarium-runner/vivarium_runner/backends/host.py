@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import tempfile
 import time
@@ -185,3 +186,98 @@ def start_egress(
             raise BackendError(f"the egress did not listen on {ready}:\n{_tail(log)}")
         time.sleep(0.02)
     return proc
+
+
+def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
+    """A writable layer over the read-only root image, with no name.
+
+    The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
+    the store, and everything the guest writes goes here instead.
+
+    The file is unlinked before QEMU is started and handed over as open
+    file descriptors.  So the only thing keeping those gigabytes alive
+    is a process, and the kernel frees them the moment QEMU is gone --
+    including when the runner is killed with a signal it cannot catch,
+    which no amount of cleanup code covers.
+
+    Two descriptors, read-write and read-only, because QEMU opens an
+    image O_RDONLY to probe its format before reopening it O_RDWR, and
+    picks from the fd set by access mode.  With one it says
+    ``Failed to find file descriptor with matching flags=0x0``.
+    """
+    scratch = rundir / "root.qcow2"
+    done = subprocess.run(
+        [
+            str(qemu_img),
+            "create",
+            "-q",
+            "-f",
+            "qcow2",
+            # Named, because qemu-img refuses to guess a backing
+            # format and a guess would be silently wrong. Raw for a
+            # NixOS root and CHR; qcow2 for an image that ships one,
+            # such as SONiC's.
+            "-F",
+            backing,
+            "-b",
+            str(image),
+            str(scratch),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if done.returncode != 0:
+        raise BackendError(f"could not make a scratch disk over {image}: {(done.stderr or done.stdout).strip()}")
+    fds = (os.open(scratch, os.O_RDWR), os.open(scratch, os.O_RDONLY))
+    scratch.unlink()
+    return fds
+
+
+def start_passt(
+    passt: Path, rundir: Path, network: forward.UplinkNetwork, rules: list[forward.Rule], offline: bool = False
+) -> tuple[int, subprocess.Popen[bytes]]:
+    """Start passt on one end of a socketpair; return QEMU's end.
+
+    No bridge: passt frames with a 4-byte big-endian length prefix,
+    which is QEMU's own socket protocol, so the two talk directly.
+    The specifiers are the ones forward.py builds for UML, unchanged.
+
+    **passt keeps a log and is checked for a pulse.**  Without them, a
+    passt that refuses to start -- which it does outright when a port
+    it was asked for will not bind -- leaves a guest with no uplink and
+    no word said.  What that looks like from inside is a guest whose
+    vec0 has a link-local address and nothing else, two minutes later,
+    reported as a name that would not resolve.  Measured on a
+    GitHub runner; see the `[cp] addresses and routes` of
+    user-mode-nixos run 34943651620.
+    """
+    qemu_end, passt_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    log = rundir / "passt.log"
+    handle = log.open("wb")
+    proc = subprocess.Popen(
+        [
+            str(passt),
+            "--foreground",
+            "--fd",
+            str(passt_end.fileno()),
+            *forward.uplink_args(network, offline),
+            *forward.to_args(rules),
+        ],
+        stdin=subprocess.DEVNULL,
+        pass_fds=(passt_end.fileno(),),
+        stdout=handle,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+        preexec_fn=die_with_parent,
+    )
+    passt_end.close()
+    handle.close()
+
+    # The same readiness check as `Qemu._virtiofsd`, and for the same
+    # reason: passt fails at startup or not at all.
+    time.sleep(0.05)
+    if proc.poll() is not None:
+        qemu_end.close()
+        raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{_tail(log)}")
+    # Kept open until the guest has spawned; Machine closes it after.
+    return qemu_end.detach(), proc

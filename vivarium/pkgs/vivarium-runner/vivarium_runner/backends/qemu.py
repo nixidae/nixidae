@@ -18,7 +18,18 @@ from ..capability import Controls, Screen
 from ..lifetime import die_with_parent
 from ..store import BoundStore
 from .base import BackendError, Launch, Stop, _list, _maybe, _path, _section, _with_config, launch_config
-from .host import RELAY_IN_PORT, _abandon, _require_ids, _tail, egress_args, memory_file_kib, socket_dir, start_egress
+from .host import (
+    RELAY_IN_PORT,
+    _abandon,
+    _require_ids,
+    _tail,
+    egress_args,
+    memory_file_kib,
+    scratch_disk,
+    socket_dir,
+    start_egress,
+    start_passt,
+)
 
 if TYPE_CHECKING:
     from ..boot import Boot
@@ -129,7 +140,7 @@ ARTIFACTS_TAG = "artifacts"
 def _drive_args(disk_fds: tuple[int, ...], drives: list[tuple[str, str | None]]) -> list[str]:
     """QEMU's arguments for each *drive*, a format and a serial, on its pair of *disk_fds*.
 
-    By fd rather than by name -- see `Qemu._scratch_disk`. Two fds in each
+    By fd rather than by name -- see `scratch_disk`. Two fds in each
     set, because QEMU opens an image O_RDONLY to probe its format before it
     opens it O_RDWR, and takes the fd whose access mode matches.
 
@@ -277,7 +288,7 @@ class Qemu:
         spec = machine.spec
         if spec.uplink is not None:
             return f"dgram,id=vec0,local.type=fd,local.str={lan_fds['vec0']}", None
-        passt_fd, passt_proc = self._passt(
+        passt_fd, passt_proc = start_passt(
             QemuConfig.of(spec).passt, rundir, spec.uplink_network, machine.forward, machine.offline
         )
         helpers.append(passt_proc)
@@ -336,10 +347,10 @@ class Qemu:
             )
             opened.extend(disk_fds)
         else:
-            disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image)
+            disk_fds = scratch_disk(config.qemu_img, rundir, spec.image)
             opened.extend(disk_fds)
             if firmware is not None:
-                esp_fds = self._scratch_disk(config.qemu_img, rundir, firmware.esp, backing="qcow2")
+                esp_fds = scratch_disk(config.qemu_img, rundir, firmware.esp, backing="qcow2")
                 opened.extend(esp_fds)
                 disk_fds += esp_fds
             for disk in config.disks:
@@ -516,7 +527,7 @@ class Qemu:
             raise BackendError(f"{spec.name}: vivarium.launch.config has no disk to boot")
         sockets, cleanup = socket_dir(rundir, "qmp", None)
 
-        disk_fds = self._scratch_disk(config.qemu_img, rundir, spec.image, disk.format)
+        disk_fds = scratch_disk(config.qemu_img, rundir, spec.image, disk.format)
         opened.extend(disk_fds)
 
         argv = [
@@ -586,53 +597,8 @@ class Qemu:
         return Controls(channel=monitor, balloon=monitor, power=monitor, screen=screen)
 
     @staticmethod
-    def _scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
-        """A writable layer over the read-only root image, with no name.
-
-        The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
-        the store, and everything the guest writes goes here instead.
-
-        The file is unlinked before QEMU is started and handed over as open
-        file descriptors.  So the only thing keeping those gigabytes alive
-        is a process, and the kernel frees them the moment QEMU is gone --
-        including when the runner is killed with a signal it cannot catch,
-        which no amount of cleanup code covers.
-
-        Two descriptors, read-write and read-only, because QEMU opens an
-        image O_RDONLY to probe its format before reopening it O_RDWR, and
-        picks from the fd set by access mode.  With one it says
-        ``Failed to find file descriptor with matching flags=0x0``.
-        """
-        scratch = rundir / "root.qcow2"
-        done = subprocess.run(
-            [
-                str(qemu_img),
-                "create",
-                "-q",
-                "-f",
-                "qcow2",
-                # Named, because qemu-img refuses to guess a backing
-                # format and a guess would be silently wrong. Raw for a
-                # NixOS root and CHR; qcow2 for an image that ships one,
-                # such as SONiC's.
-                "-F",
-                backing,
-                "-b",
-                str(image),
-                str(scratch),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if done.returncode != 0:
-            raise BackendError(f"could not make a scratch disk over {image}: {(done.stderr or done.stdout).strip()}")
-        fds = (os.open(scratch, os.O_RDWR), os.open(scratch, os.O_RDONLY))
-        scratch.unlink()
-        return fds
-
-    @staticmethod
     def _blank_disk(rundir: Path, disk: BlankDisk) -> tuple[int, int]:
-        """An empty raw disk of *disk*'s size, unlinked as `_scratch_disk`'s is.
+        """An empty raw disk of *disk*'s size, unlinked as `scratch_disk`'s is.
 
         Sparse, so the host pays only for the blocks the guest writes.
         """
@@ -727,58 +693,6 @@ class Qemu:
             raise BackendError(f"virtiofsd exited ({proc.returncode}) instead of serving {shared}")
 
         return client.detach(), proc
-
-    @staticmethod
-    def _passt(
-        passt: Path, rundir: Path, network: forward.UplinkNetwork, rules: list[forward.Rule], offline: bool = False
-    ) -> tuple[int, subprocess.Popen[bytes]]:
-        """Start passt on one end of a socketpair; return QEMU's end.
-
-        No bridge: passt frames with a 4-byte big-endian length prefix,
-        which is QEMU's own socket protocol, so the two talk directly.
-        The specifiers are the ones forward.py builds for UML, unchanged.
-
-        **passt keeps a log and is checked for a pulse**, because it used
-        to have neither.  It ran `--quiet` with both streams on
-        /dev/null and nothing looked at its exit status, so a passt that
-        refused to start -- which it does outright when a port it was
-        asked for will not bind -- left a guest with no uplink and no
-        word said.  What that looks like from inside is a guest whose
-        vec0 has a link-local address and nothing else, two minutes
-        later, reported as a name that would not resolve.  Measured on a
-        GitHub runner; see the `[cp] addresses and routes` of
-        user-mode-nixos run 34943651620.
-        """
-        qemu_end, passt_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-        log = rundir / "passt.log"
-        handle = log.open("wb")
-        proc = subprocess.Popen(
-            [
-                str(passt),
-                "--foreground",
-                "--fd",
-                str(passt_end.fileno()),
-                *forward.uplink_args(network, offline),
-                *forward.to_args(rules),
-            ],
-            stdin=subprocess.DEVNULL,
-            pass_fds=(passt_end.fileno(),),
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            preexec_fn=die_with_parent,
-        )
-        passt_end.close()
-        handle.close()
-
-        # The same readiness check as virtiofsd above, and for the same
-        # reason: passt fails at startup or not at all.
-        time.sleep(0.05)
-        if proc.poll() is not None:
-            qemu_end.close()
-            raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{_tail(log)}")
-        # Kept open until the guest has spawned; Machine closes it after.
-        return qemu_end.detach(), proc
 
     @staticmethod
     def _swtpm(swtpm: Path, rundir: Path) -> tuple[int, subprocess.Popen[bytes]]:
