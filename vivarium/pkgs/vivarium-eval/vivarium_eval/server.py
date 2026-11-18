@@ -33,20 +33,25 @@ import signal
 import subprocess
 import sys
 import tempfile
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Protocol, TypedDict
 
 import anyio
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
-from vivarium.control import PARENT, SOCKET, Op, Reply, WatchRefused, request, watch
+from vivarium import registry
+from vivarium.control import PARENT, RUN_FILE, SOCKET, Op, Reply, RunFile, WatchRefused, request, watch
 from vivarium.events import Event, Kind, NotAnEvent
 from vivarium.exits import describe
 from vivarium.journal import Tail
 from vivarium.monitor import LIVE, Channel, channel_event, paused_now
+from vivarium.phases import VERDICT, Verdict
+from vivarium.registry import ASK
+from vivarium.runroot import exit_watch
 
 from .cli import split_attr
 
@@ -56,11 +61,17 @@ if TYPE_CHECKING:
 
 CHANNEL: Final = "notifications/claude/channel"
 
+STOP_WAIT: Final = 60.0
+"""Seconds a stopped run has for its teardown before this server gives up on it."""
+
 INSTRUCTIONS: Final = f"""\
 Runs NixOS guests under vivarium and lets you reach into them.
 
 `start` launches a run in the background and returns its id at once; it
-pauses on the first failing phase with the guests still up. `exec` runs
+pauses on the first failing phase with the guests still up. Every tool
+takes a run's id or its `--out`: a run another program started
+(`vivarium up`, the pytest plugin, a shell) is attached at first use, and
+`runs` lists every run up on this host. `exec` runs
 Python against the live guests (top-level await; `vms`, `session` and
 each guest by name are in scope, and names persist between calls), and
 `inject` runs a local file's `async def test(vms)`; both work while
@@ -239,17 +250,22 @@ class Source:
     env: dict[str, str]
 
 
-@dataclass
-class Run:
+@dataclass(kw_only=True)
+class Run(ABC):
+    """A run a tool reaches: one this server started, or one it attached to."""
+
     id: str
     out: Path
-    process: Child
     source: Source | None = None
     finished: bool = False
     backlog: list[dict[str, str]] = field(default_factory=list)
     """Every event pushed for this run: `resume` reads whether a pause is open."""
     pushed: anyio.Event = field(default_factory=anyio.Event)
     """Set, and replaced, at each push: what `resume` waits on."""
+
+    HISTORY: ClassVar[bool] = True
+    """Whether the events `watch` replays go to the channel. A run this
+    server started has none it did not see; an attached run's are old."""
 
     def took(self, event: dict[str, str]) -> None:
         self.backlog.append(event)
@@ -260,9 +276,89 @@ class Run:
     def socket(self) -> Path:
         return self.out / SOCKET
 
+    @property
+    @abstractmethod
+    def running(self) -> bool: ...
+
+    @property
+    @abstractmethod
+    def status(self) -> str: ...
+
+    @abstractmethod
+    async def ended(self) -> None:
+        """Until the run's process has exited."""
+
+    @abstractmethod
+    async def stop(self) -> None: ...
+
+
+@dataclass(kw_only=True)
+class Started(Run):
+    """A run this server started. It goes down with the server."""
+
+    process: Child
+
+    @property
+    def running(self) -> bool:
+        return self.process.returncode is None
+
+    @property
+    def status(self) -> str:
+        return "running" if self.running else f"exited {self.process.returncode}"
+
+    async def ended(self) -> None:
+        await self.process.wait()
+
+    async def stop(self) -> None:
+        """`ctl stop` through the socket, so the verdict says stopped; SIGINT
+        when the run has no socket or does not know `stop`. The run answers
+        either with its shielded teardown."""
+        if not self.running:
+            return
+        asked = False
+        # Bounded: a run that hangs on its socket still gets the signal.
+        with anyio.move_on_after(10), contextlib.suppress(OSError):
+            asked = (await request(self.socket, Op.STOP)).ok
+        if not asked:
+            self.process.send_signal(signal.SIGINT)
+        with anyio.move_on_after(STOP_WAIT):
+            await self.process.wait()
+            return
+        self.process.kill()
+
+
+@dataclass(kw_only=True)
+class Attached(Run):
+    """A run another program started: `vivarium up`, the pytest plugin, a
+    shell. It outlives this server, so the server never stops it on exit."""
+
+    HISTORY: ClassVar[bool] = False
+
+    gone: anyio.Event = field(default_factory=anyio.Event)
+
+    @property
+    def running(self) -> bool:
+        return not self.gone.is_set()
+
+    @property
+    def status(self) -> str:
+        return "running" if self.running else "ended"
+
+    async def ended(self) -> None:
+        await self.gone.wait()
+
+    async def stop(self) -> None:
+        """`ctl stop`; the run has no other way in from here."""
+        if not self.running:
+            return
+        with contextlib.suppress(OSError):
+            await request(self.socket, Op.STOP)
+        with anyio.move_on_after(STOP_WAIT):
+            await self.ended()
+
 
 class Runs:
-    """Every run this server started, and the push channel for them."""
+    """Every run a tool reached, and the push channel for them."""
 
     def __init__(self, group: TaskGroup, push: MemoryObjectSendStream[SessionMessage]) -> None:
         self.group = group
@@ -277,7 +373,7 @@ class Runs:
         notification = JSONRPCNotification(jsonrpc="2.0", method=CHANNEL, params={"content": content, "meta": meta})
         await self.push_stream.send(SessionMessage(message=JSONRPCMessage(notification)))
 
-    async def start(self, argv: list[str], out: Path, env: dict[str, str], source: Source | None = None) -> Run:
+    async def start(self, argv: list[str], out: Path, env: dict[str, str], source: Source | None = None) -> Started:
         log = (out / "terminal.log").open("wb")
         process = await anyio.open_process(
             argv,
@@ -288,37 +384,78 @@ class Runs:
             env={**os.environ, **env, PARENT: str(os.getpid())},
         )
         log.close()
-        run = Run(id=out.name, out=out, process=process, source=source)
+        run = Started(id=out.name, out=out, process=process, source=source)
         self.runs[run.id] = run
         self.group.start_soon(self._watch, run)
         return run
+
+    async def attach(self, out: Path) -> Attached:
+        """A run another program started, by its `--out`. Raises ValueError
+        when `out` holds no run."""
+        # Resolved, as the run registers itself: the registry and this agree.
+        out = out.resolve()
+        try:
+            about = RunFile.from_json((out / RUN_FILE).read_text())
+        except FileNotFoundError:
+            raise ValueError(f"no run in {out}: it has no {RUN_FILE}") from None
+        except (OSError, ValueError, KeyError) as error:
+            raise ValueError(f"no run in {out}: {RUN_FILE} is unreadable: {error!r}") from error
+        origin = about.origin
+        source = None if origin is None else Source(attr=origin.attr, file=str(origin.file), env={})
+        run = Attached(id=str(out), out=out, source=source)
+        self.runs[run.id] = run
+        if await _answers(run.socket):
+            self.group.start_soon(_until_exit, run, about.pid)
+            self.group.start_soon(self._watch, run)
+        else:
+            # The socket says a run is up, as for `vivarium ls`: a pid in
+            # `run.json` may be another process's by now.
+            run.gone.set()
+        return run
+
+    async def get(self, run: str) -> Run:
+        """A run by its id, or by the `--out` of any run on this host."""
+        if run in self.runs:
+            return self.runs[run]
+        out = Path(run).resolve()
+        for found in self.runs.values():
+            if found.out.resolve() == out:
+                return found
+        if Path(run).is_dir():
+            return await self.attach(Path(run))
+        have = ", ".join(self.runs) or "none"
+        raise ValueError(f"no run {run!r}: give an id ({have}) or a run's --out; `runs` lists the runs on this host")
 
     async def _watch(self, run: Run) -> None:
         """Push what matters of the run's events, until it exits: from
         `watch` on its control socket, or from `events.jsonl` for a runner
         that serves none."""
+        live = run.HISTORY
         try:
             if await _bound(run):
                 async for event in watch(run.socket):
                     if event == LIVE:
+                        live = True
                         continue
                     run.finished = run.finished or event.get("event") == Channel.FINISHED
-                    meta = {key: value for key, value in event.items() if key != "text"}
-                    await self.push(event.get("text", ""), meta)
+                    # The run names itself by its directory; a tool names it by this id.
+                    meta = {key: value for key, value in event.items() if key != "text"} | {"run": run.id}
+                    if live:
+                        await self.push(event.get("text", ""), meta)
+                    else:
+                        run.took({**meta, "text": event.get("text", "")})
         except WatchRefused:
             await self._tail(run)
         except OSError:
             # The run went away between binding its socket and our connect.
             pass
-        await run.process.wait()
+        await run.ended()
         if not run.finished:
             # Died before a verdict: an evaluation error, a crash. The
             # reason is at the end of what it printed.
             tail = why_it_exited(_read(run.out / "terminal.log"))
-            await self.push(
-                f"run exited {run.process.returncode} without a verdict:\n{tail}",
-                {"run": run.id, "event": Channel.EXITED},
-            )
+            text = f"run {run.status} without a verdict"
+            await self.push(f"{text}:\n{tail}" if tail else text, {"run": run.id, "event": Channel.EXITED})
 
     async def _tail(self, run: Run) -> None:
         """`_watch` for an older runner: polls `events.jsonl`, the only
@@ -334,21 +471,36 @@ class Runs:
                 pushed = channel_event(event, run.id)
                 if pushed is not None:
                     await self.push(*pushed)
-            if run.process.returncode is not None:
+            if not run.running:
                 return
             await anyio.sleep(0.25)
 
-    def get(self, run: str) -> Run:
-        found = self.runs.get(run)
-        if found is None:
-            raise ValueError(f"no run {run!r}; have {', '.join(self.runs) or 'none'}")
-        return found
-
     async def stop_all(self) -> None:
-        """All at once: one after another, each run's bound adds up."""
+        """Every run this server started, at once: one after another, each
+        run's bound adds up. An attached run is someone else's."""
         async with anyio.create_task_group() as group:
             for run in self.runs.values():
-                group.start_soon(_stop, run)
+                if isinstance(run, Started):
+                    group.start_soon(run.stop)
+
+
+async def _answers(socket: Path) -> bool:
+    """Whether a run serves `socket`: the test `vivarium ls` applies."""
+    try:
+        with anyio.fail_after(ASK):
+            await request(socket, Op.STATE)
+    except (OSError, TimeoutError):
+        return False
+    return True
+
+
+async def _until_exit(run: Attached, pid: int) -> None:
+    try:
+        with exit_watch(pid) as descriptor:
+            await anyio.wait_readable(descriptor)
+    except ProcessLookupError:
+        pass
+    run.gone.set()
 
 
 async def _bound(run: Run) -> bool:
@@ -357,7 +509,7 @@ async def _bound(run: Run) -> bool:
     Polls: the child evaluates and builds first, then binds the socket,
     and says so nowhere a process can wait on."""
     socket = anyio.Path(run.socket)
-    while run.process.returncode is None:
+    while run.running:
         if await socket.exists():
             return True
         await anyio.sleep(0.25)
@@ -366,24 +518,6 @@ async def _bound(run: Run) -> bool:
 
 def _directories(paths: list[str] | None) -> tuple[Path, ...]:
     return tuple(Path(path).absolute() for path in paths or [])
-
-
-async def _stop(run: Run) -> None:
-    """`ctl stop` through the socket, so the verdict says stopped; SIGINT
-    when the run has no socket or does not know `stop`. The run answers
-    either with its shielded teardown."""
-    if run.process.returncode is not None:
-        return
-    asked = False
-    # Bounded: a run that hangs on its socket still gets the signal.
-    with anyio.move_on_after(10), contextlib.suppress(OSError):
-        asked = (await request(run.socket, Op.STOP)).ok
-    if not asked:
-        run.process.send_signal(signal.SIGINT)
-    with anyio.move_on_after(60):
-        await run.process.wait()
-        return
-    run.process.kill()
 
 
 def _spec(spec: Path) -> dict[str, Any]:
@@ -419,6 +553,71 @@ def why_it_exited(output: str, lines: int = 15) -> str:
 
 def _reply(reply: Reply) -> dict[str, Any]:
     return {key: value for key, value in vars(reply).items() if value not in (None, "")}
+
+
+def unreachable(run: Run) -> str:
+    """Why `run` has no control socket to answer a tool."""
+    if not run.running:
+        return f"the run has {run.status}; `state` gives its verdict"
+    try:
+        about = RunFile.from_json((run.out / RUN_FILE).read_text())
+    except (OSError, ValueError, KeyError):
+        about = None
+    if about is not None and about.socket is None:
+        return "the run has no control socket (--no-control); `events` and `state` still answer"
+    return f"the run is still evaluating or building; it binds {run.socket} before its first guest boots"
+
+
+async def ask(run: Run, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> Reply:
+    """One request to the run, or a reply that says why the run cannot take it."""
+    try:
+        return await request(run.socket, op, arg, reload)
+    except (FileNotFoundError, ConnectionRefusedError):
+        return Reply(ok=False, error=unreachable(run))
+
+
+def verdict(run: Run) -> dict[str, Any]:
+    """`state` of a run that has ended, from its `phases.json`."""
+    try:
+        found = Verdict.from_json((run.out / VERDICT).read_text())
+    except (OSError, ValueError) as error:
+        return {"run": run.id, "status": run.status, "error": f"no verdict in {run.out / VERDICT}: {error}"}
+    reply: dict[str, Any] = {
+        "run": run.id,
+        "status": run.status,
+        "passed": found.passed,
+        "state": {phase.name: str(phase.state) for phase in found.phases},
+    }
+    if found.stopped is not None:
+        reply["stopped"] = found.stopped
+    errors = {phase.name: phase.error for phase in found.phases if phase.error}
+    if errors:
+        reply["errors"] = errors
+    return reply
+
+
+async def evaluate_again(run: Run, verb: str, args: list[str]) -> dict[str, Any]:
+    """`vivarium switch` or `vivarium reload` on the run's own attribute."""
+    if run.source is None:
+        return {"ok": False, "error": f"this run was not started by attribute; {verb} needs one that was"}
+    argv = [
+        str(Path(sys.executable).parent / "vivarium"),
+        verb,
+        run.source.attr,
+        "--file",
+        run.source.file,
+        "--out",
+        str(run.out),
+        *args,
+    ]
+    done = await anyio.run_process(
+        argv,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+        env={**os.environ, **run.source.env},
+    )
+    return {"ok": done.returncode == 0, "output": done.stdout.decode(errors="replace")}
 
 
 # ── the server ──────────────────────────────────────────────────────
@@ -499,21 +698,29 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         }
 
     @server.tool()
+    async def attach(out: str) -> dict[str, Any]:
+        """Reach a run this server did not start, by its `--out`: a `vivarium
+        up` environment, a pytest plugin run, a run from a shell. Every tool
+        also takes an `--out` as `run` and attaches by itself. The run's
+        events from now on arrive on the channel; this server never stops it
+        when it exits."""
+        found = await runs().get(out)
+        return {"run": found.id, "out": str(found.out), "status": found.status}
+
+    @server.tool()
     async def state(run: str) -> dict[str, Any]:
         """Each phase's state, and whether the run is paused, running or gone."""
-        found = runs().get(run)
-        if found.process.returncode is not None:
-            return {"run": run, "status": f"exited {found.process.returncode}"}
-        if not found.socket.exists():
-            return {"run": run, "status": "starting or running without a control socket"}
-        return _reply(await request(found.socket, Op.STATE))
+        found = await runs().get(run)
+        if not found.running:
+            return verdict(found)
+        return _reply(await ask(found, Op.STATE))
 
     @server.tool(name="exec")
     async def exec_(run: str, code: str) -> dict[str, Any]:
         """Run Python in the run, paused or running. Top-level await;
         `vms`, `session` and each guest by name are in scope; names
         persist between calls. The last expression's repr is `result`."""
-        return _reply(await request(runs().get(run).socket, Op.EXEC, code))
+        return _reply(await ask(await runs().get(run), Op.EXEC, code))
 
     @server.tool()
     async def inject(run: str, path: str, reload: list[str] | None = None) -> dict[str, Any]:
@@ -522,9 +729,8 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         injecting it again. `reload` names working-tree directories of
         helper modules: imported from first, their modules dropped, so an
         edited helper is read again too."""
-        return _reply(
-            await request(runs().get(run).socket, Op.INJECT, str(Path(path).absolute()), _directories(reload))
-        )
+        found = await runs().get(run)
+        return _reply(await ask(found, Op.INJECT, str(Path(path).absolute()), _directories(reload)))
 
     @server.tool()
     async def run_pytest(
@@ -536,12 +742,12 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         cases are events marked by_hand and do not count toward the run's
         verdict. `reload` is as for `inject`."""
         arg = shlex.join([str(Path(path).absolute()), *(args or [])])
-        return _reply(await request(runs().get(run).socket, Op.PYTEST, arg, _directories(reload)))
+        return _reply(await ask(await runs().get(run), Op.PYTEST, arg, _directories(reload)))
 
     @server.tool()
     async def run_phase(run: str, phase: str) -> dict[str, Any]:
         """Run a declared phase now, in the paused run."""
-        return _reply(await request(runs().get(run).socket, Op.RUN, phase))
+        return _reply(await ask(await runs().get(run), Op.RUN, phase))
 
     @server.tool()
     async def segment(run: str, name: str, action: str = "show", member: str | None = None) -> dict[str, Any]:
@@ -554,19 +760,19 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         segment (`segments.<name>.hub`, or three members or more) can do
         either."""
         arg = shlex.join([name, action, *([member] if member is not None else [])])
-        return _reply(await request(runs().get(run).socket, Op.SEGMENT, arg))
+        return _reply(await ask(await runs().get(run), Op.SEGMENT, arg))
 
     @server.tool()
     async def resume(run: str) -> dict[str, Any]:
         """Continue a paused run."""
-        found = runs().get(run)
-        reply = _reply(await request(found.socket, Op.CONTINUE))
+        found = await runs().get(run)
+        reply = await ask(found, Op.CONTINUE)
         # Until the pause is resolved in the backlog: a `monitor`
         # armed on this reply would otherwise replay the pause and exit.
         with anyio.move_on_after(10):
-            while paused_now(found.backlog) and found.process.returncode is None:
+            while reply.ok and paused_now(found.backlog) and found.running:
                 await found.pushed.wait()
-        return reply
+        return _reply(reply)
 
     @server.tool()
     async def switch(run: str, node: str, module: str, action: str = "switch") -> dict[str, Any]:
@@ -574,33 +780,11 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         switch it: the host evaluates the session again with the module on
         `node`, builds it, and the guest switches to the result. `action` is
         switch-to-configuration's: switch, test, boot or dry-activate. Only
-        for a run started by `attr`; edit the file and call again to iterate."""
-        found = runs().get(run)
-        if found.source is None:
-            return {"ok": False, "error": "this run was started from a spec; switch needs one started by attr"}
-        argv = [
-            str(Path(sys.executable).parent / "vivarium"),
-            "switch",
-            found.source.attr,
-            "--file",
-            found.source.file,
-            "--out",
-            str(found.out),
-            "--node",
-            node,
-            "--module",
-            str(Path(module).absolute()),
-            "--action",
-            action,
-        ]
-        done = await anyio.run_process(
-            argv,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-            env={**os.environ, **found.source.env},
+        for a run started by attribute; edit the file and call again to iterate."""
+        found = await runs().get(run)
+        return await evaluate_again(
+            found, "switch", ["--node", node, "--module", str(Path(module).absolute()), "--action", action]
         )
-        return {"ok": done.returncode == 0, "output": done.stdout.decode(errors="replace")}
 
     @server.tool()
     async def reload(run: str) -> dict[str, Any]:
@@ -608,27 +792,8 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         phases: scripts, pytest specs, `after`, `nodes`, settings. The guests
         stay; a change to a guest is refused (use `switch`). A phase that ran
         keeps its verdict until `run_phase` runs it again. Only for a run
-        started by `attr`."""
-        found = runs().get(run)
-        if found.source is None:
-            return {"ok": False, "error": "this run was started from a spec; reload needs one started by attr"}
-        argv = [
-            str(Path(sys.executable).parent / "vivarium"),
-            "reload",
-            found.source.attr,
-            "--file",
-            found.source.file,
-            "--out",
-            str(found.out),
-        ]
-        done = await anyio.run_process(
-            argv,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-            env={**os.environ, **found.source.env},
-        )
-        return {"ok": done.returncode == 0, "output": done.stdout.decode(errors="replace")}
+        started by attribute."""
+        return await evaluate_again(await runs().get(run), "reload", [])
 
     # Unstructured: FastMCP would otherwise try to serialise the image
     # as JSON, and fails on it.
@@ -640,7 +805,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         `await m.send_key("ctrl-alt-f2")`, `await m.click_text("OK")`,
         `await m.wait_for_text("regex")`; pixels count from the top left."""
         code = f"print(await vms[{machine!r}].screenshot({name!r}))"
-        reply = await request(runs().get(run).socket, Op.EXEC, code)
+        reply = await ask(await runs().get(run), Op.EXEC, code)
         lines = (reply.output or "").strip().splitlines()
         if not reply.ok or not lines:
             return [json.dumps(_reply(reply))]
@@ -649,10 +814,11 @@ def build(runs_holder: list[Runs]) -> FastMCP:
 
     @server.tool()
     async def stop(run: str) -> dict[str, Any]:
-        """End a run now. The evidence is written and the guests go down."""
-        found = runs().get(run)
-        await _stop(found)
-        return {"run": run, "status": f"exited {found.process.returncode}"}
+        """End a run now. The evidence is written and the guests go down.
+        The reply is the run's verdict."""
+        found = await runs().get(run)
+        await found.stop()
+        return verdict(found)
 
     @server.tool()
     async def events(
@@ -668,7 +834,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         """The run's events, newest last, filtered. `kind="journal", machine="cp",
         unit="kubelet.service"` is one service on one guest; `kind="case"` is
         each pytest test; `kind="error"` is every traceback."""
-        path = runs().get(run).out / "events.jsonl"
+        path = (await runs().get(run)).out / "events.jsonl"
         try:
             lines = path.read_text(errors="replace").splitlines()
         except OSError:
@@ -691,17 +857,15 @@ def build(runs_holder: list[Runs]) -> FastMCP:
     # a client could not tell the two apart.
     @server.tool(name="runs")
     async def list_runs() -> dict[str, list[dict[str, str]]]:
-        """Every run this server started."""
-        return {
-            "runs": [
-                {
-                    "run": found.id,
-                    "out": str(found.out),
-                    "status": "running" if found.process.returncode is None else f"exited {found.process.returncode}",
-                }
-                for found in runs().runs.values()
-            ]
-        }
+        """Every run a tool reached, then every other run up on this host
+        (as `vivarium ls`). Give a run's `run` to any tool."""
+        known = runs().runs.values()
+        listed = [{"run": found.id, "out": str(found.out), "status": found.status} for found in known]
+        reached = {found.out for found in known}
+        for up in await registry.runs():
+            if up.out not in reached:
+                listed.append({"run": str(up.out), "out": str(up.out), "status": up.state, "name": up.name or ""})
+        return {"runs": listed}
 
     return server
 

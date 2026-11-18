@@ -459,6 +459,13 @@ lists its tools. `start` returns two monitor commands:
   pause then reads as success.
 - `monitor_all`: every event, through pauses to the verdict.
 
+Every tool takes a run's id or its `--out`. A run that another program
+started, such as `vivarium up`, the pytest plugin or a shell, is attached
+at first use, and `attach(out)` does the same explicitly. From then on its
+new events arrive on the channel. The server never stops an attached run.
+`runs` lists the runs the server reached and every other run up on this
+host. `state` of a run that ended reads its `phases.json`.
+
 An agent that only runs shell commands does not need MCP. With the
 `vivarium` CLI, one command starts the run and waits:
 

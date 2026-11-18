@@ -405,7 +405,7 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 
 ### The MCP server
 
-`.mcp.json` registers `vivarium-mcp` as `vivarium`: `start`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `segment`, `switch`, `reload`, `screenshot`, `stop`, `events`, `runs`.
+`.mcp.json` registers `vivarium-mcp` as `vivarium`: `start`, `attach`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `segment`, `switch`, `reload`, `screenshot`, `stop`, `events`, `runs`.
 
 - Two `.mcp.json`: the root one (any session in nixidae) and `vivarium/.mcp.json`. Both `nix run` `packages.vivarium-mcp` from the working tree; `/mcp` reconnect picks up an edit. A user-scope `vivarium` server (croshome) loses to them by name.
 - `packages.vivarium`: `vivarium` (the huggorm CLI: run, phases, up, down, ls, switch, reload, ctl, monitor; on PATH in the pynixd, nixkube and easykubenix dev shells), `vivarium-mcp`, the agent skill `vivarium/skill/vivarium/SKILL.md` at `share/skills/vivarium/vivarium`, and the Claude Code mod `vivarium/claude-plugin` (plugin `vivarium-runs`) at `share/claude-plugins/vivarium-runs` (a pane per run; `claude plugin test`/`validate` on the folder, `claude --plugin-dir` to try it). Keep the skill true when a command, flag or printed line changes, as `docs/howto.md`.

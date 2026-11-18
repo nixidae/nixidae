@@ -13,12 +13,23 @@ import anyio
 import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import ImageContent, JSONRPCNotification, TextContent
-from vivarium.control import PARENT, Op, Reply
+from vivarium.control import PARENT, Op, Origin, Reply, RunFile
 from vivarium.events import Event, Kind, Level
 from vivarium.monitor import LIVE, channel_event
+from vivarium.phases import PhaseState, Verdict
 from vivarium_eval import server as server_module
 from vivarium_eval.cli import explain
-from vivarium_eval.server import Run, Runs, build, run_argv, select, why_it_exited
+from vivarium_eval.server import (
+    Attached,
+    Runs,
+    Started,
+    ask,
+    build,
+    run_argv,
+    select,
+    verdict,
+    why_it_exited,
+)
 
 if TYPE_CHECKING:
     pass
@@ -297,10 +308,10 @@ class FakeProcess:
         pass
 
 
-def _run(out: Path, backlog: list[dict[str, str]] | None = None, returncode: int | None = None) -> Run:
+def _run(out: Path, backlog: list[dict[str, str]] | None = None, returncode: int | None = None) -> Started:
     process = FakeProcess()
     process.returncode = returncode
-    return Run(id="r", out=out, process=process, backlog=backlog or [])
+    return Started(id="r", out=out, process=process, backlog=backlog or [])
 
 
 @pytest.fixture
@@ -403,7 +414,9 @@ async def test_the_runs_stop_at_once(tmp_path: Path) -> None:
     async with anyio.create_task_group() as group:
         runs = Runs(group, pushed.send)
         for name in ("a", "b"):
-            runs.runs[name] = Run(id=name, out=tmp_path / name, process=Interrupted())
+            runs.runs[name] = Started(id=name, out=tmp_path / name, process=Interrupted())
+        # Someone else's run: the server leaves it up.
+        runs.runs["theirs"] = Attached(id="theirs", out=tmp_path / "theirs")
         with anyio.fail_after(5):
             await runs.stop_all()
     assert asked == [signal.SIGINT, signal.SIGINT]
@@ -416,7 +429,7 @@ async def test_a_screenshot_comes_back_as_an_image(tmp_path: Path, monkeypatch: 
     png.write_bytes(b"\x89PNG\r\n\x1a\nrest")
     asked: list[str] = []
 
-    async def request(socket: Path, op: Op, code: str) -> Reply:
+    async def request(socket: Path, op: Op, code: str, reload: tuple[Path, ...] = ()) -> Reply:
         asked.append(code)
         if ok:
             return Reply(ok=True, output=f"{png}\n")
@@ -445,3 +458,108 @@ async def test_a_screenshot_comes_back_as_an_image(tmp_path: Path, monkeypatch: 
         only = blocks[0]
         assert isinstance(only, TextContent)
         assert "has no screen" in only.text
+
+
+def _run_file(out: Path, *, socket: bool = True, origin: Origin | None = None) -> None:
+    about = RunFile(
+        pid=os.getpid(),
+        out=out,
+        vivarium=Path("/nix/store/x-vivarium"),
+        socket=out / "control.sock" if socket else None,
+        commands=(),
+        origin=origin,
+    )
+    (out / "run.json").write_text(about.to_json())
+
+
+VERDICT = Verdict.of({"boot": PhaseState.PASSED, "check": PhaseState.FAILED}, {"check": "boom"}, None)
+
+
+@pytest.mark.anyio
+async def test_a_run_by_its_out_is_attached_once(tmp_path: Path) -> None:
+    _run_file(tmp_path, origin=Origin(Path("/bin/vivarium"), "checks.x", Path("/src")))
+    (tmp_path / "phases.json").write_text(VERDICT.to_json())
+    pushed = Pushed()
+    async with anyio.create_task_group() as group:
+        runs = Runs(group, pushed.send)
+        found = await runs.get(str(tmp_path))
+        again = await runs.get(str(tmp_path / "." / ""))
+    assert found is again
+    assert isinstance(found, Attached)
+    # Nothing answers on its socket: the run has ended.
+    assert (found.running, found.status) == (False, "ended")
+    assert found.source is not None
+    assert (found.source.attr, found.source.file) == ("checks.x", "/src")
+    assert verdict(found) == {
+        "run": str(tmp_path),
+        "status": "ended",
+        "passed": False,
+        "state": {"boot": "passed", "check": "failed"},
+        "errors": {"check": "boom"},
+    }
+
+
+@pytest.mark.anyio
+async def test_a_run_started_here_is_found_by_its_out(tmp_path: Path) -> None:
+    send, _ = anyio.create_memory_object_stream[SessionMessage]()
+    async with anyio.create_task_group() as group:
+        runs = Runs(group, send)
+        runs.runs["r"] = run = _run(tmp_path)
+        assert await runs.get(str(tmp_path)) is run
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("name", ["nothing", "no-run-json"])
+async def test_no_run_names_what_a_tool_takes(tmp_path: Path, name: str) -> None:
+    (tmp_path / "no-run-json").mkdir()
+    send, _ = anyio.create_memory_object_stream[SessionMessage]()
+    async with anyio.create_task_group() as group:
+        runs = Runs(group, send)
+        with pytest.raises(ValueError, match="no run"):
+            await runs.get(str(tmp_path / name))
+
+
+@pytest.mark.anyio
+async def test_an_attached_run_pushes_only_what_happens_after(tmp_path: Path) -> None:
+    pushed = Pushed()
+    run = Attached(id=str(tmp_path), out=tmp_path)
+    events = [
+        {"run": tmp_path.name, "event": "paused", "reason": "before check", "text": "paused before check"},
+        LIVE,
+        {"run": tmp_path.name, "event": "resumed", "reason": "before check", "text": "resumed"},
+        {"run": tmp_path.name, "event": "finished", "passed": "true", "text": "run passed"},
+    ]
+
+    async def serve_then_end() -> None:
+        await _serve_watch(tmp_path / "control.sock", events)
+        run.gone.set()
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(serve_then_end)
+        runs = Runs(group, pushed.send)
+        runs.runs[run.id] = run
+        with anyio.fail_after(5):
+            await runs._watch(run)
+    # The pause was over before the server attached: no channel event for it.
+    assert pushed.contents() == ["resumed: resumed", "finished: run passed"]
+    assert [event["event"] for event in run.backlog] == ["paused", "resumed", "finished"]
+    assert {event["run"] for event in run.backlog} == {str(tmp_path)}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("returncode", "socket", "said"),
+    [
+        (None, True, "still evaluating or building"),
+        (None, False, "no control socket"),
+        (1, True, "has exited 1"),
+    ],
+)
+async def test_a_tool_says_why_the_run_cannot_answer(
+    tmp_path: Path, returncode: int | None, socket: bool, said: str
+) -> None:
+    _run_file(tmp_path, socket=socket)
+    reply = await ask(_run(tmp_path, returncode=returncode), Op.STATE)
+    assert not reply.ok
+    assert reply.error is not None
+    assert said in reply.error

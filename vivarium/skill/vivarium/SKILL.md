@@ -93,9 +93,10 @@ vivarium ctl --out "$OUT" stop                           # end it here, guests d
 
 ## MCP
 
-The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only, hold)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `segment`, `switch`, `reload`, `screenshot`, `events`, `runs`, `stop`.
+The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr, file, env, breaks, break_on_failure, only, hold)`, `attach(out)`, `state`, `exec`, `inject`, `run_pytest`, `run_phase`, `resume`, `segment`, `switch`, `reload`, `screenshot`, `events`, `runs`, `stop`.
 
 - `start` takes `attr` (with `file`, the directory or file to evaluate) or `spec`, never `file` alone. It runs with `--break-on-failure`.
+- Every tool takes a run's id or its `--out`: a run from `vivarium up`, the pytest plugin or a shell is attached at first use and never stopped by the server. `runs` lists every run up on this host.
 - `start` returns `monitor`: run it with the Monitor tool or in the background, exactly as above.
 - The `vivarium-runs` mod (`share/claude-plugins/vivarium-runs`, if loaded) shows each run in a pane with Continue and Stop; it follows `start` and `vivarium run --out <literal>` by itself, `/vivarium-runs <out>` any other.
 - `events` replies have no size limit: always pass `kind`, `machine`, `phase` or `contains`, and a small `limit`. One unfiltered `case` query returned 233k characters.

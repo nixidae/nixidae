@@ -117,7 +117,7 @@ async def run_shell(command: str, seconds: float) -> subprocess.CompletedProcess
 
 async def main(server: str, spec: str) -> None:
     async with await anyio.open_process([server], stderr=None) as process, anyio.create_task_group() as group:
-        await drive(Client(process), process, group, spec)
+        await drive(Client(process), process, group, server, spec)
     await killed_server(server, spec)
 
 
@@ -182,7 +182,31 @@ async def handshake(client: Client) -> None:
     await client.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
 
-async def drive(client: Client, process: Process, group: TaskGroup, spec: str) -> None:
+async def attached_elsewhere(server: str, out: Path) -> None:
+    """A second server reaches the run by its `--out`, as it reaches a
+    `vivarium up` environment, then exits without stopping it."""
+    async with await anyio.open_process([server], stderr=None) as process:
+        other = Client(process)
+        await handshake(other)
+        listed = (await other.tool("runs"))["runs"]
+        if str(out.resolve()) not in {found["out"] for found in listed}:
+            runtime = os.environ.get("XDG_RUNTIME_DIR")
+            folder = Path(runtime) / "vivarium" / "runs" if runtime else Path(f"/tmp/vivarium-{os.getuid()}/runs")  # noqa: S108 -- the registry's own fallback
+            entries = {link.name: os.readlink(link) for link in folder.iterdir()} if folder.is_dir() else None
+            fail(f"runs on another server does not list {out}: {listed}; {folder} holds {entries}")
+        state = await other.tool("state", run=str(out))
+        if not state.get("pause"):
+            fail(f"state by --out on another server: {state}")
+        reply = await other.tool("exec", run=str(out), code='await one.succeed("hostname")')
+        if "one" not in str(reply.get("result")):
+            fail(f"exec by --out did not reach the guest: {reply}")
+        await other.stdin.aclose()
+        with anyio.fail_after(60):
+            await process.wait()
+    print(f"ok: another server listed the run, reached it by --out and paused {state['pause']}", flush=True)
+
+
+async def drive(client: Client, process: Process, group: TaskGroup, server: str, spec: str) -> None:
     await handshake(client)
     print("ok: the server declares claude/channel", flush=True)
 
@@ -218,6 +242,11 @@ async def drive(client: Client, process: Process, group: TaskGroup, spec: str) -
     if "one" not in str(reply.get("result")):
         fail(f"exec did not reach the guest: {reply}")
     print(f"ok: exec reached the paused guest: {reply['result']}", flush=True)
+
+    await attached_elsewhere(server, Path(started["out"]))
+    if not (await client.tool("state", run=run)).get("pause"):
+        fail("the run lost its pause when a server attached to it exited")
+    print("ok: the run still holds its pause after that server exited", flush=True)
 
     cases = (await client.tool("events", run=run, kind="case"))["events"]
     failed = [c for c in cases if c["data"]["outcome"] == "failed"]
