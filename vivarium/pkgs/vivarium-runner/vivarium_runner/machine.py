@@ -41,7 +41,7 @@ from types import MappingProxyType
 from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 import anyio
-from anyio.abc import UNIXSocketStream
+from anyio.abc import TaskGroup, UNIXSocketStream
 from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connect
 from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
@@ -522,6 +522,7 @@ class Machine:
         self,
         spec: MachineSpec,
         *,
+        tasks: TaskGroup,
         lan_fds: dict[str, int] | None = None,
         artifacts: Path | None = None,
         boot_timeout: float = 180,
@@ -535,6 +536,9 @@ class Machine:
         on_say: Callable[[str, str], None] | None = None,
     ) -> None:
         self.spec = spec
+        # The owner's, for the whole run: the guest's background tasks start
+        # in one call (a boot) and end in another (a shutdown).
+        self._tasks = tasks
         self.backend = backends.get(spec.backend)
         # Here, not at start: a run makes every Machine before it boots
         # any, so one guest's bad launch config stops the run before
@@ -800,6 +804,8 @@ class Machine:
             self._agent_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self._agent_sock.connect(str(launch.agent_path))
         self._conn = connect(self._agent_sock.detach(), self.service)
+        # It ends when the connection closes: a shutdown, a reboot, the guest gone.
+        await self._tasks.start(self._conn.serve_forever)
         self._control = AgentControl(self._conn)
         self._agent_sock = None
         # Drop our copy of the guest's end, so the connection reports EOF

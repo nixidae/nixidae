@@ -234,7 +234,7 @@ class Run:
 async def _connect(out: Path) -> AsyncConnection:
     with reachable(out / SOCKET) as name:
         stream = await anyio.connect_unix(name)
-    # arpyc reads a raw fd from the loop; the duplicate outlives the stream.
+    # arpyc reads a raw fd from the loop; the duplicate outlives the stream. The caller serves it.
     fd = os.dup(stream.extra(SocketAttribute.raw_socket).fileno())
     await stream.aclose()
     return connect(fd)
@@ -339,6 +339,8 @@ class Driver:
 
     def _open(self, out: Path, key: tuple[str, str]) -> None:
         conn = self.portal.call(_connect, out)
+        # In the portal's task group, which outlives each test that calls on it.
+        self.portal.start_task(conn.serve_forever)
         names: tuple[str, ...] = self.portal.call(conn.call, "machines", (), {})
         self.runs[key] = Run(key[0], out, conn, {name: RemoteMachine(conn, name) for name in names})
 

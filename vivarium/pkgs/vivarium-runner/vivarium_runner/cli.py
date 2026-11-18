@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 
@@ -20,6 +21,9 @@ from .control import ControlSpec
 from .forward import ForwardError, Rule, UplinkNetwork
 from .machine import LaunchSpec, Machine, MachineError, MachineSpec
 from .spec import BackendName, Seccomp, UplinkProxy
+
+if TYPE_CHECKING:
+    from anyio.abc import TaskGroup
 
 _WATCH_INTERVAL = 1.0
 """How often to ask the guest what it is listening on: the rate pasta
@@ -92,6 +96,13 @@ async def _watch(machine: Machine) -> None:
 
 
 async def _run(args: argparse.Namespace) -> int:
+    async with anyio.create_task_group() as tasks:
+        code = await _drive(args, tasks)
+        tasks.cancel_scope.cancel()
+    return code
+
+
+async def _drive(args: argparse.Namespace, tasks: TaskGroup) -> int:
     machine = Machine(
         MachineSpec(
             name="uml",
@@ -117,6 +128,7 @@ async def _run(args: argparse.Namespace) -> int:
                 "uml", {"kernel": str(args.kernel), "bridge": str(args.bridge), "passt": str(args.passt)}
             ),
         ),
+        tasks=tasks,
         on_console=lambda name, line: print(f"[{name}] {line}", file=sys.stderr, flush=True),
     )
     machine.resolve_forward(set())

@@ -571,6 +571,7 @@ class Session:
         self._journals[one.name] = journal.Tail(path)
         vm = Machine(
             one,
+            tasks=self.tasks,
             lan_fds=lan_fds,
             artifacts=self._guest_artifacts(one.name),
             recorder=self.report,

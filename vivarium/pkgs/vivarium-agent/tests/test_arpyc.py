@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import struct
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import anyio
 import pytest
@@ -35,26 +36,36 @@ def run(main: Callable[[], Awaitable[None]]) -> None:
     anyio.run(main)
 
 
-def pair(service: Service) -> tuple[AsyncConnection, AsyncConnection]:
-    """A client and a serving peer, each on one end of a socketpair."""
+@contextlib.asynccontextmanager
+async def pair(service: Service) -> AsyncIterator[tuple[AsyncConnection, AsyncConnection]]:
+    """A client and a serving peer, each on one end of a socketpair, both served until the block ends."""
     ours, theirs = socket.socketpair()
     peer = arpyc.listen(theirs.detach(), service, raw_tty=False)
-    peer.start_serving()
-    return arpyc.connect(ours.detach()), peer
+    conn = arpyc.connect(ours.detach())
+    async with anyio.create_task_group() as group:
+        await group.start(peer.serve_forever)
+        await group.start(conn.serve_forever)
+        yield conn, peer
+        conn.close()
+        peer.close()
 
 
-def raw() -> tuple[AsyncConnection, socket.socket]:
-    """A client, and the other end as a plain socket the test writes by hand."""
+@contextlib.asynccontextmanager
+async def raw() -> AsyncIterator[tuple[AsyncConnection, socket.socket]]:
+    """A served client, and the other end as a plain socket the test writes by hand."""
     ours, theirs = socket.socketpair()
-    return arpyc.connect(ours.detach()), theirs
+    conn = arpyc.connect(ours.detach())
+    async with anyio.create_task_group() as group:
+        await group.start(conn.serve_forever)
+        yield conn, theirs
+        conn.close()
+        theirs.close()
 
 
 def test_a_call_returns_the_peers_answer() -> None:
     async def main() -> None:
-        conn, peer = pair(Echo())
-        assert await conn.call("echo", ({"a": [1, 2]},), {}) == {"a": (1, 2)}
-        conn.close()
-        peer.close()
+        async with pair(Echo()) as (conn, _):
+            assert await conn.call("echo", ({"a": [1, 2]},), {}) == {"a": (1, 2)}
 
     run(main)
 
@@ -63,49 +74,59 @@ def test_a_timeout_in_the_peer_arrives_as_a_timeout() -> None:
     """`Machine._ask` tells the guest's own timeout from silence by its type."""
 
     async def main() -> None:
-        conn, peer = pair(Echo())
-        with pytest.raises(TimeoutError) as raised:
-            await conn.call("late", (), {})
-        assert raised.value.args == ("ran past its 1s timeout",)
-        conn.close()
-        peer.close()
+        async with pair(Echo()) as (conn, _):
+            with pytest.raises(TimeoutError) as raised:
+                await conn.call("late", (), {})
+            assert raised.value.args == ("ran past its 1s timeout",)
 
     run(main)
 
 
 def test_a_call_after_close_raises_at_once() -> None:
     async def main() -> None:
-        conn, peer = pair(Echo())
-        conn.close()
-        with anyio.fail_after(1), pytest.raises(EOFError):
+        async with pair(Echo()) as (conn, _):
+            conn.close()
+            with anyio.fail_after(1), pytest.raises(EOFError):
+                await conn.call("echo", (1,), {})
+
+    run(main)
+
+
+def test_a_call_with_nothing_serving_raises_at_once() -> None:
+    """Its reply would never be read: the call fails, it does not hang."""
+
+    async def main() -> None:
+        ours, theirs = socket.socketpair()
+        conn = arpyc.connect(ours.detach())
+        with anyio.fail_after(1), pytest.raises(RuntimeError, match="nothing serves"):
             await conn.call("echo", (1,), {})
-        peer.close()
+        conn.close()
+        theirs.close()
 
     run(main)
 
 
 def test_a_peer_that_stops_reading_stalls_the_call_not_the_loop() -> None:
     async def main() -> None:
-        conn, theirs = raw()
-        ticks = 0
+        async with raw() as (conn, _):
+            ticks = 0
 
-        async def tick() -> None:
-            nonlocal ticks
-            while True:
-                ticks += 1
-                await anyio.sleep(0.01)
+            async def tick() -> None:
+                nonlocal ticks
+                while True:
+                    ticks += 1
+                    await anyio.sleep(0.01)
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(tick)
-            with pytest.raises(TimeoutError), anyio.fail_after(0.3):
-                await conn.call("echo", (b"x" * (8 * 1024 * 1024),), {})
-            tg.cancel_scope.cancel()
-        assert ticks > 5
-        # Half a frame went out, so the channel is out of step and closed.
-        await anyio.wait_all_tasks_blocked()
-        with pytest.raises(EOFError):
-            await conn.call("echo", (1,), {})
-        theirs.close()
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(tick)
+                with pytest.raises(TimeoutError), anyio.fail_after(0.3):
+                    await conn.call("echo", (b"x" * (8 * 1024 * 1024),), {})
+                tg.cancel_scope.cancel()
+            assert ticks > 5
+            # Half a frame went out, so the channel is out of step and closed.
+            await anyio.wait_all_tasks_blocked()
+            with pytest.raises(EOFError):
+                await conn.call("echo", (1,), {})
 
     run(main)
 
@@ -120,30 +141,27 @@ def test_a_peer_that_stops_reading_stalls_the_call_not_the_loop() -> None:
 )
 def test_an_unreadable_frame_reaches_the_pending_call(frame: bytes, message: str) -> None:
     async def main() -> None:
-        conn, theirs = raw()
+        async with raw() as (conn, theirs):
 
-        async def ask() -> None:
-            with anyio.fail_after(2), pytest.raises(ProtocolError, match=message):
-                await conn.call("echo", (1,), {})
+            async def ask() -> None:
+                with anyio.fail_after(2), pytest.raises(ProtocolError, match=message):
+                    await conn.call("echo", (1,), {})
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(ask)
-            await anyio.wait_all_tasks_blocked()
-            theirs.sendall(frame)
-        assert conn.closed
-        theirs.close()
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(ask)
+                await anyio.wait_all_tasks_blocked()
+                theirs.sendall(frame)
+            assert conn.closed
 
     run(main)
 
 
 def test_a_cancelled_call_leaves_no_pending_entry() -> None:
     async def main() -> None:
-        conn, peer = pair(Echo())
-        with anyio.move_on_after(0.05):
-            await conn.call("hang", (), {})
-        assert conn._pending == {}
-        conn.close()
-        peer.close()
+        async with pair(Echo()) as (conn, _):
+            with anyio.move_on_after(0.05):
+                await conn.call("hang", (), {})
+            assert conn._pending == {}
 
     run(main)
 
@@ -151,8 +169,7 @@ def test_a_cancelled_call_leaves_no_pending_entry() -> None:
 def test_close_cancels_the_answers_in_flight() -> None:
     async def main() -> None:
         service = Echo()
-        conn, peer = pair(service)
-        async with anyio.create_task_group() as tg:
+        async with pair(service) as (conn, peer), anyio.create_task_group() as tg:
 
             async def ask() -> None:
                 with pytest.raises(EOFError):
@@ -163,6 +180,5 @@ def test_close_cancels_the_answers_in_flight() -> None:
             peer.close()
             with anyio.fail_after(1):
                 await service.cancelled.wait()
-        conn.close()
 
     run(main)

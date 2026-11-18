@@ -2,11 +2,11 @@
 
 rpyc's own ``Connection`` is thread-based and costs a round trip per
 attribute access.  This keeps rpyc's framing and serialisation (brine for
-values, vinegar for exceptions) but drives it from asyncio, and adds a
+values, vinegar for exceptions) but drives it from anyio, and adds a
 single handler that calls a service method by name so that a call is
 exactly one round trip::
 
-    rc, out = await conn.root.run("hostname")
+    rc, out, err = await conn.root.run("hostname")
 
 Frame:    [4B BE length][1B compressed flag][payload][b"\\n"]
 Payload:  [1B message type] + brine.dump((seq, args))
@@ -23,10 +23,13 @@ import termios
 import tty
 import zlib
 from collections.abc import Awaitable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import anyio
 from rpyc.core import brine, consts, vinegar
+
+if TYPE_CHECKING:
+    from anyio.abc import TaskGroup, TaskStatus
 
 HANDLE_METHOD = 100
 """Custom handler: args are (method_name, args, kwargs_items).
@@ -250,9 +253,8 @@ class AsyncConnection:
         self._seq = 0
         self._pending: dict[int, _Pending] = {}
         self._closed = False
-        self._serving: asyncio.Task[None] | None = None
-        # Held, or the loop may collect an answer before it is sent.
-        self._answering: set[asyncio.Task[None]] = set()
+        # Set while `serve_forever` runs: each answer to a peer's call runs in it.
+        self._answers: TaskGroup | None = None
         self.root = _RemoteRoot(self)
         service.on_connect(self)
 
@@ -301,9 +303,9 @@ class AsyncConnection:
                     # Answered from its own task: awaited here, a slow call
                     # (a guest asking the host to boot another) would stop
                     # this loop reading the replies the host waits for.
-                    task = asyncio.ensure_future(self._answer(seq, result))  # noqa: TID251 -- nixidae/nixidae#949
-                    self._answering.add(task)
-                    task.add_done_callback(self._answering.discard)
+                    if self._answers is None:
+                        raise RuntimeError("a request arrived with nothing serving the connection")
+                    self._answers.start_soon(self._answer, seq, result)
                     return
             elif handler_id == consts.HANDLE_PING:
                 result = self._unbox(boxed_args)
@@ -347,12 +349,27 @@ class AsyncConnection:
             pending.exc = _load_exc(args)
         pending.event.set()
 
-    async def serve_forever(self) -> None:
+    async def serve_forever(self, *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
         """Serve until the peer goes away, or sends what cannot be read.
+
+        Every call made on the connection waits for a reply this reads, so
+        the side that calls out starts it in a task group it holds,
+        `await group.start(conn.serve_forever)`, before its first call.
 
         Never raises for the peer's sake: a listener that serves several
         peers keeps serving the rest.
         """
+        async with anyio.create_task_group() as answers:
+            self._answers = answers
+            task_status.started()
+            try:
+                await self._read()
+            finally:
+                self._answers = None
+                # Their replies have nowhere to go.
+                answers.cancel_scope.cancel()
+
+    async def _read(self) -> None:
         broken: ProtocolError | None = None
         try:
             while not self._closed:
@@ -366,25 +383,15 @@ class AsyncConnection:
         finally:
             self.close(broken)
 
-    def start_serving(self) -> None:
-        """Serve in the background, for a side that mostly calls out.
-
-        A held task on the backend loop, not an anyio task group: the
-        connection outlives the call that made it (a session is driven
-        across separate boot/run/teardown calls), which anyio's scoped
-        groups cannot own. It ends on its own when the channel closes.
-        Started here, not left to the caller, so a `call` never waits on a
-        reply loop that is not running yet.
-        """
-        if self._serving is None:
-            self._serving = asyncio.ensure_future(self.serve_forever())  # noqa: TID251 -- see above, nixidae/nixidae#949
-
     # ── calling ────────────────────────────────────────────────────
 
     async def call(self, method: str, args: tuple[object, ...], kwargs: dict[str, object]) -> Any:
         """Invoke ``exposed_<method>`` on the peer and await its result."""
         if self._closed:
             raise EOFError("arpyc connection closed")
+        if self._answers is None:
+            # Its reply would never be read.
+            raise RuntimeError("arpyc: nothing serves this connection; start serve_forever first")
         seq = self._seq
         self._seq += 1
         pending = _Pending()
@@ -413,9 +420,9 @@ class AsyncConnection:
                 pending.exc = ProtocolError(str(broken)) if broken else EOFError("arpyc connection closed")
                 pending.event.set()
         self._pending.clear()
-        # Their replies have nowhere to go.
-        for task in self._answering:
-            task.cancel()
+        if self._answers is not None:
+            # Ends `serve_forever` and the answers in flight: their replies have nowhere to go.
+            self._answers.cancel_scope.cancel()
         self._channel.close()
 
     @property
@@ -429,10 +436,11 @@ def _connection(service: Service, fd: int, *, raw_tty: bool) -> AsyncConnection:
 
 
 def connect(fd: int, service: Service | None = None) -> AsyncConnection:
-    """Client side: talk to a guest agent over *fd* (a socketpair end), and answer it with *service*."""
-    conn = _connection(service or Service(), fd, raw_tty=False)
-    conn.start_serving()
-    return conn
+    """Client side: talk to a guest agent over *fd* (a socketpair end), and answer it with *service*.
+
+    Start `serve_forever` in a task group the caller holds before the first call.
+    """
+    return _connection(service or Service(), fd, raw_tty=False)
 
 
 def listen(fd: int, service: Service, *, raw_tty: bool = True) -> AsyncConnection:
