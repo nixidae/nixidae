@@ -1,7 +1,7 @@
 /*
-  Provision SONiC the real way (nixidae/nixidae#958): SONiC's eth0 is
-  its uplink on the management segment and leases from the services
-  guest's Kea; the services guest then reaches SONiC over SSH and
+  Provision SONiC the real way (nixidae/nixidae#958, #1523): SONiC's eth0
+  is its uplink and leases from the run's router, the management switch;
+  the services guest, on the same switch, reaches SONiC over SSH and
   applies configuration. No console beyond the boot login.
 */
 {
@@ -9,23 +9,19 @@
   vivarium,
   mkTest,
   images,
-  servicesNode,
   ...
 }:
 mkTest {
   name = "oob-sonic";
   backend = "qemu";
-  nodes.svc = {
-    imports = [ (servicesNode { segment = "mgmt"; }) ];
-    environment.systemPackages = [
-      pkgs.sshpass
-      pkgs.jq
-    ];
-  };
+  router.enable = true;
+  nodes.svc.environment.systemPackages = [
+    pkgs.sshpass
+    pkgs.jq
+  ];
   nodes.sw1 = {
     imports = [ vivarium.kinds.sonic ];
     vivarium.sonic = images.sonic-vs;
-    vivarium.uplink.segment = "mgmt";
   };
   phases.provision = {
     script = ../phases/oob-sonic.py;

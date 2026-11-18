@@ -17,7 +17,6 @@ from vivarium_runner import Machines
 OPTS = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
 SSH = f"sshpass -p YourPaSsWoRd ssh {OPTS}"
 SCP = f"sshpass -p YourPaSsWoRd scp {OPTS}"
-LEASE = r"grep -m1 -oE '10\.42\.0\.(1[0-4][0-9]|150)' /var/lib/kea/dhcp4.leases"
 
 LOOPBACK = "10.7.7.7"
 HOSTNAME = "sonic-pushed"
@@ -25,8 +24,9 @@ HOSTNAME = "sonic-pushed"
 
 async def test(vms: Machines) -> None:
     svc = vms.svc
-
-    ip = (await svc.wait_until_succeeds(LEASE, timeout=60)).stdout.strip()
+    ip = vms.sw1.uplink_ip
+    if ip is None:
+        raise AssertionError("sw1 is not behind the router")
     print(f"[reload] SONiC at {ip}")
 
     # The switch stack must be up before a reload, or it refuses. The grep

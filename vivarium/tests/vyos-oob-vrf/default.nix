@@ -1,24 +1,23 @@
 /*
-  VyOS management VRF on the out-of-band fabric (nixidae/nixidae#958),
-  the VyOS analogue of oob-routeros: eth0 (the uplink) leases in a
-  `mgmt` VRF, and the dataplane (eth1) stays in the default table. The
-  two routing tables are separate, so management and dataplane cannot
-  reach each other -- the isolation sonic-vs could not instantiate,
-  here with VyOS's real VRFs.
+  VyOS management VRF (nixidae/nixidae#958, #1523), the VyOS analogue of
+  oob-routeros: eth0, the uplink, leases from the run's router, which is
+  the management switch, in a `mgmt` VRF; the dataplane (eth1) stays in
+  the default table. The two routing tables are separate, so management
+  and dataplane cannot reach each other -- the isolation sonic-vs could
+  not instantiate, here with VyOS's real VRFs. `svc` is a management host
+  on the router's uplink.
 */
 {
   vivarium,
   mkTest,
   images,
-  lanHost,
-  servicesNode,
   ...
 }:
 mkTest {
   name = "vyos-oob-vrf";
-  nodes.svc = servicesNode { segment = "mgmt"; };
+  router.enable = true;
+  nodes.svc = { };
   nodes.vyos = {
-    vivarium.uplink.segment = "mgmt";
     vivarium.interfaces.eth1 = {
       segment = "data";
       addresses = [ "10.9.0.1/24" ];
@@ -34,7 +33,10 @@ mkTest {
       '';
     };
   };
-  nodes.d1 = lanHost "data" "10.9.0.2" "10.9.0.1" "10.42.0.0";
+  nodes.d1.vivarium.interfaces.data = {
+    segment = "data";
+    addresses = [ "10.9.0.2/24" ];
+  };
   phases.vrf = {
     script = ../phases/vyos-oob-vrf.py;
     after = [ "boot" ];

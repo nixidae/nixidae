@@ -163,11 +163,11 @@ let
       timeoutMinutes = 20;
     };
     oob-sonic = {
-      # The fabric end to end: SONiC's eth0 leases from the services
-      # guest's Kea, and the services guest provisions it over SSH -- a
-      # `config` command per setting, then a whole config_db.json pushed
-      # and applied with `config reload`. SONiC (4 GiB) plus a NixOS guest;
-      # the cap is the SONiC image fetch. The reload phase measures ~140 s
+      # The fabric end to end: SONiC's eth0 leases from the run's router,
+      # the management switch, and the services guest provisions it over
+      # SSH -- a `config` command per setting, then a whole config_db.json
+      # pushed and applied with `config reload`. SONiC (4 GiB), a NixOS
+      # guest and the router; the cap is the SONiC image fetch. The reload phase measures ~140 s
       # (swss-ready wait plus the service restart) and retries the reload
       # for up to 240 s, so size any timeout change above that, not just
       # the boot.
@@ -176,8 +176,8 @@ let
     };
     oob-routeros = {
       # Functional management VRF: RouterOS's ether1 (the uplink) leases
-      # from Kea in a mgmt VRF, isolated from the dataplane. CHR under
-      # QEMU plus two NixOS guests.
+      # from the run's router in a mgmt VRF, isolated from the dataplane.
+      # CHR under QEMU plus two NixOS guests and the router.
       description = "RouterOS keeps its management in a VRF, isolated from the dataplane";
       timeoutMinutes = 20;
     };
@@ -213,8 +213,8 @@ let
     };
     vyos-oob-vrf = {
       # Functional management VRF, the VyOS analogue of oob-routeros: eth0
-      # leases in a mgmt VRF, isolated from the dataplane. VyOS under UML
-      # plus two NixOS guests.
+      # leases from the run's router in a mgmt VRF, isolated from the
+      # dataplane. VyOS under UML plus two NixOS guests and the router.
       description = "VyOS keeps its management in a VRF, isolated from the dataplane";
       timeoutMinutes = 30;
       backend = "uml";

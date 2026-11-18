@@ -1,9 +1,9 @@
 """The services guest provisions SONiC over SSH, the real way.
 
-SONiC's eth0 is its uplink on the management segment; it leases from the
-services guest's Kea. The services guest finds that address, reaches SONiC
-over SSH, and applies configuration (nixidae/nixidae#958). No console
-beyond the boot login.
+SONiC's eth0 is its uplink; it leases its address from the run's router,
+the management switch (nixidae/nixidae#1523). The services guest, on the
+same switch, reaches SONiC over SSH at that address and applies
+configuration (nixidae/nixidae#958). No console beyond the boot login.
 """
 
 from __future__ import annotations
@@ -11,17 +11,16 @@ from __future__ import annotations
 from vivarium_runner import Machines
 
 SSH = "sshpass -p YourPaSsWoRd ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
-LEASE = r"grep -m1 -oE '10\.42\.0\.(1[0-4][0-9]|150)' /var/lib/kea/dhcp4.leases"
-"""SONiC is the only client, so the one pool address in Kea's file is its."""
 
 
 async def test(vms: Machines) -> None:
-    svc = vms.svc
+    svc, sw1 = vms.svc, vms.sw1
+    ip = sw1.uplink_ip
+    if ip is None:
+        raise AssertionError("sw1 is not behind the router")
 
-    await svc.wait_for_unit("kea-dhcp4-server.service")
-
-    ip = (await svc.wait_until_succeeds(LEASE, timeout=180)).stdout.strip()
-    print(f"[test] SONiC leased {ip} from the services guest's Kea")
+    await sw1.wait_until_succeeds(f"ip -4 -brief addr show eth0 | grep -qw {ip}/24", timeout=180)
+    print(f"[test] SONiC leased {ip} on eth0 from the router")
 
     await svc.wait_until_succeeds(f"{SSH} admin@{ip} true", timeout=120)
     version = (await svc.succeed(f"{SSH} admin@{ip} 'show version | head -3'")).stdout
