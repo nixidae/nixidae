@@ -20,12 +20,12 @@ is KVM_CREATE_VM, which returns a descriptor."""
 
 async def test(vms: Machines) -> None:
     await vms.nested.wait_for_unit("vivarium-kvm.service", timeout=60)
-    answer = (await vms.nested.succeed(PROBE)).strip()
+    answer = (await vms.nested.succeed(PROBE)).stdout.strip()
     print(f"[test] nested: KVM api and create-vm: {answer}")
     if answer != "12 True":
         raise AssertionError(f"KVM in the nested guest answered {answer!r}")
 
-    rc, _ = await vms.plain.execute("test -e /dev/kvm")
+    rc = (await vms.plain.execute("test -e /dev/kvm")).returncode
     if rc == 0:
         raise AssertionError("the guest without nestedVirtualization has /dev/kvm; the check proves nothing")
     print("[test] plain: no /dev/kvm")

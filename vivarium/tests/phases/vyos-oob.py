@@ -19,9 +19,9 @@ async def _lease(vyos: Machine) -> str:
     """eth0's pool address. vyos-router applies the config and starts the
     DHCP client well after the agent is up, so name the stage on a timeout."""
     try:
-        return (await vyos.wait_until_succeeds(LEASE, timeout=300)).strip()
+        return (await vyos.wait_until_succeeds(LEASE, timeout=300)).stdout.strip()
     except MachineError as error:
-        _, status = await vyos.execute("systemctl --no-pager status vyos-router")
+        status = (await vyos.execute("systemctl --no-pager status vyos-router 2>&1")).stdout
         raise AssertionError(f"{error}\nvyos-router:\n{status}") from None
 
 
@@ -30,7 +30,7 @@ async def test(vms: Machines) -> None:
     svc = vms.svc
 
     await svc.wait_for_unit("kea-dhcp4-server.service")
-    release = await vyos.succeed(". /etc/os-release && echo $ID")
+    release = (await vyos.succeed(". /etc/os-release && echo $ID")).stdout
     print(f"[test] the agent answers from {release.strip()}")
 
     address = await _lease(vyos)
@@ -40,7 +40,7 @@ async def test(vms: Machines) -> None:
     await svc.succeed(f"ping -c1 -W2 {address}")
     print("[test] VyOS and the services guest reach each other over the fabric")
 
-    leases = await svc.succeed("cat /var/lib/kea/dhcp4.leases")
+    leases = (await svc.succeed("cat /var/lib/kea/dhcp4.leases")).stdout
     if address not in leases:
         raise AssertionError(f"Kea's lease file does not name {address}:\n{leases}")
     print("[test] Kea recorded the lease")

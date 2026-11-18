@@ -16,5 +16,5 @@ from vivarium_runner import Machines
 async def test(vms: Machines) -> None:
     assert tomli_w.dumps({"a": 1}) == "a = 1\n"
     assert humanize.naturalsize(1000) == "1.0 kB"
-    out = await vms.one.succeed("echo up")
+    out = (await vms.one.succeed("echo up")).stdout
     assert out.strip() == "up"

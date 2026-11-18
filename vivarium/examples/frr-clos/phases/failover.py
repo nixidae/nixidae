@@ -30,7 +30,7 @@ async def test(vms: Machines) -> None:
 
     await uplinks[0].cut()
     await leaf.wait_until_succeeds(f"test $(ip route show {target} | grep -c nexthop) = 0", CONVERGE)
-    route = await leaf.succeed(f"ip route show {target}")
+    route = (await leaf.succeed(f"ip route show {target}")).stdout
     if nexthops(route) != 1:
         raise AssertionError(f"{leaf.name} without {spines[0]}: {route}")
     await leaf.wait_until_succeeds(ping(target, source), CONVERGE)

@@ -107,7 +107,7 @@ A paused run keeps its guests up, in the state the failure left.
 
 ```console
 $ vivarium ctl --out ./out state
-$ vivarium ctl --out ./out exec 'await one.succeed("systemctl --failed")'
+$ vivarium ctl --out ./out exec 'print((await one.succeed("systemctl --failed")).stdout)'
 $ vivarium ctl --out ./out exec - < snippet.py
 ```
 
@@ -193,7 +193,7 @@ A phase switches the running guest, as `nixos-rebuild` does:
 await vms.one.switch_to("two")  # switch: profile, then activate
 await vms.one.switch_to("two", "test")  # activate only
 await vms.one.switch_to()  # back to the booted system
-rc, out = await vms.one.switch_to("two", check=False)  # exit 4: a unit failed
+done = await vms.one.switch_to("two", check=False)  # done.returncode 4: a unit failed
 ```
 
 Host Nix evaluates each configuration. The guest has no nixpkgs. A
@@ -395,6 +395,21 @@ OCR misreads. Wait for lowercase words where you can: tesseract read
 `VIVARIUM` in the console font as `UIUARIUM`. When a wait times out, the
 error holds what OCR read and the path of a screenshot.
 
+## Run a command in a guest
+
+```python
+done = await vm.succeed("ip -json addr")  # raises unless it exits 0
+addresses = json.loads(done.stdout)
+done = await vm.execute("test -e /etc/x")  # an exit code never raises
+missing = done.returncode != 0
+await vm.fail("test -e /etc/x")  # raises if it exits 0
+```
+
+Each returns a `CommandResult`: `returncode`, `stdout` and `stderr`. Each
+stream loses its trailing newlines. A warning on stderr does not break a
+parser of stdout. To read the two streams as one text, put `2>&1` in the
+command and read `stdout`.
+
 ## Wait for a guest's state
 
 Do not write a retry loop in a phase. Each `Machine` has these:
@@ -405,7 +420,7 @@ await vm.wait_until_fails("ping -c 1 10.0.0.1", 90)  # until it exits non-zero
 
 
 async def up() -> dict[str, Any] | None:  # None: not yet
-    peers = json.loads(await vm.succeed("vtysh -c 'show bgp summary json'"))
+    peers = json.loads((await vm.succeed("vtysh -c 'show bgp summary json'")).stdout)
     return peers if all(p["state"] == "Established" for p in peers["peers"].values()) else None
 
 

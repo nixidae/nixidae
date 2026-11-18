@@ -15,7 +15,7 @@ from pathlib import Path
 
 INPUT = """\
 print("states:", sorted(set(map(str, session.state.values()))))
-print("merged:", (await one.succeed("cat /etc/vivarium-interactive")).strip())
+print("merged:", (await one.succeed("cat /etc/vivarium-interactive")).stdout)
 print("hello:", await run("hello"))
 """
 

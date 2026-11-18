@@ -17,13 +17,13 @@ READ = (
 
 async def test(vms: Machines) -> None:
     one = vms.one
-    count = (await one.succeed(READ)).strip()
+    count = (await one.succeed(READ)).stdout.strip()
     assert int(count.splitlines()[-1]) > 0, count
     print(f"[test] an unprivileged read-only reader sees {count.splitlines()[-1]} valid paths")
 
     await one.succeed("rm /nix/var/nix/db/db.sqlite-wal /nix/var/nix/db/db.sqlite-shm")
-    code, said = await one.execute(READ)
-    assert code != 0 and "unable to open database file" in said, (code, said)
+    done = await one.execute(READ)
+    assert done.returncode != 0 and "unable to open database file" in done.stderr, done
     print("[test] without the WAL files the same reader fails")
 
     await one.succeed("systemctl restart vivarium-nix-db.service")

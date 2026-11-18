@@ -20,11 +20,11 @@ async def test(vms: Machines) -> None:
 
     await svc.wait_for_unit("kea-dhcp4-server.service")
 
-    ip = (await svc.wait_until_succeeds(LEASE, timeout=180)).strip()
+    ip = (await svc.wait_until_succeeds(LEASE, timeout=180)).stdout.strip()
     print(f"[test] SONiC leased {ip} from the services guest's Kea")
 
     await svc.wait_until_succeeds(f"{SSH} admin@{ip} true", timeout=120)
-    version = await svc.succeed(f"{SSH} admin@{ip} 'show version | head -3'")
+    version = (await svc.succeed(f"{SSH} admin@{ip} 'show version | head -3'")).stdout
     print(f"[test] the services guest reached SONiC over SSH:\n{version.strip()}")
 
     # Wait until SONiC's own startup config is applied -- the default

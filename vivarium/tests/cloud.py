@@ -13,7 +13,7 @@ API = "curl --silent --show-error --unix-socket /run/vivarium/cloud.sock --write
 
 async def call(vm: Machine, method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
     data = "" if body is None else f" --header 'Content-Type: application/json' --data {shlex.quote(json.dumps(body))}"
-    out = await vm.succeed(f"{API} --request {method}{data} http://cloud{path}")
+    out = (await vm.succeed(f"{API} --request {method}{data} http://cloud{path}")).stdout
     text, _, status = out.rpartition("\n")
     return int(status), json.loads(text)
 
@@ -33,7 +33,7 @@ async def test(vms: Machines) -> None:
     print(f"[test] {first['id']} pending; a second launch is refused: {refused['error']}")
 
     worker = await cloud.wait_running(first["id"])
-    assert await worker.succeed("cat /run/vivarium/user-data") == "join-1"
+    assert (await worker.succeed("cat /run/vivarium/user-data")).stdout == "join-1"
     await controller.succeed("ping -c2 -W5 10.9.0.100")
     status, own = await call(worker, "GET", "/v1/self")
     assert (status, own["id"], own["state"], own["notice"]) == (200, first["id"], "running", None), own

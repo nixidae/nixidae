@@ -8,7 +8,7 @@ from vivarium_runner import Machines
 
 async def test(vms: Machines) -> None:
     with anyio.fail_after(120):
-        while (await vms.one.execute("test -e /tmp/go"))[0] != 0:
+        while (await vms.one.execute("test -e /tmp/go")).returncode != 0:
             print("[live] tick")
             await anyio.sleep(0.3)
     print("[live] released")

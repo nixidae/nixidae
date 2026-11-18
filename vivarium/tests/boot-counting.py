@@ -23,7 +23,7 @@ COUNTERS = re.compile(r"\+(\d+)(?:-(\d+))?\.conf$")
 
 
 async def boot_id(vm: Machine, timeout: float | None = None) -> str:
-    return (await vm.succeed("cat /proc/sys/kernel/random/boot_id", timeout=timeout)).strip()
+    return (await vm.succeed("cat /proc/sys/kernel/random/boot_id", timeout=timeout)).stdout.strip()
 
 
 async def reboot(vm: Machine) -> None:
@@ -41,12 +41,12 @@ async def reboot(vm: Machine) -> None:
 
 
 async def booted(vm: Machine) -> str:
-    return (await vm.succeed("readlink /run/booted-system")).strip()
+    return (await vm.succeed("readlink /run/booted-system")).stdout.strip()
 
 
 async def counters(vm: Machine, toplevel: str) -> tuple[int, int] | None:
     """The entry's tries left and tries done, or None once it is blessed."""
-    found = await vm.succeed(f"grep -l 'init={toplevel}/init' /boot/loader/entries/*.conf")
+    found = (await vm.succeed(f"grep -l 'init={toplevel}/init' /boot/loader/entries/*.conf")).stdout
     names = found.split()
     assert len(names) == 1, f"{toplevel} has the entries {names}"
     match = COUNTERS.search(names[0])

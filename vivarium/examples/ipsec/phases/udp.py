@@ -22,14 +22,15 @@ SINK = "/tmp/udp.bin"
 
 
 async def received(dave: Machine) -> int:
-    return int(await dave.succeed(f"stat -c %s {SINK} 2>/dev/null || echo 0"))
+    return int((await dave.succeed(f"stat -c %s {SINK} 2>/dev/null || echo 0")).stdout)
 
 
 async def send(carol: Machine, address: str, size: int, options: str = "") -> tuple[int, str]:
-    return await carol.execute(
+    done = await carol.execute(
         f"head -c {size} /dev/urandom > /tmp/datagram && "
         f"socat -u -b 65536 OPEN:/tmp/datagram UDP-SENDTO:{address}:{PORT}{options} 2>&1"
     )
+    return done.returncode, done.stdout
 
 
 async def test(vms: Machines) -> None:

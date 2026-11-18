@@ -12,7 +12,7 @@ ANSIBLE = (
 
 async def test(vms: Machines) -> None:
     suse, ctl = vms.suse, vms.ctl
-    lab = (await suse.succeed("ip -br -4 addr show lab")).split()
+    lab = (await suse.succeed("ip -br -4 addr show lab")).stdout.split()
     if "10.9.0.2/24" not in lab:
         raise AssertionError(f"SUSE's lab interface is {lab}")
     print(f"[test] SUSE named its segment link `lab` and holds {lab[2]}, from the seed's network-config")
@@ -20,18 +20,18 @@ async def test(vms: Machines) -> None:
     await ctl.succeed(f"install -m 0600 {vms.settings['key']} /tmp/key")
     playbook = vms.settings["playbook"]
 
-    status, out = await ctl.execute(
+    done = await ctl.execute(
         ANSIBLE.format(inventory="'suse,' -e ansible_host=10.9.0.99", playbook=playbook), timeout=120
     )
-    if status == 0 or "UNREACHABLE" not in out:
-        raise AssertionError(f"ansible against nothing exited {status}:\n{out}")
+    if done.returncode == 0 or "UNREACHABLE" not in done.stdout:
+        raise AssertionError(f"ansible against nothing exited {done.returncode}:\n{done.stdout}\n{done.stderr}")
     print("[test] against an address nobody holds, ansible fails UNREACHABLE")
 
-    out = await ctl.succeed(
-        ANSIBLE.format(inventory="'suse,' -e ansible_host=10.9.0.2", playbook=playbook), timeout=300
-    )
+    out = (
+        await ctl.succeed(ANSIBLE.format(inventory="'suse,' -e ansible_host=10.9.0.2", playbook=playbook), timeout=300)
+    ).stdout
     recap = next((line for line in out.splitlines() if line.startswith("suse")), out)
-    said = (await suse.succeed("cat /etc/vivarium-ansible")).strip()
+    said = (await suse.succeed("cat /etc/vivarium-ansible")).stdout.strip()
     if said != "openSUSE Leap 16.0":
         raise AssertionError(f"the playbook wrote {said!r}:\n{out}")
     await suse.succeed("id deploy")

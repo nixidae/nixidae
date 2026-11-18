@@ -10,7 +10,7 @@ from vivarium_runner import Machine, Machines
 
 
 async def test_hostname(one: Machine) -> None:
-    assert (await one.succeed("hostname")).strip() == "one"
+    assert (await one.succeed("hostname")).stdout.strip() == "one"
 
 
 async def test_an_async_fixture(marker: str) -> None:
@@ -41,7 +41,7 @@ async def test_the_journal_names_the_test(one: Machine, vms: Machines) -> None:
 
 @pytest.mark.parametrize("n", [1, 2])
 async def test_parametrized(one: Machine, n: int) -> None:
-    assert (await one.succeed(f"echo {n}")).strip() == str(n)
+    assert (await one.succeed(f"echo {n}")).stdout.strip() == str(n)
 
 
 def test_skipped() -> None:
@@ -49,4 +49,4 @@ def test_skipped() -> None:
 
 
 async def test_fails_on_purpose(one: Machine) -> None:
-    assert (await one.succeed("echo 2")).strip() == "3"
+    assert (await one.succeed("echo 2")).stdout.strip() == "3"

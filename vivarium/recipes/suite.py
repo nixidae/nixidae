@@ -51,8 +51,8 @@ async def test(vms: Machines) -> None:
     # `su -`, root too: a login shell gives the user its own HOME, where
     # pytest writes. The agent's environment is not a login's.
     run = f"su - {shlex.quote(user)} -c {shlex.quote(command)}"
-    rc, _ = await vm.execute(f"{prefix}{run}", timeout=suite["timeout"], label=f"pytest {name}")
-    tail = (await vm.succeed(f"tail -n 3 /artifacts/{name}.log")).strip()
+    rc = (await vm.execute(f"{prefix}{run}", timeout=suite["timeout"], label=f"pytest {name}")).returncode
+    tail = (await vm.succeed(f"tail -n 3 /artifacts/{name}.log")).stdout.strip()
     print(f"[suite] {name}: exit {rc}\n[suite]   {tail}")
     if rc != 0:
         last = tail.splitlines()[-1] if tail else ""

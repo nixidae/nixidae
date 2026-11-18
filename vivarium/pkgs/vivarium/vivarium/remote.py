@@ -6,14 +6,14 @@ the test reaches its guests through `SOCKET`. Each connection is arpyc,
 the agent channel's protocol, so a call is one round trip. A test holds a
 `RemoteMachine` for each guest:
 
-    out = await vm.succeed("hostname")
+    out = (await vm.succeed("hostname")).stdout
     ip = await vm.get("uplink_ip")
 
 `RemoteMachine` is the wire API: the socket serves only the methods it
 declares (`CALLS`) and the attributes `get` names (`READABLE`). Each
 method takes `Machine`'s own signature, so a rename fails the type check
 on both sides. Arguments and results are plain data, and a list arrives
-as a tuple.
+as a tuple. A `CommandResult` crosses as a tuple and arrives rebuilt.
 
 The socket is 0600, as the control socket is, and exists only where the
 control socket does: never in a sandboxed check.
@@ -21,6 +21,7 @@ control socket does: never in a sandboxed check.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import inspect
 import os
@@ -31,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Concatenate, Final, Literal, get_args
 import anyio
 from anyio.abc import SocketAttribute
 from vivarium_agent.arpyc import AsyncConnection, Service, listen
+from vivarium_runner.control import CommandResult
 from vivarium_runner.machine import Machine, MachineError
 
 from .control import reachable
@@ -79,6 +81,20 @@ def _remote_plain[**P, R](
     return call
 
 
+def _remote_result[**P](
+    method: Callable[Concatenate[Machine, P], Awaitable[CommandResult]],
+) -> Callable[Concatenate[RemoteMachine, P], Coroutine[Any, Any, CommandResult]]:
+    """`_remote` for a method that returns a `CommandResult`."""
+    name = _listed(method)
+
+    @functools.wraps(method)
+    async def call(self: RemoteMachine, *args: P.args, **kwargs: P.kwargs) -> CommandResult:
+        returncode, stdout, stderr = await self.conn.call("call", (self.name, name, args, kwargs), {})
+        return CommandResult(returncode, stdout, stderr)
+
+    return call
+
+
 def _listed(method: Callable[..., object]) -> str:
     _calls.add(method.__name__)
     return method.__name__
@@ -91,10 +107,10 @@ class RemoteMachine:
         self.conn = conn
         self.name = name
 
-    execute = _remote(Machine.execute)
-    succeed = _remote(Machine.succeed)
-    fail = _remote(Machine.fail)
-    switch_to = _remote(Machine.switch_to)
+    execute = _remote_result(Machine.execute)
+    succeed = _remote_result(Machine.succeed)
+    fail = _remote_result(Machine.fail)
+    switch_to = _remote_result(Machine.switch_to)
     add_closure = _remote(Machine.add_closure)
     add_paths = _remote(Machine.add_paths)
     unit_state = _remote(Machine.unit_state)
@@ -110,8 +126,8 @@ class RemoteMachine:
     console_tail = _remote_plain(Machine.console_tail)
     wait_for_console_text = _remote(Machine.wait_for_console_text)
     wait_for_unit = _remote(Machine.wait_for_unit)
-    wait_until_succeeds = _remote(Machine.wait_until_succeeds)
-    wait_until_fails = _remote(Machine.wait_until_fails)
+    wait_until_succeeds = _remote_result(Machine.wait_until_succeeds)
+    wait_until_fails = _remote_result(Machine.wait_until_fails)
     screen_text = _remote(Machine.screen_text)
     send_key = _remote(Machine.send_key)
     send_chars = _remote(Machine.send_chars)
@@ -218,6 +234,8 @@ class Machines(Service):
         result = getattr(self.session.vms_up[machine], method)(*args, **kwargs)
         if inspect.isawaitable(result):
             result = await result
+        if isinstance(result, CommandResult):
+            return dataclasses.astuple(result)
         return result
 
 

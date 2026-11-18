@@ -8,7 +8,7 @@ the working tree, `pytest` runs tests from it, `run` runs a declared
 phase, `continue` resumes. `exec` and `inject` also reach a run that is
 not paused, beside the phases that are running.
 
-    vivarium ctl --out o exec 'await one.succeed("systemctl --failed")'
+    vivarium ctl --out o exec 'print((await one.succeed("systemctl --failed")).stdout)'
     vivarium ctl --out o inject ./scratch.py
     vivarium ctl --out o pytest ./tests/chaos -- -k etcd
     vivarium ctl --out o continue
@@ -856,10 +856,11 @@ class Controller:
             return Reply.refuse(f"switch: {error}")
         try:
             await guest.add_closure(asked.registration)
-            _, output = await guest.switch_to(asked.system, asked.action)
+            done = await guest.switch_to(asked.system, asked.action)
         except MachineError as error:
             return Reply(ok=False, error=str(error))
-        return Reply(ok=True, output=output)
+        # switch-to-configuration reports on stderr.
+        return Reply(ok=True, output="\n".join(filter(None, [done.stdout, done.stderr])))
 
     async def _segment(self, arg: str) -> Reply:
         """Cut, restore or capture a segment, then show it."""

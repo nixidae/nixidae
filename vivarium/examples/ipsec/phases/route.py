@@ -33,7 +33,7 @@ async def test(vms: Machines) -> None:
                 raise AssertionError(f"{vm.name} tunnel{n} selectors: {esp}")
             if int(esp.get("if-id-in", "0"), 16) != int(n) or int(esp.get("if-id-out", "0"), 16) != int(n):
                 raise AssertionError(f"{vm.name} tunnel{n} interface IDs: {esp}")
-            link = await vm.succeed(f"ip -d link show ipsec{n}")
+            link = (await vm.succeed(f"ip -d link show ipsec{n}")).stdout
             if f"if_id 0x{int(n):x}" not in link:
                 raise AssertionError(f"{vm.name} ipsec{n} is not XFRM interface {n}:\n{link}")
         print(f"[test] tunnel{n}: {cfg['westAddress']} <-> {tunnel['eastAddress']}, 0/0 selectors, if_id {n}")
@@ -46,7 +46,7 @@ async def test(vms: Machines) -> None:
 
     routed = cfg["routed"]
     for vm, prefix in ((west, routed["east"]), (east, routed["west"])):
-        route = await vm.succeed(f"ip route show {prefix}")
+        route = (await vm.succeed(f"ip route show {prefix}")).stdout
         if sorted(nexthops(route)) != ["ipsec1", "ipsec2"]:
             raise AssertionError(f"{vm.name}: {prefix} is not ECMP over ipsec1 and ipsec2:\n{route}")
     print(f"[test] {routed['east']} on west and {routed['west']} on east: ECMP over ipsec1 and ipsec2")
@@ -61,7 +61,7 @@ async def test(vms: Machines) -> None:
         raise AssertionError(f"west never received {routed['bogus']}: {received}")
     if routed["bogus"] in accepted.get("routes", {}):
         raise AssertionError(f"west accepted {routed['bogus']}: {accepted}")
-    if (await west.succeed(f"ip route show {routed['bogus']}")).strip():
+    if (await west.succeed(f"ip route show {routed['bogus']}")).stdout.strip():
         raise AssertionError(f"{routed['bogus']} reached west's routing table")
     print(f"[test] east announces {routed['bogus']}, west receives it and its prefix list drops it")
 
@@ -76,7 +76,7 @@ async def test(vms: Machines) -> None:
         tg.start_soon(watch, "esp", west, f"esp and ({endpoints})", 6)
         tg.start_soon(watch, "plain", west, "icmp", 1)
         await anyio.sleep(2)
-        out = await vms.carol.succeed(ping(hosts["dave"]["address"]))
+        out = (await vms.carol.succeed(ping(hosts["dave"]["address"]))).stdout
         print(f"[test] carol -> dave: {out.strip().splitlines()[-2]}")
     if results["esp"][0] != 0:
         raise AssertionError(f"no ESP on the tunnels while carol pinged dave:\n{results['esp'][1]}")

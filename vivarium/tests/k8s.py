@@ -198,11 +198,11 @@ async def check_cluster_networking(cp: Machine, vms: Machines, image: str) -> No
         await wait_for_pods(cp, f"--field-selector metadata.name={pod}", namespace="default")
 
     async def check() -> tuple[bool, str]:
-        rc, out = await cp.execute(
-            "kubectl exec probe -- wget -T 10 -qO- http://web.default.svc.cluster.local/",
+        done = await cp.execute(
+            "kubectl exec probe -- wget -T 10 -qO- http://web.default.svc.cluster.local/ 2>&1",
             timeout=120,
         )
-        return rc == 0 and greeting in out, out
+        return done.returncode == 0 and greeting in done.stdout, done.stdout
 
     body = await until("the Service to answer", check, READY_TIMEOUT, cp)
     print(

@@ -120,8 +120,8 @@ DEFAULT_ADDONS = (KUBE_PROXY, KUBE_DNS)
 
 
 async def kubectl(cp: Machine, args: str, timeout: float = 120) -> str:
-    """Run kubectl on the control plane; returns its output."""
-    return await cp.succeed(f"kubectl {args}", timeout=timeout)
+    """Run kubectl on the control plane; returns its stdout."""
+    return (await cp.succeed(f"kubectl {args}", timeout=timeout)).stdout
 
 
 async def get_json(cp: Machine, args: str, timeout: float = 120) -> dict[str, Any]:
@@ -225,7 +225,7 @@ async def unscheduled(vm: Machine) -> str:
             "     kubectl describe pod -n $ns $name 2>&1 | tail -n 30;"
             "   done"
         )
-    )[1]
+    ).stdout
 
 
 async def diagnose(vm: Machine) -> str:
@@ -259,17 +259,17 @@ async def diagnose(vm: Machine) -> str:
             " echo;"
             " tail -n 15 -v /var/log/pods/kube-system_*/*/*.log 2>&1 | tail -n 150"
         )
-    )[1]
+    ).stdout
     # containerd or crio: the unit `services.vivarium-k8s.cri` put behind the target.
-    runtime = (await vm.execute("systemctl show --property Requires --value vivarium-k8s-cri.target"))[1].split() or [
-        "containerd.service"
-    ]
+    runtime = (
+        await vm.execute("systemctl show --property Requires --value vivarium-k8s-cri.target")
+    ).stdout.split() or ["containerd.service"]
     return (
         f"--- [{vm.name}] addresses and routes ---\n"
-        f"{(await vm.execute('ip -brief addr; ip route; ip -6 route'))[1]}\n"
+        f"{(await vm.execute('{ ip -brief addr; ip route; ip -6 route; } 2>&1')).stdout}\n"
         f"--- [{vm.name}] events, and the pods that are not running ---\n"
         f"{await unscheduled(vm)}\n"
-        f"--- [{vm.name}] crictl ps -a ---\n{(await vm.execute('crictl ps -a'))[1]}\n"
+        f"--- [{vm.name}] crictl ps -a ---\n{(await vm.execute('crictl ps -a 2>&1')).stdout}\n"
         f"--- [{vm.name}] kubelet ---\n{await vm.journal('kubelet.service', lines=80)}\n"
         f"--- [{vm.name}] {runtime[0]} ---\n{await vm.journal(runtime[0], lines=40)}\n"
         f"--- [{vm.name}] pod logs ---\n{logs}"
@@ -313,16 +313,16 @@ async def init_control_plane(cp: Machine, *, patch_proxy: bool = True) -> None:
         f" > {INIT_LOG} 2>&1; rc=$?; cat {INIT_LOG}; exit $rc"
     )
     try:
-        rc, out = await cp.execute(command, timeout=INIT_TIMEOUT, label="kubeadm init")
+        done = await cp.execute(command, timeout=INIT_TIMEOUT, label="kubeadm init")
     except Exception as err:
         raise MachineError(
             f"[cp] kubeadm init did not finish in {INIT_TIMEOUT}s: {err}\n"
-            + await cp.succeed(f"tail -n 60 {INIT_LOG} 2>&1 || true")
+            + (await cp.succeed(f"tail -n 60 {INIT_LOG} 2>&1 || true")).stdout
             + "\n"
             + await diagnose(cp)
         ) from err
-    if rc != 0:
-        raise MachineError(f"[cp] kubeadm init failed (exit {rc}):\n{out}\n" + await diagnose(cp))
+    if done.returncode != 0:
+        raise MachineError(f"[cp] kubeadm init failed (exit {done.returncode}):\n{done.stdout}\n" + await diagnose(cp))
     # A skipped kube-proxy has no DaemonSet to patch: kubectl answers "not found".
     if patch_proxy:
         await patch_kube_proxy(cp)
@@ -374,12 +374,12 @@ KUBE_PROXY_PATCH = json.dumps(
 
 async def patch_kube_proxy(cp: Machine) -> None:
     """Give kube-proxy the store, since kubeadm will not."""
-    rc, out = await cp.execute(
-        f"kubectl --namespace kube-system patch daemonset kube-proxy --type strategic --patch '{KUBE_PROXY_PATCH}'",
+    done = await cp.execute(
+        f"kubectl --namespace kube-system patch daemonset kube-proxy --type strategic --patch '{KUBE_PROXY_PATCH}' 2>&1",
         timeout=UNIT_TIMEOUT,
     )
-    if rc != 0:
-        raise MachineError(f"[cp] could not give kube-proxy the store (exit {rc}):\n{out}")
+    if done.returncode != 0:
+        raise MachineError(f"[cp] could not give kube-proxy the store (exit {done.returncode}):\n{done.stdout}")
     cp.say("[k8s] cp: kube-proxy has the store")
 
 
@@ -407,7 +407,9 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
     """
     if not workers:
         return
-    printed = await cp.succeed("kubeadm token create --print-join-command --config /etc/kubernetes/kubeadm-config.yaml")
+    printed = (
+        await cp.succeed("kubeadm token create --print-join-command --config /etc/kubernetes/kubeadm-config.yaml")
+    ).stdout
     fields = printed.split()
     try:
         token = fields[fields.index("--token") + 1]
@@ -425,7 +427,7 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
         # Kept on the node for the same reason as `INIT_LOG`.
         log = "/tmp/kubeadm-join.log"
         try:
-            rc, out = await worker.execute(
+            done = await worker.execute(
                 f"vivarium-k8s-join {endpoint} {token} {digest} > {log} 2>&1; rc=$?; cat {log}; exit $rc",
                 timeout=JOIN_TIMEOUT,
                 label="kubeadm join",
@@ -434,12 +436,15 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
             raise MachineError(
                 f"[{worker.name}] kubeadm join did not finish in"
                 f" {JOIN_TIMEOUT}s: {err}\n"
-                + await worker.succeed(f"tail -n 60 {log} 2>&1 || true")
+                + (await worker.succeed(f"tail -n 60 {log} 2>&1 || true")).stdout
                 + "\n"
                 + await diagnose(worker)
             ) from err
-        if rc != 0:
-            raise MachineError(f"[{worker.name}] kubeadm join failed (exit {rc}):\n{out}\n" + await diagnose(worker))
+        if done.returncode != 0:
+            raise MachineError(
+                f"[{worker.name}] kubeadm join failed (exit {done.returncode}):\n{done.stdout}\n"
+                + await diagnose(worker)
+            )
         worker.say(f"[k8s] {worker.name}: joined")
 
     async with anyio.create_task_group() as group:
@@ -542,10 +547,10 @@ async def wait_for_dns(vm: Machine, host: str = "registry.k8s.io", timeout: floa
     """
 
     async def check() -> tuple[bool, str]:
-        rc, out = await vm.execute(f"getent hosts {host}")
-        if rc == 0:
-            return True, out.strip()
-        uplink = await vm.succeed("ip -4 -brief addr show vec0 2>/dev/null | tr -s ' ' || true")
+        found = await vm.execute(f"getent hosts {host}")
+        if found.returncode == 0:
+            return True, found.stdout.strip()
+        uplink = (await vm.succeed("ip -4 -brief addr show vec0 2>/dev/null | tr -s ' ' || true")).stdout
         return False, f"not yet, and vec0 has {uplink.strip() or '(no IPv4 address)'}"
 
     await until(f"{vm.name} to resolve {host}", check, timeout, vm)
@@ -595,10 +600,9 @@ async def _apply_node_manifests(cp: Machine, vms: Mapping[str, Machine], path: s
     """Apply *path* from every node that has it; return those nodes' names."""
     applied: list[str] = []
     for name, vm in vms.items():
-        rc, _ = await vm.execute(f"test -e {path}")
-        if rc != 0:
+        if (await vm.execute(f"test -e {path}")).returncode != 0:
             continue
-        manifest = await vm.succeed(f"cat {path}")
+        manifest = (await vm.succeed(f"cat {path}")).stdout
         await cp.succeed(f"kubectl apply --filename - <<'EOF'\n{manifest}\nEOF")
         applied.append(name)
     return applied
@@ -708,7 +712,7 @@ async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
     if not reachable:
         cp.say(f"[k8s] {cp.name}: no host forward of {APISERVER_PORT}; no kubeconfig for the host")
         return None
-    config = json.loads(await cp.succeed("kubectl config view --raw --flatten --output json"))
+    config = json.loads((await cp.succeed("kubectl config view --raw --flatten --output json")).stdout)
     for cluster in config["clusters"]:
         cluster["cluster"]["server"] = f"https://{reachable[0]}"
         cluster["cluster"]["tls-server-name"] = APISERVER_NAME

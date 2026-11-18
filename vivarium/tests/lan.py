@@ -22,19 +22,20 @@ async def test(vms: Machines) -> None:
 
     for vm in (server, client):
         await vm.succeed(f"test $(hostname) = {vm.name}")
-        print(f"[test] {vm.name} vec1: {await vm.succeed('ip -4 -br addr show vec1')}")
+        print(f"[test] {vm.name} vec1: {(await vm.succeed('ip -4 -br addr show vec1')).stdout}")
 
     for vm in (server, client):
         uplink = f"{vm.uplink_ip}/24"
         addr = ""
         for _ in range(60):
-            rc, addr = await vm.execute("ip -4 -br addr show vec0")
-            if rc == 0 and f" {uplink}" in addr:
+            shown = await vm.execute("ip -4 -br addr show vec0")
+            addr = shown.stdout
+            if shown.returncode == 0 and f" {uplink}" in addr:
                 break
             await anyio.sleep(1)
         else:
             raise AssertionError(f"{vm.name} vec0 is {addr.strip()!r}, not {uplink}")
-        route = await vm.succeed("ip -4 route show default")
+        route = (await vm.succeed("ip -4 route show default")).stdout
         assert f"via {GATEWAY} " in route, f"{vm.name}: default is {route.strip()!r}"
         print(f"[test] {vm.name} uplink: {uplink} via {GATEWAY}")
 
@@ -53,5 +54,5 @@ async def test(vms: Machines) -> None:
     print("[test] a command past its timeout raises GuestTimeout, and its child is gone")
 
     await server.wait_for_unit("sshd.service")
-    failed = await server.execute("systemctl --failed --no-legend")
-    print(f"[test] failed units on {server.name}: {failed[1] or 'none'}")
+    failed = (await server.execute("systemctl --failed --no-legend")).stdout
+    print(f"[test] failed units on {server.name}: {failed or 'none'}")

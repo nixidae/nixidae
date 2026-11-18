@@ -20,7 +20,7 @@ async def test(vms: Machines) -> None:
     for address in ("192.0.2.1", "2001:db8::1"):
         # The console says `configure.` before the commit has finished.
         for _ in range(60):
-            rc, _ = await vms.peer.execute(f"ping -c 1 -W 2 {address}")
+            rc = (await vms.peer.execute(f"ping -c 1 -W 2 {address}")).returncode
             if rc == 0:
                 break
             await anyio.sleep(2)

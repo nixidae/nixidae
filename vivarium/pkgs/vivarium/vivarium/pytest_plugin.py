@@ -6,7 +6,7 @@ gets is pytest -- assertion rewriting, `-k`, parametrize, fixtures,
 `conftest.py` -- and the same `Machine` API a phase script uses:
 
     async def test_hostname(one: Machine) -> None:
-        assert await one.succeed("hostname") == "one"
+        assert (await one.succeed("hostname")).stdout == "one"
 
 **pytest runs in a worker thread, and the guests stay on the session's
 loop.** A `Machine` belongs to the loop that started it, so an async

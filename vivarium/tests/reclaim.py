@@ -35,7 +35,7 @@ PARAMETERS = "/sys/module/damon_reclaim/parameters"
 
 
 async def damon(vm: Machine, name: str) -> str:
-    return (await vm.succeed(f"cat {PARAMETERS}/{name}")).strip()
+    return (await vm.succeed(f"cat {PARAMETERS}/{name}")).stdout.strip()
 
 
 async def test(vms: Machines) -> None:

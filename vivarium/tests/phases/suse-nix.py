@@ -16,33 +16,33 @@ async def test(vms: Machines) -> None:
     # No nixbld group on the image, so no build users.
     nix = f"NIX_CONFIG='build-users-group =' {vms.settings['nix']}"
     nix_path = vms.settings["nix"]
-    pid = (await suse.succeed("systemctl show -p MainPID --value vivarium-agent")).strip()
-    agent = (await suse.succeed(f"readlink -f /proc/{pid}/exe")).strip()
+    pid = (await suse.succeed("systemctl show -p MainPID --value vivarium-agent")).stdout.strip()
+    agent = (await suse.succeed(f"readlink -f /proc/{pid}/exe")).stdout.strip()
     assert agent.startswith("/nix/store/"), agent
 
-    valid = await suse.succeed(f"{nix}/bin/nix-store --check-validity {nix_path} && echo valid")
+    valid = (await suse.succeed(f"{nix}/bin/nix-store --check-validity {nix_path} && echo valid")).stdout
     assert valid.strip() == "valid", valid
     print("[test] Nix on openSUSE opens a local store that knows its own closure")
 
     hello = vms.settings["hello"]
-    late = await suse.succeed(f"{nix}/bin/nix-store --check-validity {hello} && echo valid")
+    late = (await suse.succeed(f"{nix}/bin/nix-store --check-validity {hello} && echo valid")).stdout
     assert late.strip() == "valid", late
     print("[test] the store knows a path the runner registered after boot")
 
-    added = (await suse.succeed(f"echo garbage > /tmp/g && {nix}/bin/nix-store --add /tmp/g")).strip()
+    added = (await suse.succeed(f"echo garbage > /tmp/g && {nix}/bin/nix-store --add /tmp/g")).stdout.strip()
     await suse.succeed(f"test -f {added}")
     print(f"[test] the guest adds {added} to its store")
 
     # The agent's units are the second root, and no process holds them
     # open, so only their root keeps them: drop it, and they go.
     roots = "/nix/var/nix/gcroots/vivarium"
-    units = (await suse.succeed(f"readlink {roots}/2")).strip()
+    units = (await suse.succeed(f"readlink {roots}/2")).stdout.strip()
     await suse.succeed(f"rm {roots}/2")
     await suse.succeed(f"{nix}/bin/nix-store --gc")
     await suse.fail(f"test -e {added}")
     await suse.fail(f"test -e {units}")
     await suse.succeed(f"for r in {roots}/*; do test -e $(readlink $r); done")
     await suse.succeed(f"test -e {agent}")
-    release = await suse.succeed(". /etc/os-release && echo $ID")
+    release = (await suse.succeed(". /etc/os-release && echo $ID")).stdout
     assert release.strip() == "opensuse-leap", release
     print("[test] a collection deleted the unrooted paths, kept every rooted one, and the agent still answers")

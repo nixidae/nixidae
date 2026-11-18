@@ -141,8 +141,8 @@ async def test_login_then_run_a_command() -> None:
     console = ConsoleControl(fake, sonic.DIALECT)
     await console.login(timeout=5)
     assert any(item == f"{sonic.USER}\r".encode() for item in fake.sent)
-    status, output = await console.execute("uname -sr", timeout=5)
-    assert status == 0 and output == "ran: uname -sr"
+    done = await console.execute("uname -sr", timeout=5)
+    assert (done.returncode, done.stdout, done.stderr) == (0, "ran: uname -sr", "")
 
 
 @pytest.mark.anyio
@@ -150,5 +150,5 @@ async def test_a_failing_command_carries_its_status() -> None:
     fake = FakeSonic(lambda command: (7, "boom"))
     console = ConsoleControl(fake, sonic.DIALECT)
     await console.login(timeout=5)
-    status, output = await console.execute("false", timeout=5)
-    assert status == 1 and "boom" in output and "exit status 7" in output
+    done = await console.execute("false", timeout=5)
+    assert done.returncode == 1 and "boom" in done.stdout and "exit status 7" in done.stderr

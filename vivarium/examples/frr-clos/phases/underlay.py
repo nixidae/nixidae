@@ -28,14 +28,16 @@ async def test(vms: Machines) -> None:
 
     leaves = list(vms.settings["clos"]["leaves"])
     first, last = leaves[0], leaves[-1]
-    route = await vms[first].wait_until_succeeds(f"ip route show {addresses[last]} | grep -c nexthop", CONVERGE)
-    paths = nexthops(await vms[first].succeed(f"ip route show {addresses[last]}"))
+    route = (
+        await vms[first].wait_until_succeeds(f"ip route show {addresses[last]} | grep -c nexthop", CONVERGE)
+    ).stdout
+    paths = nexthops((await vms[first].succeed(f"ip route show {addresses[last]}")).stdout)
     if paths != len(vms.settings["clos"]["spines"]):
         raise AssertionError(f"{first} reaches {last} over {paths} paths: {route}")
     print(f"[test] {first} reaches {last} over {paths} spines at once")
 
     for name, vm in fabric.items():
-        defaults = await vm.succeed("ip -6 route show default; ip -4 route show default")
+        defaults = (await vm.succeed("ip -6 route show default; ip -4 route show default")).stdout
         stray = [line for line in defaults.splitlines() if line and "dev vec0" not in line]
         if stray:
             raise AssertionError(f"{name} took a default route from the fabric: {stray}")

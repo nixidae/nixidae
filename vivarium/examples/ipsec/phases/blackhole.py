@@ -25,10 +25,12 @@ NARROW = 1400
 
 
 async def transfer(carol: Machine, dave: str) -> int:
-    rc, _ = await carol.execute(
-        f"head -c 4000000 /dev/zero | timeout 15 socat -u STDIN TCP:{dave}:{PORT},connect-timeout=5",
-        timeout=30,
-    )
+    rc = (
+        await carol.execute(
+            f"head -c 4000000 /dev/zero | timeout 15 socat -u STDIN TCP:{dave}:{PORT},connect-timeout=5",
+            timeout=30,
+        )
+    ).returncode
     return rc
 
 
@@ -77,7 +79,7 @@ async def test(vms: Machines) -> None:
         await carol.succeed(ping(address))
         if await transfer(carol, address) == 0:
             raise AssertionError("the transfer passed a hop that drops ESP over 1400 bytes")
-        dropped = await west.succeed("nft list chain inet narrow postrouting | grep -o 'packets [0-9]*'")
+        dropped = (await west.succeed("nft list chain inet narrow postrouting | grep -o 'packets [0-9]*'")).stdout
         print(
             f"[test] black hole: ping passes, the 4 MB transfer stalls; west dropped {dropped.split()[-1]} ESP packets over {NARROW} bytes"
         )

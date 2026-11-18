@@ -27,7 +27,7 @@ async def rekey_under_load(
     outcome: dict[str, str] = {}
 
     async def load() -> None:
-        outcome["ping"] = await sender.succeed(ping(target, count=60, extra="-i 0.1"), timeout=30)
+        outcome["ping"] = (await sender.succeed(ping(target, count=60, extra="-i 0.1"), timeout=30)).stdout
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(load)

@@ -19,8 +19,8 @@ async def test(vms: Machines) -> None:
     settings = vms.settings
     results = {}
     for which in ("fixedTests", "controlTests"):
-        rc, out = await vm.execute(f"cd /tmp && {settings[which]} {RUN} 2>&1", timeout=900)
-        lines = out.strip().splitlines()
+        done = await vm.execute(f"cd /tmp && {settings[which]} {RUN} 2>&1", timeout=900)
+        rc, lines = done.returncode, done.stdout.strip().splitlines()
         print(f"[{which}] exit {rc}, {len(lines)} lines; the end of it:")
         for line in lines[-25:]:
             print(f"[{which}] {line}")

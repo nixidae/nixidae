@@ -35,24 +35,26 @@ LANS = {"r1": "10.2.0.0/24", "f1": "10.1.0.0/24"}
 
 async def established(vm: Machine) -> bool | None:
     # vtysh exits 1 until VyOS has started FRR.
-    rc, out = await vm.execute("vtysh -c 'show bgp ipv4 unicast summary json'")
-    if rc != 0:
+    done = await vm.execute("vtysh -c 'show bgp ipv4 unicast summary json'")
+    if done.returncode != 0:
         return None
-    summary: BgpSummary = json.loads(out)
+    summary: BgpSummary = json.loads(done.stdout)
     neighbour = summary.get("peers", {}).get(PEERS[vm.name], {})
     return True if neighbour.get("state") == "Established" else None
 
 
 async def learned(vm: Machine) -> bool | None:
     prefix = LANS[vm.name]
-    routes: dict[str, list[RouteEntry]] = json.loads(await vm.succeed(f"vtysh -c 'show ip route {prefix} json'"))
+    routes: dict[str, list[RouteEntry]] = json.loads(
+        (await vm.succeed(f"vtysh -c 'show ip route {prefix} json'")).stdout
+    )
     return True if routes.get(prefix, [{}])[0].get("protocol") == "bgp" else None
 
 
 async def test(vms: Machines) -> None:
     r1, a, b = vms.r1, vms.a, vms.b
 
-    links = await r1.succeed("ip -br link show eth1; ip -br link show eth2")
+    links = (await r1.succeed("ip -br link show eth1; ip -br link show eth2")).stdout
     for name, mac in (("eth1", r1.spec.interfaces[0].mac), ("eth2", r1.spec.interfaces[1].mac)):
         if name not in links or mac.lower() not in links.lower():
             raise AssertionError(f"VyOS has no {name} with MAC {mac}:\n{links}")
@@ -65,7 +67,7 @@ async def test(vms: Machines) -> None:
     print("[test] each router learned the other's LAN over BGP")
 
     for src, dst in ((a, "10.2.0.2"), (b, "10.1.0.2")):
-        out = await src.succeed(f"ping -c 3 -W 2 {dst}")
+        out = (await src.succeed(f"ping -c 3 -W 2 {dst}")).stdout
         if "ttl=62" not in out:
             raise AssertionError(f"{src.name} reached {dst} other than through both routers:\n{out}")
     print("[test] a and b reach each other through both routers")

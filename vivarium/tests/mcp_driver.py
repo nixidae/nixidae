@@ -197,7 +197,7 @@ async def attached_elsewhere(server: str, out: Path) -> None:
         state = await other.tool("state", run=str(out))
         if not state.get("pause"):
             fail(f"state by --out on another server: {state}")
-        reply = await other.tool("exec", run=str(out), code='await one.succeed("hostname")')
+        reply = await other.tool("exec", run=str(out), code='(await one.succeed("hostname")).stdout')
         if "one" not in str(reply.get("result")):
             fail(f"exec by --out did not reach the guest: {reply}")
         await other.stdin.aclose()
@@ -238,7 +238,7 @@ async def drive(client: Client, process: Process, group: TaskGroup, server: str,
         fail(f"monitor armed while paused exited {late.returncode}, not 4")
     print("ok: monitor armed while paused exited 4 at once", flush=True)
 
-    reply = await client.tool("exec", run=run, code='await one.succeed("hostname")')
+    reply = await client.tool("exec", run=run, code='(await one.succeed("hostname")).stdout')
     if "one" not in str(reply.get("result")):
         fail(f"exec did not reach the guest: {reply}")
     print(f"ok: exec reached the paused guest: {reply['result']}", flush=True)
@@ -259,11 +259,11 @@ async def drive(client: Client, process: Process, group: TaskGroup, server: str,
     tree = Path(tempfile.mkdtemp()) / "by_hand"
     tree.mkdir()
     test = tree / "test_by_hand.py"
-    test.write_text("async def test_host(one):\n    assert (await one.succeed('hostname')).strip() == 'one'\n")
+    test.write_text("async def test_host(one):\n    assert (await one.succeed('hostname')).stdout == 'one'\n")
     reply = await client.tool("run_pytest", run=run, path=str(tree))
     if not reply["ok"] or reply["result"] != "1 passed":
         fail(f"run_pytest did not pass against the guest: {reply}")
-    test.write_text("async def test_host(one):\n    assert (await one.succeed('hostname')).strip() == 'edited'\n")
+    test.write_text("async def test_host(one):\n    assert (await one.succeed('hostname')).stdout == 'edited'\n")
     reply = await client.tool("run_pytest", run=run, path=str(tree), args=["-k", "host"])
     if reply["ok"]:
         fail(f"run_pytest ran the old test after an edit: {reply}")

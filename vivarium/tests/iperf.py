@@ -32,10 +32,12 @@ class IperfReport(TypedDict):
 async def measure(source: Machine, target: Machine) -> float:
     """Run iperf3 from *source* to *target*; returns bits/second."""
     report: IperfReport = json.loads(
-        await source.succeed(
-            f"iperf3 --client {target.ip} --time {DURATION} --json",
-            timeout=DURATION + 30,
-        )
+        (
+            await source.succeed(
+                f"iperf3 --client {target.ip} --time {DURATION} --json",
+                timeout=DURATION + 30,
+            )
+        ).stdout
     )
     return report["end"]["sum_received"]["bits_per_second"]
 

@@ -82,7 +82,7 @@ async def test(vms: Machines) -> None:
     outcome: dict[str, str] = {}
 
     async def load() -> None:
-        outcome["ping"] = await alice.succeed(ping(bob, count=60, extra="-i 0.1"), timeout=30)
+        outcome["ping"] = (await alice.succeed(ping(bob, count=60, extra="-i 0.1"), timeout=30)).stdout
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(load)
@@ -95,7 +95,9 @@ async def test(vms: Machines) -> None:
     after = await established(west, "policy")
     if ike_spis(after) == ike_spis(before):
         raise AssertionError("the reauthentication kept the old IKE_SA")
-    certs = await west.succeed("swanctl --list-certs --type x509 --subject 'C=SE, O=vivarium, CN=west.vpn.test'")
+    certs = (
+        await west.succeed("swanctl --list-certs --type x509 --subject 'C=SE, O=vivarium, CN=west.vpn.test'")
+    ).stdout
     if not re.search(r"serial:\s+04\b", certs) or "has private key" not in certs:
         raise AssertionError(f"west is not on the renewed certificate:\n{certs}")
     print(f"[test] renew: west on serial 04 with a new key, new IKE_SA, {received}/{sent} pings")

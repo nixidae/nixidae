@@ -24,7 +24,7 @@ DATA_HOST = "10.9.0.2"
 async def _reaches(r1: Machine, dst: str, vrf: str | None = None) -> bool:
     """Does r1 reach *dst*, routed in *vrf* (default `main`)?"""
     cmd = f"/ping {dst} count=2" + (f" vrf={vrf}" if vrf is not None else "")
-    _, out = await r1.execute(cmd)
+    out = (await r1.execute(cmd)).stdout
     return "no route" not in out and dst in out
 
 
@@ -42,7 +42,7 @@ async def test(vms: Machines) -> None:
     r1 = vms.r1
     svc = vms.svc
 
-    vrf = await r1.succeed("/ip vrf print terse")
+    vrf = (await r1.succeed("/ip vrf print terse")).stdout
     if "name=mgmt" not in vrf or "ether1" not in vrf:
         raise AssertionError(f"ether1 is not in a mgmt VRF:\n{vrf}")
 
@@ -51,7 +51,7 @@ async def test(vms: Machines) -> None:
     try:
         with anyio.fail_after(60):
             while True:
-                addresses = await r1.succeed("/ip address print terse")
+                addresses = (await r1.succeed("/ip address print terse")).stdout
                 lease = next((line for line in addresses.splitlines() if "interface=ether1" in line), "")
                 if "vrf=mgmt" in lease and "10.42.0." in lease:
                     break

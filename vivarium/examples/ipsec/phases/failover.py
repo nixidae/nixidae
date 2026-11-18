@@ -45,7 +45,7 @@ async def test(vms: Machines) -> None:
     outcome: dict[str, str] = {}
 
     async def load() -> None:
-        _rc, outcome["ping"] = await carol.execute(ping(dave, count=150, extra="-i 0.1"), timeout=40)
+        outcome["ping"] = (await carol.execute(ping(dave, count=150, extra="-i 0.1"), timeout=40)).stdout
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(load)
@@ -55,7 +55,7 @@ async def test(vms: Machines) -> None:
 
         async def withdrawn() -> str | None:
             peers = await bgp_peers(west)
-            route = await west.succeed(f"ip route show {prefix}")
+            route = (await west.succeed(f"ip route show {prefix}")).stdout
             if peers.get(first, {}).get("state") != "Established" and nexthops(route) == ["ipsec2"]:
                 return route
             return None
@@ -87,7 +87,7 @@ async def test(vms: Machines) -> None:
     await bgp_up(west, [first, second])
 
     async def ecmp() -> str | None:
-        route = await west.succeed(f"ip route show {prefix}")
+        route = (await west.succeed(f"ip route show {prefix}")).stdout
         return route if sorted(nexthops(route)) == ["ipsec1", "ipsec2"] else None
 
     await west.until("ECMP over both tunnels again", ecmp, CONVERGE, POLL)

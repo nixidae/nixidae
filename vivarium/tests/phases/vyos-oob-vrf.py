@@ -31,9 +31,9 @@ async def _lease(vyos: Machine) -> str:
     try:
         await vyos.wait_until_succeeds(CONVERGED, timeout=300)
     except MachineError as error:
-        _, status = await vyos.execute("systemctl --no-pager status vyos-router")
+        status = (await vyos.execute("systemctl --no-pager status vyos-router 2>&1")).stdout
         raise AssertionError(f"eth0 did not lease in the {VRF} VRF\n{error}\nvyos-router:\n{status}") from None
-    return (await vyos.succeed(LEASE)).strip()
+    return (await vyos.succeed(LEASE)).stdout.strip()
 
 
 async def test(vms: Machines) -> None:
@@ -51,10 +51,10 @@ async def test(vms: Machines) -> None:
     print(f"[test] the {VRF} VRF reaches the mgmt host; the default table reaches the dataplane")
 
     # The isolated directions: separate tables, so no route.
-    rc, _ = await vyos.execute(f"ip vrf exec {VRF} ping -c2 -W2 {DATA_HOST}")
+    rc = (await vyos.execute(f"ip vrf exec {VRF} ping -c2 -W2 {DATA_HOST}")).returncode
     if rc == 0:
         raise AssertionError(f"the {VRF} VRF reached the dataplane; the tables are not isolated")
-    rc, _ = await vyos.execute(f"ping -c2 -W2 {MGMT_HOST}")
+    rc = (await vyos.execute(f"ping -c2 -W2 {MGMT_HOST}")).returncode
     if rc == 0:
         raise AssertionError("the default table reached the mgmt host; the tables are not isolated")
     print(f"[test] the {VRF} VRF and the default table cannot reach each other")

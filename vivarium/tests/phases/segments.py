@@ -15,10 +15,10 @@ from vivarium_runner import Machines
 async def test(vms: Machines) -> None:
     for name, vm in vms.items():
         for nic in vm.spec.interfaces:
-            mac = (await vm.succeed(f"cat /sys/class/net/{nic.name}/address")).strip()
+            mac = (await vm.succeed(f"cat /sys/class/net/{nic.name}/address")).stdout.strip()
             if mac != nic.mac:
                 raise AssertionError(f"{name}: {nic.name} has MAC {mac}, expected {nic.mac}")
-            shown = await vm.succeed(f"ip -br addr show dev {nic.name}")
+            shown = (await vm.succeed(f"ip -br addr show dev {nic.name}")).stdout
             for address in nic.addresses:
                 if address not in shown:
                     raise AssertionError(f"{name}: {nic.name} lacks {address}: {shown}")
@@ -38,7 +38,7 @@ async def test(vms: Machines) -> None:
     print("[test] r answers on a only through left, and nothing crosses from a to b")
 
     side = c.interface("ll").name
-    local = (await c.succeed(f"ip -6 -br addr show dev {side} scope link")).split()[2]
+    local = (await c.succeed(f"ip -6 -br addr show dev {side} scope link")).stdout.split()[2]
     link_local = local.split("/")[0]
     await q.succeed(f"ping -6 -c 2 -W 5 {link_local}%{q.interface('ll').name}")
     await q.fail(f"ping -6 -c 1 -W 2 {link_local}%{q.interface('a').name}")

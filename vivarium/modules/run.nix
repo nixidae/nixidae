@@ -235,7 +235,7 @@ in
                   awaits `Machine` directly:
 
                       async def test_hostname(one: Machine) -> None:
-                          assert await one.succeed("hostname") == "one"
+                          assert (await one.succeed("hostname")).stdout == "one"
 
                   Every test is an event and a JUnit case of its own, and
                   every command and journal entry names the test that

@@ -35,6 +35,7 @@ from vivarium.exits import Exit
 from vivarium.phases import PhaseState
 from vivarium.session import Session
 from vivarium_runner import Lan, Machines
+from vivarium_runner.control import CommandResult
 
 
 class TestSplitLastExpression:
@@ -326,9 +327,9 @@ class FakeGuest:
         self.done.append(f"closure {info}")
         return []
 
-    async def switch_to(self, name: str | None = None, action: str = "switch") -> tuple[int, str]:
+    async def switch_to(self, name: str | None = None, action: str = "switch") -> CommandResult:
         self.done.append(f"{action} {name}")
-        return 0, "activating\n"
+        return CommandResult(0, "", "activating the configuration")
 
 
 @pytest.mark.anyio
@@ -341,7 +342,7 @@ async def test_switch_adds_the_closure_then_switches(tmp_path: Path) -> None:
     controller = Controller(cast("Session", session))
     asked = SwitchRequest("a", "/nix/store/s", "/nix/store/r", "boot")
     reply = await controller.handle(Request(Op.SWITCH, asked.encode()).encode())
-    assert (reply.ok, reply.output) == (True, "activating\n")
+    assert (reply.ok, reply.output) == (True, "activating the configuration")
     assert guest.done == ["closure /nix/store/r", "boot /nix/store/s"]
     missing = await controller.handle(Request(Op.SWITCH, SwitchRequest("b", "/s", "/r").encode()).encode())
     assert missing.refused

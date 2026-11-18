@@ -66,7 +66,7 @@ async def test(vms: Machines) -> None:
     servers = [vm for vm in vms.values() if vm.reachable(PORT)]
     for vm in servers:
         await vm.wait_for_unit("iperf3-server.service")
-    mtus = {vm.name: (await vm.succeed("cat /sys/class/net/vec0/mtu")).strip() for vm in servers}
+    mtus = {vm.name: (await vm.succeed("cat /sys/class/net/vec0/mtu")).stdout.strip() for vm in servers}
     rates: defaultdict[tuple[str, str], list[float]] = defaultdict(list)
     for round_ in range(1, ROUNDS + 1):
         for vm in servers:

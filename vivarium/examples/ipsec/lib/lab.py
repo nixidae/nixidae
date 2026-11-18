@@ -75,7 +75,7 @@ def parse_pretty(text: str) -> dict[str, Any]:
 
 async def sas(vm: Machine) -> dict[str, dict[str, Any]]:
     """The IKE_SAs charon holds, by connection name."""
-    out = await vm.succeed("swanctl --list-sas --pretty")
+    out = (await vm.succeed("swanctl --list-sas --pretty")).stdout
     merged: dict[str, dict[str, Any]] = {}
     for _event, body in parse_pretty(out).items():
         merged.update(body)
@@ -107,7 +107,7 @@ async def established(vm: Machine, connection: str, child_name: str | None = Non
 
 async def vtysh(vm: Machine, command: str) -> dict[str, Any]:
     """Run a `vtysh` command with `json` appended, and parse its object."""
-    value: object = json.loads(await vm.succeed(f"vtysh -c '{command} json'"))
+    value: object = json.loads((await vm.succeed(f"vtysh -c '{command} json'")).stdout)
     if not isinstance(value, dict):
         raise AssertionError(f"vtysh {command!r} printed {type(value).__name__}, not an object")
     return value
@@ -139,10 +139,11 @@ async def capture(
     vm: Machine, interface: str, expression: str, count: int, seconds: float, flags: str = ""
 ) -> tuple[int, str]:
     """tcpdump until *count* packets or *seconds*; rc 124 means it timed out."""
-    return await vm.execute(
+    done = await vm.execute(
         f"timeout {seconds:.0f} tcpdump -n -l {flags} -i {interface} -c {count} '{expression}' 2>&1",
         timeout=seconds + 10,
     )
+    return done.returncode, done.stdout
 
 
 async def captured_during(
@@ -163,20 +164,20 @@ async def captured_during(
 
 async def route_mtu(vm: Machine, address: str) -> int | None:
     """The path MTU the kernel has cached for *address*, if any."""
-    match = re.search(r"\bmtu (\d+)", await vm.succeed(f"ip route get {address}"))
+    match = re.search(r"\bmtu (\d+)", (await vm.succeed(f"ip route get {address}")).stdout)
     return int(match.group(1)) if match else None
 
 
 async def journal_since(vm: Machine, unit: str, since: float) -> str:
-    return await vm.succeed(f"journalctl -u {unit} -o cat --since @{int(since)} --no-pager")
+    return (await vm.succeed(f"journalctl -u {unit} -o cat --since @{int(since)} --no-pager")).stdout
 
 
 async def epoch(vm: Machine) -> float:
-    return float(await vm.succeed("date +%s.%N"))
+    return float((await vm.succeed("date +%s.%N")).stdout)
 
 
 async def xfrm_stats(vm: Machine) -> dict[str, int]:
-    out = await vm.succeed("cat /proc/net/xfrm_stat")
+    out = (await vm.succeed("cat /proc/net/xfrm_stat")).stdout
     return {name: int(value) for name, value in (line.split() for line in out.splitlines() if line.strip())}
 
 

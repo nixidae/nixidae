@@ -26,7 +26,7 @@ HOSTNAME = "sonic-pushed"
 async def test(vms: Machines) -> None:
     svc = vms.svc
 
-    ip = (await svc.wait_until_succeeds(LEASE, timeout=60)).strip()
+    ip = (await svc.wait_until_succeeds(LEASE, timeout=60)).stdout.strip()
     print(f"[reload] SONiC at {ip}")
 
     # The switch stack must be up before a reload, or it refuses. The grep
@@ -52,8 +52,9 @@ async def test(vms: Machines) -> None:
     try:
         with anyio.fail_after(240):
             while True:
-                rc, out = await svc.execute(f"{SSH} admin@{ip} 'sudo config reload -y /tmp/new.json' 2>&1", timeout=300)
-                if rc == 0:
+                done = await svc.execute(f"{SSH} admin@{ip} 'sudo config reload -y /tmp/new.json' 2>&1", timeout=300)
+                out = done.stdout
+                if done.returncode == 0:
                     break
                 if "not ready" not in out:
                     raise AssertionError(f"config reload failed:\n{out[-400:]}")

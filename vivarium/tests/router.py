@@ -62,7 +62,7 @@ async def test(vms: Machines) -> None:
             for name in GUESTS:
                 got = (
                     await vms[name].succeed(f"timeout 10 bash -c 'exec 3<>/dev/tcp/10.0.2.2/{port}; cat <&3'")
-                ).strip()
+                ).stdout.strip()
                 if got != "host":
                     raise AssertionError(f"{name}: the host's server said {got!r}")
                 print(f"[test] {name} reached the host's loopback through the router")
@@ -105,7 +105,7 @@ async def ipv6(vms: Machines) -> None:
         async with anyio.create_task_group() as group:
             group.start_soon(answer, server, True)
             for name in GUESTS:
-                got = (await vms[name].succeed(f"timeout 10 socat -u TCP6:[{GATEWAY6}]:{port} -")).strip()
+                got = (await vms[name].succeed(f"timeout 10 socat -u TCP6:[{GATEWAY6}]:{port} -")).stdout.strip()
                 # The egress connects from the host's own ::1.
                 if got != "::1":
                     raise AssertionError(f"{name}: the host's IPv6 server saw {got!r}")
@@ -123,7 +123,7 @@ async def ipv6(vms: Machines) -> None:
 
         async with anyio.create_task_group() as group:
             group.start_soon(echo)
-            got = (await vms.a.succeed(f"echo hi | timeout 10 socat -t1 - UDP6:[{GATEWAY6}]:{port}")).strip()
+            got = (await vms.a.succeed(f"echo hi | timeout 10 socat -t1 - UDP6:[{GATEWAY6}]:{port}")).stdout.strip()
             # socat exits 0 with no echo, and `echo` would wait on.
             group.cancel_scope.cancel()
         if got != "host:hi":
@@ -131,7 +131,7 @@ async def ipv6(vms: Machines) -> None:
         print("[test] a reached the host's ::1 over UDP through the router")
 
     # Nothing answers an IPv6 connection the egress cannot make.
-    rc, _ = await vms.a.execute("timeout 10 socat -u TCP6:[2001:db8::1]:80 /dev/null")
+    rc = (await vms.a.execute("timeout 10 socat -u TCP6:[2001:db8::1]:80 /dev/null")).returncode
     if rc == 0:
         raise AssertionError("a connected to 2001:db8::1, which no host has")
 

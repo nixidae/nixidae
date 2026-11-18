@@ -102,19 +102,19 @@ async def test(vms: Machines) -> None:
     await node.succeed(f"test $(cat {probe}) = settings")
     print(f"[test] the guest knows the path settings gave it: {probe}")
 
-    closure = set((await node.succeed("nix-store --query --requisites /run/current-system")).split())
+    closure = set((await node.succeed("nix-store --query --requisites /run/current-system")).stdout.split())
     outside = [p for p in host_paths() if p not in closure]
     assert outside, "the host's store holds nothing the guest is not already told about"
     path = with_references(outside)
 
     print(f"[test] the guest was never told about {path}")
-    print("[test] and says:", await node.succeed(f"nix path-info {path}"))
+    print("[test] and says:", (await node.succeed(f"nix path-info {path}")).stdout)
 
-    refs = await node.succeed(f"nix-store --query --references {path}")
+    refs = (await node.succeed(f"nix-store --query --references {path}")).stdout
     assert refs.strip(), "the lower store knows the path but serves no references for it"
     print(f"[test] and serves {len(refs.split())} references for it")
 
-    built = (await node.succeed(PROBE)).strip()
+    built = (await node.succeed(PROBE)).stdout.strip()
     print(f"[test] the guest built {built}")
     await node.succeed(f"test $(cat {built}) = probe")
     await node.succeed(f"nix path-info {built}")
@@ -125,5 +125,5 @@ async def test(vms: Machines) -> None:
     # registration and what the guest built -- not the lower store, which
     # answers about a path but cannot be listed. Measured, and the reason
     # nothing above asserts on this number.
-    total = (await node.succeed("nix path-info --all | wc -l")).strip()
+    total = (await node.succeed("nix path-info --all | wc -l")).stdout.strip()
     print(f"[test] the guest's upper database holds {total} paths")

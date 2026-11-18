@@ -101,12 +101,25 @@ class ConsoleConfig:
         return cls(configure=bool(_config(guest, spec, frozenset(), frozenset({"configure"})).get("configure")))
 
 
+@dataclass(frozen=True, slots=True)
+class CommandResult:
+    """How a command in a guest ended.
+
+    The two streams stay apart, so a tool's warning on stderr does not
+    break a parser of its stdout. Each stream loses its trailing newlines.
+    """
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+
 class Control(Protocol):
     """What `Machine.execute` runs a command through."""
 
-    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]:
-        """The command's exit status and output. A console guest has no
-        status of its own: 0, or 1 with the guest's message last."""
+    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> CommandResult:
+        """How the command ended. A console guest has no status of its own:
+        0, or 1 with the guest's message as stderr."""
         ...
 
     async def aclose(self) -> None: ...
@@ -233,13 +246,11 @@ class ConsoleControl:
                 await self._recover()
                 raise TimeoutError(f"ran past its {timeout:g}s timeout; the console got an interrupt") from None
 
-    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]:
+    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> CommandResult:
         if env:
             raise ConsoleError(f"{self._dialect.name}: a console takes no environment")
         result = await self.run(command, timeout)
-        if result.ok:
-            return 0, result.output
-        return 1, "\n".join(filter(None, [result.output, result.error]))
+        return CommandResult(0 if result.ok else 1, result.output, result.error or "")
 
     async def _recover(self) -> None:
         self._buffer = b""

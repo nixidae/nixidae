@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import shlex
 import signal
@@ -10,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 
+import anyio
 import pytest
 from vivarium_agent import agent
 
@@ -32,6 +34,11 @@ def running(pid: int) -> bool:
 def test_a_command_returns_its_status_and_output() -> None:
     done = agent._sh("echo out; echo err >&2; exit 3", timeout=5)
     assert (done.returncode, done.stdout, done.stderr) == (3, "out\n", "err\n")
+
+
+def test_run_keeps_the_streams_apart() -> None:
+    done = anyio.run(functools.partial(agent.Agent().exposed_run, "echo out; echo; echo err >&2; exit 3", 5))
+    assert done == (3, "out", "err")
 
 
 def test_a_command_leaves_the_agents_oom_score() -> None:

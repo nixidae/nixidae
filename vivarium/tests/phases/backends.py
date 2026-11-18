@@ -13,7 +13,7 @@ KINDS = {"u": "uml", "q": "kvm", "c": "container-other"}
 
 
 async def test(vms: Machines) -> None:
-    kinds = {name: (await vm.execute("systemd-detect-virt"))[1].strip() for name, vm in vms.items()}
+    kinds = {name: (await vm.execute("systemd-detect-virt")).stdout.strip() for name, vm in vms.items()}
     print(f"[test] machines: {kinds}")
     if kinds != KINDS:
         raise AssertionError(f"expected one guest of each kind {KINDS}, got {kinds}")

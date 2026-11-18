@@ -19,7 +19,7 @@ JUNIT = """<testsuites><testsuite name="inner">
 async def test(vms: Machines) -> None:
     vm = vms.one
     if vms.phase == "census":
-        vms.shared["before"] = int((await vm.succeed("ls /proc | grep -c '^[0-9]'")).strip())
+        vms.shared["before"] = int((await vm.succeed("ls /proc | grep -c '^[0-9]'")).stdout.strip())
         print(f"[test] census: {vms.shared['before']} processes")
         return
     if vms.phase != "suite":

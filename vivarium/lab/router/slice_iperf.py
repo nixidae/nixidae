@@ -54,7 +54,7 @@ async def outbound(iperf3: str, vm: Machine, reverse: bool) -> float:
         await anyio.sleep(0.5)
         flag = " --reverse" if reverse else ""
         with anyio.fail_after(DURATION + 30):
-            out = await vm.succeed(f"iperf3 --client 10.0.2.2 --port {port} --time {DURATION} --json{flag}")
+            out = (await vm.succeed(f"iperf3 --client 10.0.2.2 --port {port} --time {DURATION} --json{flag}")).stdout
         with anyio.fail_after(10):
             await server.wait()
     return _rate(out)
@@ -64,7 +64,7 @@ async def test(vms: Machines) -> None:
     iperf3 = vms.settings["iperf3"]
     for vm in (vms.passt, vms.routed):
         await vm.wait_for_unit("iperf3-server.service")
-        mtu = (await vm.succeed("cat /sys/class/net/vec0/mtu")).strip()
+        mtu = (await vm.succeed("cat /sys/class/net/vec0/mtu")).stdout.strip()
         print(f"[test] {vm.name}: mtu {mtu}")
     for round_ in range(ROUNDS):
         for path, measure in (("forward", forward), ("outbound", outbound)):

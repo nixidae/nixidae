@@ -7,6 +7,6 @@ from vivarium_runner import Machines
 
 
 async def test(vms: Machines) -> None:
-    name = await vms.one.succeed("hostname")
+    name = (await vms.one.succeed("hostname")).stdout
     assert name.strip() == "one", f"the guest calls itself {name!r}"
     print("[test] the guest answers")

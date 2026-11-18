@@ -25,9 +25,11 @@ EV_KEY, EV_ABS, BTN_LEFT = 1, 3, 0x110
 
 async def evdev(vm: Machine, device: str, count: int) -> list[tuple[int, int, int]]:
     """The next *count* events on *device*, as (type, code, value)."""
-    out = await vm.succeed(
-        f"timeout 10 dd if=/dev/input/{device} bs=24 count={count} status=none | od -An -tx1 -v | tr -d ' \\n'"
-    )
+    out = (
+        await vm.succeed(
+            f"timeout 10 dd if=/dev/input/{device} bs=24 count={count} status=none | od -An -tx1 -v | tr -d ' \\n'"
+        )
+    ).stdout
     raw = bytes.fromhex(out.strip())
     return [struct.unpack("<qqHHi", raw[i : i + 24])[2:] for i in range(0, len(raw), 24)]
 
@@ -47,7 +49,7 @@ async def test(vms: Machines) -> None:
         raise AssertionError(f"{TOKEN} is on the screen before anything was typed")
     await desk.send_chars("echo answer $((40+2)) | tee /root/typed\n")
     found = await desk.wait_for_text(TOKEN, timeout=60)
-    typed = (await desk.succeed("cat /root/typed")).strip()
+    typed = (await desk.succeed("cat /root/typed")).stdout.strip()
     if typed != "answer 42":
         raise AssertionError(f"the shell wrote {typed!r}")
     if not (0 <= found.left < width and 0 <= found.top < height):
@@ -70,7 +72,7 @@ async def test(vms: Machines) -> None:
     await desk.wait_until_succeeds(
         "awk '/Virtio Tablet/{f=1} /^$/{f=0} f&&/Handlers=.*event/' /proc/bus/input/devices | grep -q event"
     )
-    devices = await desk.succeed("cat /proc/bus/input/devices")
+    devices = (await desk.succeed("cat /proc/bus/input/devices")).stdout
     block = next(b for b in devices.split("\n\n") if "Virtio Tablet" in b)
     # `Handlers=event4` when the tablet has no mouse handler, so a word
     # split never sees one that starts with `event`.

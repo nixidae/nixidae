@@ -11,13 +11,13 @@ import pytest
 
 @pytest.mark.vivarium("one", scope="module")
 async def test_hostname(vm) -> None:  # noqa: ANN001 -- a RemoteMachine
-    assert (await vm.succeed("hostname")).strip() == "vm"
+    assert (await vm.succeed("hostname")).stdout.strip() == "vm"
 
 
 @pytest.mark.vivarium("one", scope="module")
 async def test_uplink_is_vsock(vm) -> None:  # noqa: ANN001 -- a RemoteMachine
     assert await vm.get("uplink_ip") == "10.0.2.15"
-    rc, _ = await vm.execute("ip netns list | grep -q uplink")
+    rc = (await vm.execute("ip netns list | grep -q uplink")).returncode
     assert rc == 0
 
 

@@ -38,7 +38,9 @@ async def test(vms: Machines) -> None:
 
     for name, (needle, notify) in ATTEMPTS.items():
         since = await epoch(east)
-        out = await mallory.fail(f"swanctl --initiate --ike {name} --child steal --timeout 15", timeout=30)
+        out = (
+            await mallory.fail(f"swanctl --initiate --ike {name} --child steal --timeout 15 2>&1", timeout=30)
+        ).stdout
 
         # charon's lines reach the journal after mallory has its answer.
         async def logged(since: float = since, needle: str = needle, notify: str = notify) -> str | None:
@@ -55,7 +57,7 @@ async def test(vms: Machines) -> None:
         reason = next(line for line in log.splitlines() if needle in line)
         print(f"[test] {name}: east answers {notify}: {reason.strip()}")
 
-    mallory_sas = await mallory.succeed("swanctl --list-sas")
+    mallory_sas = (await mallory.succeed("swanctl --list-sas")).stdout
     if "ESTABLISHED" in mallory_sas:
         raise AssertionError(f"mallory holds an IKE_SA:\n{mallory_sas}")
 

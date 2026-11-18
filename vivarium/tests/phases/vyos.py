@@ -11,7 +11,7 @@ from vivarium_runner import Machines
 
 async def test(vms: Machines) -> None:
     vyos = vms.vyos
-    release = await vyos.succeed(". /etc/os-release && echo $ID")
+    release = (await vyos.succeed(". /etc/os-release && echo $ID")).stdout
     print(f"[test] the agent answers from {release.strip()}")
 
     # vyos-router applies config.boot after the agent is up.
@@ -20,7 +20,7 @@ async def test(vms: Machines) -> None:
         " sleep 1; done; exit 1",
         timeout=330,
     )
-    name = await vyos.succeed("hostname")
+    name = (await vyos.succeed("hostname")).stdout
     if name.strip() != "vyos1":
         raise AssertionError(f"the host name is {name!r}")
     print("[test] VyOS applied config.boot: dum0 has 10.255.0.1, the host name is vyos1")
@@ -29,5 +29,5 @@ async def test(vms: Machines) -> None:
     await vyos.succeed("nft list chain ip6 raw vyos_rpfilter")
     print("[test] VyOS's firewall init loaded")
 
-    version = await vyos.succeed("/opt/vyatta/bin/vyatta-op-cmd-wrapper show version")
+    version = (await vyos.succeed("/opt/vyatta/bin/vyatta-op-cmd-wrapper show version")).stdout
     print(f"[test] show version:\n{version}")

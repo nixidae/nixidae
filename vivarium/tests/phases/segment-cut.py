@@ -44,7 +44,7 @@ async def test(vms: Machines) -> None:
     await tri.cut("a")
     await a.wait_until_fails("ping -c 1 -W 1 10.82.1.2", 30)
     await b.succeed("ping -c 1 -W 2 10.82.1.3")
-    carrier = (await a.succeed("cat /sys/class/net/tri/carrier")).strip()
+    carrier = (await a.succeed("cat /sys/class/net/tri/carrier")).stdout.strip()
     if carrier != "1":
         raise AssertionError(f"a's tri has carrier {carrier} during the cut, want 1")
     print("[test] a is cut from tri with its carrier up, and b still reaches c")

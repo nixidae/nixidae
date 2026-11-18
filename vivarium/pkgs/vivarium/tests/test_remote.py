@@ -6,14 +6,17 @@ from typing import Any
 import anyio
 import pytest
 from vivarium.remote import CALLS, READABLE, Machines, RemoteMachine
+from vivarium_runner.control import CommandResult
 from vivarium_runner.machine import Machine, MachineError
 
 
 class FakeMachine:
     uplink_ip = "10.0.2.15"
 
-    async def succeed(self, command: str, timeout: float | None = None, env: dict[str, str] | None = None) -> str:
-        return f"ran {command}"
+    async def succeed(
+        self, command: str, timeout: float | None = None, env: dict[str, str] | None = None
+    ) -> CommandResult:
+        return CommandResult(0, f"ran {command}", "a warning")
 
     async def shutdown(self) -> None:
         raise AssertionError("the socket must not reach this")
@@ -58,7 +61,14 @@ def test_every_readable_name_is_the_machines() -> None:
 
 @pytest.mark.anyio
 async def test_a_call_crosses() -> None:
-    assert await proxy().succeed("hostname") == "ran hostname"
+    assert await proxy().succeed("hostname") == CommandResult(0, "ran hostname", "a warning")
+
+
+@pytest.mark.anyio
+async def test_a_command_result_crosses_as_plain_data() -> None:
+    """arpyc carries tuples and brine's own types, never a dataclass."""
+    service = Machines(FakeSession())  # type: ignore[arg-type]  # a fake of the session
+    assert await service.exposed_call("a", "succeed", ("hostname",), {}) == (0, "ran hostname", "a warning")
 
 
 @pytest.mark.anyio

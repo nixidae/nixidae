@@ -158,8 +158,9 @@ class Agent(Service):
         command: str,
         timeout: float = 900,
         env: dict[str, str] | None = None,
-    ) -> tuple[int, str]:
-        """Run a shell command; returns (exit code, stdout and stderr).
+    ) -> tuple[int, str, str]:
+        """Run a shell command; returns (exit code, stdout, stderr), each
+        stream without its trailing newlines.
 
         *env* is added to this one command's environment.  The same
         argument on both backends -- UML could pass a variable on the
@@ -172,7 +173,7 @@ class Agent(Service):
         Past *timeout* it raises `TimeoutError`; see `_sh`.
         """
         done = await anyio.to_thread.run_sync(_sh, command, timeout, env)
-        return done.returncode, (done.stdout + done.stderr).rstrip("\n")
+        return done.returncode, done.stdout.rstrip("\n"), done.stderr.rstrip("\n")
 
     async def exposed_system_state(self, timeout: float = 180) -> SystemState:
         """Wait up to *timeout* for the boot to end, then say how it went."""

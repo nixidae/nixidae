@@ -115,8 +115,8 @@ it in place of `vivarium` below. From another shell you can then look
 around:
 
 ```sh
-vivarium ctl --out ./out exec 'print(await west.succeed("swanctl --list-sas"))'
-vivarium ctl --out ./out exec 'print(await west.succeed("ip xfrm state"))'
+vivarium ctl --out ./out exec 'print((await west.succeed("swanctl --list-sas")).stdout)'
+vivarium ctl --out ./out exec 'print((await west.succeed("ip xfrm state")).stdout)'
 vivarium ctl --out ./out continue
 ```
 

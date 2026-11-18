@@ -153,16 +153,16 @@ async def start_container(node: Machine, settings: Settings) -> SimpleNamespace:
     )
 
     async def logs() -> str:
-        return await node.succeed(f"podman logs {NAME}")
+        return (await node.succeed(f"podman logs {NAME} 2>&1")).stdout
 
     async def stop_ms() -> int:
-        elapsed = await node.succeed(
+        stopped = await node.succeed(
             "start=$(date +%s%3N)"
             f" && podman stop --time 30 {NAME} > /dev/null"
             " && end=$(date +%s%3N) && echo $((end - start))",
             timeout=120,
         )
-        return int(last_line(elapsed))
+        return int(last_line(stopped.stdout))
 
     async def cleanup() -> None:
         await node.succeed(f"podman rm --force {NAME}")
@@ -179,8 +179,8 @@ async def start_container(node: Machine, settings: Settings) -> SimpleNamespace:
 
 async def wait_for_socket(node: Machine, settings: Settings, target: SimpleNamespace) -> None:
     async def answering() -> tuple[bool, str]:
-        code, out = await node.execute(f"{target.ctl} list 2>&1", timeout=60)
-        return code == 0, out.strip() or "(no control socket yet)"
+        done = await node.execute(f"{target.ctl} list 2>&1", timeout=60)
+        return done.returncode == 0, done.stdout.strip() or "(no control socket yet)"
 
     try:
         await until("dinit to answer on its control socket", answering, 180, node)
@@ -198,12 +198,8 @@ async def wait_for_services(node: Machine, settings: Settings, target: SimpleNam
     for service in settings["services"]:
 
         async def started(service: str = service) -> tuple[bool, str]:
-            code, _ = await node.execute(
-                f"{target.ctl} is-started {service}", timeout=60
-            )
-            status = await node.succeed(
-                f"{target.ctl} status {service} 2>&1", timeout=60
-            )
+            code = (await node.execute(f"{target.ctl} is-started {service}", timeout=60)).returncode
+            status = (await node.succeed(f"{target.ctl} status {service} 2>&1", timeout=60)).stdout
             return code == 0, last_line(status) or "(no status)"
 
         try:
@@ -229,9 +225,7 @@ async def service_states(
     """
     lines = []
     for service in settings["services"]:
-        _, status = await node.execute(
-            f"{target.ctl} status {service} 2>&1", timeout=60
-        )
+        status = (await node.execute(f"{target.ctl} status {service} 2>&1", timeout=60)).stdout
         lines.append(f"{service}: {' '.join(status.split())}")
     return "\n".join(lines) + "\n"
 
@@ -247,17 +241,15 @@ async def run_checks(
         # result depends on which won the race, which is how the same
         # collection passed as an ordinary user and failed as root.
         async def attempt(check: dict[str, str] = check) -> tuple[bool, str]:
-            code, out = await node.execute(
-                f"{target.run(check['command'])} 2>&1", timeout=120
-            )
+            done = await node.execute(f"{target.run(check['command'])} 2>&1", timeout=120)
+            code, out = done.returncode, done.stdout
             return code == 0 and check["expect"] in out, f"exit {code}: {out.strip()[:200]}"
 
         try:
             await until(check["name"], attempt, CHECK_BUDGET_S, node)
         except Exception:
-            code, out = await node.execute(
-                f"{target.run(check['command'])} 2>&1", timeout=120
-            )
+            done = await node.execute(f"{target.run(check['command'])} 2>&1", timeout=120)
+            code, out = done.returncode, done.stdout
             raise MachineError(
                 f"[{node.name}] check {check['name']!r} failed (exit {code}).\n"
                 f"  ran:      {check['command']}\n"
@@ -307,9 +299,7 @@ async def start_vm(node: Machine, settings: Settings) -> SimpleNamespace:
     # is the provenance every mode below depends on: the agent is a root
     # systemd unit, but that is worth one line of evidence rather than an
     # assumption.
-    prov = await node.succeed(
-        "id -u; command -v setpriv runuser su; ls -ld /tmp", timeout=60
-    )
+    prov = (await node.succeed("id -u; command -v setpriv runuser su; ls -ld /tmp", timeout=60)).stdout
     print(f"[test] guest shell:\n{prov}", flush=True)
 
     # The state directory belongs to the account dinit runs as, and with it
@@ -333,7 +323,7 @@ async def start_vm(node: Machine, settings: Settings) -> SimpleNamespace:
         # no socket path, so both are said here. Numeric ids: this setpriv
         # parses --reuid by name but --regid by number only, so both are
         # resolved first.
-        ids = await node.succeed(f"id -u {VM_USER}; id -g {VM_USER}", timeout=60)
+        ids = (await node.succeed(f"id -u {VM_USER}; id -g {VM_USER}", timeout=60)).stdout
         uid, gid = ids.split()
         become = f"setpriv --reuid {uid} --regid {gid} --clear-groups -- "
         start = (
@@ -352,7 +342,7 @@ async def start_vm(node: Machine, settings: Settings) -> SimpleNamespace:
         ctl = f"env DINIT_SOCKET_PATH={sock} {dinitctl}"
         run = lambda cmd: f"env DINIX_STATE_DIR={state} {cmd}"
 
-    out = await node.succeed(start, timeout=60)
+    out = (await node.succeed(start, timeout=60)).stdout
     # The launch output is the only place a failure to start speaks: a
     # missing privilege tool or a bad flag dies here, before any socket
     # exists to poll for.
@@ -363,20 +353,20 @@ async def start_vm(node: Machine, settings: Settings) -> SimpleNamespace:
         f" && cat {pidfile}",
         timeout=60,
     )
-    pid = launched.strip()
+    pid = launched.stdout.strip()
     print(f"[test] dinit runs as pid {pid}", flush=True)
 
     async def logs() -> str:
-        return await node.succeed(f"cat {log}")
+        return (await node.succeed(f"cat {log}")).stdout
 
     async def stop_ms() -> int:
-        elapsed = await node.succeed(
+        stopped = await node.succeed(
             "start=$(date +%s%3N)"
             f" && kill {pid} && for i in $(seq 1 300); do kill -0 {pid} 2>/dev/null || break; sleep 0.1; done"
             " && end=$(date +%s%3N) && echo $((end - start))",
             timeout=120,
         )
-        return int(last_line(elapsed))
+        return int(last_line(stopped.stdout))
 
     async def cleanup() -> None:
         return None

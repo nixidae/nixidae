@@ -44,7 +44,7 @@ async def test(vms: Machines) -> None:
     print(f"lab {VERSION}")
 """
 
-BY_HAND = 'async def test_host(one): assert (await one.succeed("hostname")).strip() == "{name}"\n'
+BY_HAND = 'async def test_host(one): assert (await one.succeed("hostname")).stdout == "{name}"\n'
 
 
 def by_hand(vivarium: str, driver: str, work: Path) -> None:
@@ -58,11 +58,11 @@ def by_hand(vivarium: str, driver: str, work: Path) -> None:
         run.fail("ctl state does not print the pause reason")
     print("ok: paused before later, and state says so")
 
-    if "one" not in run.ok("exec", 'await one.succeed("hostname")'):
+    if "one" not in run.ok("exec", '(await one.succeed("hostname")).stdout'):
         run.fail("exec did not reach the guest")
     print("ok: exec reached the guest")
 
-    run.ok("exec", 'n = (await one.succeed("echo 7")).strip()')
+    run.ok("exec", 'n = (await one.succeed("echo 7")).stdout')
     if run.ok("exec", "n").strip() != "'7'":
         run.fail("a name did not survive to the next exec")
     print("ok: the namespace survives between calls")

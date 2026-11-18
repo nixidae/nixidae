@@ -19,11 +19,11 @@ async def test(vms: Machines) -> None:
     for side in ("west", "east"):
         vm = vms[side]
         await vm.wait_for_unit("strongswan-swanctl.service")
-        certs = await vm.succeed("swanctl --list-certs")
+        certs = (await vm.succeed("swanctl --list-certs")).stdout
         for needle in (f"CN={ids[side]}", "has private key", "CN=vivarium IPsec lab CA"):
             if needle not in certs:
                 raise AssertionError(f"{side}: {needle!r} not in swanctl --list-certs:\n{certs}")
-        crl = await vm.succeed("swanctl --list-certs --type x509crl")
+        crl = (await vm.succeed("swanctl --list-certs --type x509crl")).stdout
         if not re.search(r"\b03\b.*key compromise", crl):
             raise AssertionError(f"{side}: the CRL does not revoke serial 03:\n{crl}")
         print(f"[test] {side}: own certificate and key, the lab CA, a CRL revoking serial 03")

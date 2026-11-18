@@ -61,7 +61,7 @@ async def test(vms: Machines) -> None:
 
     # And the images really came from a registry rather than from a
     # tarball somebody imported.
-    images = await cp.succeed("crictl images --output json")
+    images = (await cp.succeed("crictl images --output json")).stdout
     assert "registry.k8s.io/kube-apiserver" in images, "no upstream apiserver image"
     print("[test] images are the upstream ones")
 

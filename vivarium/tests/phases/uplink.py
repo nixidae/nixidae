@@ -28,7 +28,7 @@ GATEWAY = "10.0.2.2"
 async def test(vms: Machines) -> None:
     out_of_host: list[str] = []
 
-    rc, _ = await vms.one.execute(f"timeout 5 bash -c '</dev/tcp/{TARGET}/53' 2>&1", timeout=20)
+    rc = (await vms.one.execute(f"timeout 5 bash -c '</dev/tcp/{TARGET}/53' 2>&1", timeout=20)).returncode
     print(f"[test] tcp to {TARGET}:53 -> {'reachable' if rc == 0 else 'no route'}")
     if rc == 0:
         out_of_host.append(f"tcp to {TARGET}:53")
@@ -36,22 +36,21 @@ async def test(vms: Machines) -> None:
     # SLAAC needs a router advertisement first; checked at once, a
     # connected run shows only link-local and looks as offline as it is not.
     await vms.one.execute("sleep 8", timeout=20)
-    rc, _ = await vms.one.execute(f"timeout 5 bash -c '</dev/tcp/{TARGET6}/53' 2>&1", timeout=20)
+    rc = (await vms.one.execute(f"timeout 5 bash -c '</dev/tcp/{TARGET6}/53' 2>&1", timeout=20)).returncode
     print(f"[test] tcp to [{TARGET6}]:53 -> {'reachable' if rc == 0 else 'no route'}")
     if rc == 0:
         out_of_host.append(f"tcp to [{TARGET6}]:53")
 
-    _, out = await vms.one.execute("ip -6 -br addr show vec0", timeout=20)
-    addresses = out.split()[2:]
+    addresses = (await vms.one.execute("ip -6 -br addr show vec0", timeout=20)).stdout.split()[2:]
     print(f"[test] vec0 IPv6 -> {' '.join(addresses) or 'none'}")
     out_of_host += [f"vec0 has {address}" for address in addresses if not address.startswith("fe80:")]
 
     # Not past the host: passt or the egress answers it, offline too
     # (`namespace.allow_ping`).
-    rc, _ = await vms.one.execute(f"ping -c 2 -W 2 {GATEWAY} >/dev/null 2>&1", timeout=20)
+    rc = (await vms.one.execute(f"ping -c 2 -W 2 {GATEWAY} >/dev/null 2>&1", timeout=20)).returncode
     print(f"[test] ping {GATEWAY} -> {'answered' if rc == 0 else 'no answer'}")
 
-    rc, _ = await vms.one.execute("timeout 5 getent hosts example.com 2>&1", timeout=20)
+    rc = (await vms.one.execute("timeout 5 getent hosts example.com 2>&1", timeout=20)).returncode
     print(f"[test] dns for example.com -> {'answered' if rc == 0 else 'no answer'}")
     if rc == 0:
         out_of_host.append("dns for example.com")

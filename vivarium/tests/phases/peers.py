@@ -16,7 +16,7 @@ async def test(vms: Machines) -> None:
     for name, vm in (("server", vms.server), ("client", vms.client)):
         await vm.succeed("grep -qx from-defaults /etc/vivarium-defaults")
         peer = "client" if name == "server" else "server"
-        resolved = (await vm.succeed(f"getent hosts {peer}")).split()[0]
+        resolved = (await vm.succeed(f"getent hosts {peer}")).stdout.split()[0]
         if resolved != ADDRESSES[peer]:
             raise AssertionError(f"{name} resolves {peer} to {resolved}, not {ADDRESSES[peer]}")
         await vm.succeed(f"ping -c 1 -W 2 {peer}")

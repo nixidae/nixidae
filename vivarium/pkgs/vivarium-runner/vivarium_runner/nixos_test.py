@@ -112,10 +112,12 @@ class Machine:
             f"exec 2>/dev/console; set -euo pipefail; {command}"
         )
         try:
-            return self._call(self._guest.execute, wrapped, timeout=_seconds(timeout))
+            done = self._call(self._guest.execute, wrapped, timeout=_seconds(timeout))
         except GuestTimeout as error:
             # nixos-test runs the command under `timeout`, which exits 124.
             return 124, str(error)
+        # stderr is empty: the shell sent it to the console.
+        return done.returncode, done.stdout
 
     def succeed(self, *commands: str, timeout: Duration = None) -> str:
         output = ""

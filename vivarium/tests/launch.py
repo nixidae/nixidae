@@ -15,8 +15,8 @@ async def test(vms: Machines) -> None:
 
     for vm, address, token in ((first, "10.9.0.100", "token-1"), (second, "10.9.0.101", "token-2")):
         await vm.succeed(f"test $(hostname) = {vm.name}")
-        assert address in await vm.succeed("ip -4 -br addr show eth1"), f"{vm.name} lacks {address}"
-        assert await vm.succeed("cat /run/vivarium/user-data") == token
+        assert address in (await vm.succeed("ip -4 -br addr show eth1")).stdout, f"{vm.name} lacks {address}"
+        assert (await vm.succeed("cat /run/vivarium/user-data")).stdout == token
         await base.succeed(f"ping -c2 -W5 {address}")
     await first.succeed("ping -c2 -W5 10.9.0.101")
     print("[test] two instances, each with its own name, address and user data, reach each other")
@@ -28,7 +28,7 @@ async def test(vms: Machines) -> None:
 
     third = await vms.launch("worker", "w3")
     assert third.spec.index == first.spec.index, "w3 did not take w1's free index"
-    assert "10.9.0.100" in await third.succeed("ip -4 -br addr show eth1")
+    assert "10.9.0.100" in (await third.succeed("ip -4 -br addr show eth1")).stdout
     await third.fail("test -e /run/vivarium/user-data")
     await base.succeed("ping -c2 -W5 10.9.0.100")
     print("[test] a terminated instance's index and address come back")

@@ -20,7 +20,9 @@ ICMP_IP = 28
 
 
 async def probe(vm: Machine, address: str, size: int) -> tuple[int, str]:
-    return await vm.execute(f"ping -n -c 2 -i 0.3 -W 2 -M do -s {size} {address}")
+    # ping says `mtu = N` on stderr.
+    done = await vm.execute(f"ping -n -c 2 -i 0.3 -W 2 -M do -s {size} {address} 2>&1")
+    return done.returncode, done.stdout
 
 
 async def path_mtu(vm: Machine, address: str, expected: int, via: str) -> None:

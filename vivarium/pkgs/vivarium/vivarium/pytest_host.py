@@ -13,7 +13,7 @@ The guests are a `mkTest` in a Nix file, named from Python:
 
     @pytest.mark.vivarium("one", scope="function")
     async def test_fresh(vm):
-        assert await vm.succeed("hostname") == "vm\\n"
+        assert (await vm.succeed("hostname")).stdout == "vm"
 
 **The run is its own process, not this one.** vivarium needs a user and
 mount namespace; entered here, every test in the run would be root of
@@ -389,10 +389,10 @@ class Driver:
         if self.inifile is not None:
             args += ["-c", str(self.inifile)]
         command = shlex.join([*worker, "--", *args, *(absolute(self.rootdir, nodeid) for nodeid in nodeids)])
-        code, output = self.portal.call(
+        done = self.portal.call(
             functools.partial(
                 run.vms[guest].execute,
-                f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command}",
+                f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command} 2>&1",
                 timeout=GUEST_TIMEOUT,
             )
         )
@@ -405,7 +405,7 @@ class Driver:
             data = json.loads(line)
             reports.setdefault(data["nodeid"], []).append(data)
         if not reports:
-            raise RunFailed(f"pytest in {guest} reported nothing (exit {code}):\n{output}")
+            raise RunFailed(f"pytest in {guest} reported nothing (exit {done.returncode}):\n{done.stdout}")
         return reports
 
     def guest_reports(self, item: pytest.Item) -> list[dict[str, Any]]:

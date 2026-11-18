@@ -15,16 +15,16 @@ ICMP = 28
 async def test(vms: Machines) -> None:
     for vm in vms.values():
         for interface, want in (("narrow", NARROW), ("wide", WIDE)):
-            mtu = int(await vm.succeed(f"cat /sys/class/net/{interface}/mtu"))
+            mtu = int((await vm.succeed(f"cat /sys/class/net/{interface}/mtu")).stdout)
             if mtu != want:
                 raise AssertionError(f"{vm.name}: {interface} has MTU {mtu}, want {want}")
     print(f"[test] narrow is {NARROW} and wide is {WIDE} on every guest")
 
     a = vms.a
     await a.wait_until_succeeds(f"ping -c 1 -W 2 -M do -s {NARROW - ICMP} 10.81.1.2", 60)
-    rc, out = await a.execute(f"ping -c 1 -W 2 -M do -s {NARROW - ICMP + 1} 10.81.1.2")
-    if rc == 0:
-        raise AssertionError(f"a {NARROW + 1}-byte packet left on narrow:\n{out}")
+    done = await a.execute(f"ping -c 1 -W 2 -M do -s {NARROW - ICMP + 1} 10.81.1.2")
+    if done.returncode == 0:
+        raise AssertionError(f"a {NARROW + 1}-byte packet left on narrow:\n{done.stdout}")
     print(f"[test] narrow carries {NARROW} bytes through the hub, and refuses {NARROW + 1}")
 
     await a.wait_until_succeeds(f"ping -c 1 -W 2 -M do -s {9000 - ICMP} 10.81.2.2", 60)

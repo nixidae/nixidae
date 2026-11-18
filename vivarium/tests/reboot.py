@@ -22,7 +22,7 @@ async def test(vms: Machines) -> None:
     vm = vms.one
     target = vms.settings["next"]
     boot_id = "cat /proc/sys/kernel/random/boot_id"
-    first = (await vm.succeed(boot_id)).strip()
+    first = (await vm.succeed(boot_id)).stdout.strip()
 
     await vm.succeed("echo kept > /var/lib/vivarium-reboot")
     await vm.succeed(f"nix-env --profile /nix/var/nix/profiles/system --set {target}")
@@ -37,20 +37,20 @@ async def test(vms: Machines) -> None:
         while True:
             await anyio.sleep(2)
             try:
-                now = (await vm.succeed(boot_id)).strip()
+                now = (await vm.succeed(boot_id)).stdout.strip()
             except (MachineError, OSError):
                 continue
             if now != first:
                 break
     print("[test] the guest came back with a new boot id", flush=True)
 
-    booted = (await vm.succeed("readlink /run/booted-system")).strip()
+    booted = (await vm.succeed("readlink /run/booted-system")).stdout.strip()
     assert booted == target, f"booted {booted}, not {target}"
-    cmdline = await vm.succeed("cat /proc/cmdline")
+    cmdline = (await vm.succeed("cat /proc/cmdline")).stdout
     assert PARAM in cmdline.split(), f"{PARAM} is not on {cmdline!r}"
-    marker = (await vm.succeed("cat /etc/vivarium-reboot")).strip()
+    marker = (await vm.succeed("cat /etc/vivarium-reboot")).stdout.strip()
     assert marker == "next", f"/etc/vivarium-reboot says {marker!r}"
-    kept = (await vm.succeed("cat /var/lib/vivarium-reboot")).strip()
+    kept = (await vm.succeed("cat /var/lib/vivarium-reboot")).stdout.strip()
     assert kept == "kept", "the disk did not survive the reboot"
     await vms.two.succeed("ping -c 1 -W 5 10.105.0.1")
     print(f"[test] the guest booted {target}, on its disk and its segment", flush=True)

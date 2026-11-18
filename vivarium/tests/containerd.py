@@ -119,7 +119,7 @@ async def test(vms: Machines) -> None:
     # Checked here rather than left to the cluster test, where it costs
     # five minutes of kubeadm init to find out that kubelet has been
     # crash-looping the whole time.
-    cpuinfo = await node.succeed("cat /proc/cpuinfo")
+    cpuinfo = (await node.succeed("cat /proc/cpuinfo")).stdout
     speed = re.search(r"(?:cpu MHz|CPU MHz|clock)\s*:\s*([0-9]+\.[0-9]+)", cpuinfo)
     if not speed:
         raise MachineError(
@@ -132,7 +132,7 @@ async def test(vms: Machines) -> None:
     # one it cannot open is an exit rather than a warning.  Four are in
     # files every kernel compiles; the keyring pair needs CONFIG_KEYS,
     # which an allnoconfig kernel does not give you.
-    missing = [tunable for tunable in TUNABLES if (await node.execute(f"test -e /proc/sys/{tunable}"))[0] != 0]
+    missing = [tunable for tunable in TUNABLES if (await node.execute(f"test -e /proc/sys/{tunable}")).returncode != 0]
     if missing:
         raise MachineError(
             f"[{node.name}] the kernel is missing sysctls kubelet exits without:\n"
@@ -140,7 +140,7 @@ async def test(vms: Machines) -> None:
         )
     print(f"[test] all {len(TUNABLES)} of kubelet's kernel tunables are settable", flush=True)
 
-    listed = json.loads(await node.succeed("crictl images --output json"))
+    listed = json.loads((await node.succeed("crictl images --output json")).stdout)
     images = [tag for image in listed["images"] for tag in image.get("repoTags") or []]
     print(f"[test] the runtime has {len(images)} images", flush=True)
     for expected in (f"registry.k8s.io/kube-apiserver:v{version}", vms.settings["sandboxImage"]):
@@ -154,7 +154,7 @@ async def test(vms: Machines) -> None:
     # control plane that crash-loops for twenty minutes because the one
     # image this test happens to run is the one that works.
     entrypoints = vms.settings["entrypoints"]
-    dangling = [path for path in entrypoints if (await node.execute(f"test -x {path}"))[0] != 0]
+    dangling = [path for path in entrypoints if (await node.execute(f"test -x {path}")).returncode != 0]
     if dangling:
         raise MachineError(
             f"[{node.name}] an image points at a binary the node does not have, "
@@ -168,7 +168,7 @@ async def test(vms: Machines) -> None:
     # and either CRI. The CRI status lists the handlers since 1.30. The
     # default one comes back once more with no name: JSON drops an empty
     # proto3 string.
-    info = json.loads(await node.succeed("crictl info"))
+    info = json.loads((await node.succeed("crictl info")).stdout)
     handlers = sorted({h["name"] for h in info["runtimeHandlers"] if h.get("name")})
     print(f"[test] the runtime offers {', '.join(handlers)}", flush=True)
     for handler in handlers:
@@ -196,10 +196,12 @@ async def probe(node: Machine, handler: str, version: str, userns: bool = False)
     # --no-pull, because there is nothing to pull from: if the image is
     # not already here the test should say so rather than time out on a
     # registry it cannot reach.
-    out = await node.succeed(
-        f"crictl --timeout 5m run --no-pull --runtime {handler} /tmp/container-{name}.json /tmp/pod-{name}.json",
-        timeout=400,
-    )
+    out = (
+        await node.succeed(
+            f"crictl --timeout 5m run --no-pull --runtime {handler} /tmp/container-{name}.json /tmp/pod-{name}.json",
+            timeout=400,
+        )
+    ).stdout
     container_id = out.split()[-1]
 
     # `crictl run` returns once the container has started, not once it has
@@ -207,20 +209,20 @@ async def probe(node: Machine, handler: str, version: str, userns: bool = False)
     # under UML is not instant.
     logs = ""
     for _ in range(30):
-        _, logs = await node.execute(f"crictl logs {container_id}", timeout=120)
+        logs = (await node.execute(f"crictl logs {container_id} 2>&1", timeout=120)).stdout
         if f"v{version}" in logs:
             break
         await anyio.sleep(2)
 
     if f"v{version}" not in logs:
-        status = json.loads(await node.succeed(f"crictl inspect {container_id}"))
+        status = json.loads((await node.succeed(f"crictl inspect {container_id}")).stdout)
         raise MachineError(
             f"[{node.name}] the {handler} container did not report Kubernetes v{version}.\n"
             f"--- logs ---\n{logs}\n"
             f"--- status ---\n{json.dumps(status.get('status', {}), indent=2)}"
         )
     if userns:
-        spec = json.loads(await node.succeed(f"crictl inspect {container_id}"))
+        spec = json.loads((await node.succeed(f"crictl inspect {container_id}")).stdout)
         maps = spec["info"]["runtimeSpec"]["linux"].get("uidMappings")
         if not maps:
             raise MachineError(f"[{node.name}] the userns probe ran with no uid mapping")

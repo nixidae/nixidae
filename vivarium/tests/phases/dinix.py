@@ -8,10 +8,10 @@ from vivarium_runner import Machines
 
 async def test(vms: Machines) -> None:
     box = vms.box
-    init = (await box.succeed("cat /proc/1/comm")).strip()
+    init = (await box.succeed("cat /proc/1/comm")).stdout.strip()
     if init != "dinit":
         raise AssertionError(f"PID 1 is {init!r}, not dinit")
-    mounts = await box.succeed("cat /proc/mounts")
+    mounts = (await box.succeed("cat /proc/mounts")).stdout
     # The kernel names a `root=` device /dev/root.
     for mount in ("/dev/root / ext4", "nix /host/nix virtiofs", "overlay /nix overlay"):
         if mount not in mounts:
@@ -19,14 +19,14 @@ async def test(vms: Machines) -> None:
     print("[test] dinit is PID 1 on the root disk, with the store overlay")
 
     # The boot phase returned, so `slow` had started: boot waits for it.
-    slow = await box.succeed("dinitctl is-started slow")
+    slow = (await box.succeed("dinitctl is-started slow")).stdout
     if slow.strip() != "STARTED":
         raise AssertionError(f"the boot phase ended with slow {slow.strip()}")
     print("[test] the boot phase waited for a service that takes a second")
 
-    rc, out = await box.execute("dinitctl start broken")
-    if rc == 0:
-        raise AssertionError(f"broken started: {out}")
+    done = await box.execute("dinitctl start broken")
+    if done.returncode == 0:
+        raise AssertionError(f"broken started: {done.stdout}")
     report = await box.system_state(timeout=10)
     if report != {"state": "degraded", "failed": ("broken",)}:
         raise AssertionError(f"with broken failed, the guest reports {report}")
@@ -36,7 +36,7 @@ async def test(vms: Machines) -> None:
     await box.succeed("dinitctl start dies")
 
     async def stopped() -> str | None:
-        status = await box.succeed("dinitctl status dies")
+        status = (await box.succeed("dinitctl status dies")).stdout
         return status if "STOPPED" in status else None
 
     await box.until("dies to exit", stopped, timeout=10, poll=0.1)

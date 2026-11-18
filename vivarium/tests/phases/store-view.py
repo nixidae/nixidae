@@ -18,7 +18,7 @@ from vivarium_runner import Machines
 
 
 async def test(vms: Machines) -> None:
-    systems = {name: (await vm.succeed("readlink -f /run/current-system")).strip() for name, vm in vms.items()}
+    systems = {name: (await vm.succeed("readlink -f /run/current-system")).stdout.strip() for name, vm in vms.items()}
     for name, vm in vms.items():
         for other, system in systems.items():
             if other == name:
@@ -26,14 +26,14 @@ async def test(vms: Machines) -> None:
                 continue
             if not Path(system).exists():
                 raise AssertionError(f"{other}'s system {system} is not on the host")
-            rc, _ = await vm.execute(f"test -e {system}")
+            rc = (await vm.execute(f"test -e {system}")).returncode
             if rc == 0:
                 raise AssertionError(f"{name} sees {other}'s system {system}")
-        count = (await vm.succeed("ls /nix/store | wc -l")).strip()
+        count = (await vm.succeed("ls /nix/store | wc -l")).stdout.strip()
         print(f"[test] {name}: {count} store entries; its own system, not the other's")
 
     for name, vm in vms.items():
-        added = (await vm.succeed(f"echo {name} > /tmp/f && nix-store --add /tmp/f")).strip()
+        added = (await vm.succeed(f"echo {name} > /tmp/f && nix-store --add /tmp/f")).stdout.strip()
         await vm.succeed(f"nix-store --verify-path {added}")
         print(f"[test] {name} added {added} to its store")
 

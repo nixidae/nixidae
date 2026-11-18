@@ -38,7 +38,7 @@ async def test(vms: Machines) -> None:
     if hosts["frank"]["address"] != address:
         raise AssertionError(f"erin and frank must collide: {address} and {hosts['frank']['address']}")
     for vm in (erin, frank):
-        if f"inet {address}/24" not in await vm.succeed("ip -4 addr show lan"):
+        if f"inet {address}/24" not in (await vm.succeed("ip -4 addr show lan")).stdout:
             raise AssertionError(f"{vm.name} does not hold {address}")
     print(f"[test] erin behind west and frank behind east are both {address}")
 
@@ -56,10 +56,10 @@ async def test(vms: Machines) -> None:
     await bgp_up(west, peers)
     for vm, other in ((west, "east"), (east, "west")):
         prefix = nm[other]["routed"]
-        route = await vm.succeed(f"ip route show {prefix}")
+        route = (await vm.succeed(f"ip route show {prefix}")).stdout
         if sorted(nexthops(route)) != ["ipsec1", "ipsec2"]:
             raise AssertionError(f"{vm.name}: {prefix} is not ECMP over ipsec1 and ipsec2:\n{route}")
-        if (await vm.succeed(f"ip route show {nm['inside']} proto bgp")).strip():
+        if (await vm.succeed(f"ip route show {nm['inside']} proto bgp")).stdout.strip():
             raise AssertionError(f"{vm.name} learned {nm['inside']} over BGP")
     print(
         f"[test] BGP: {nm['east']['routed']} on west and {nm['west']['routed']} on east, ECMP; {nm['inside']} never announced"
@@ -109,7 +109,7 @@ async def test(vms: Machines) -> None:
             for side in ("plain-west", "plain-east"):
                 if results[side][0] != 124:
                     raise AssertionError(f"{side}: ICMP left for the internet in the clear:\n{results[side][1]}")
-            name = await source.succeed(f"timeout 5 socat -u TCP:{reach}:{PORT},connect-timeout=3 STDOUT")
+            name = (await source.succeed(f"timeout 5 socat -u TCP:{reach}:{PORT},connect-timeout=3 STDOUT")).stdout
             if name.strip() != target.name:
                 raise AssertionError(f"{source.name} -> {reach}:{PORT} answered {name!r}, want {target.name}")
             via = re.search(arrives[path], out)
@@ -129,7 +129,7 @@ async def test(vms: Machines) -> None:
     # the mapped one it was rewritten to.
     near, far = host(nm["west"]["routed"], address), host(nm["east"]["routed"], address)
     await erin.succeed(f"timeout 5 socat -u TCP:{far}:{PORT} STDOUT")
-    table = await west.succeed(f"conntrack -L -p tcp --dport {PORT} 2>/dev/null")
+    table = (await west.succeed(f"conntrack -L -p tcp --dport {PORT} 2>/dev/null")).stdout
     want = rf"src={re.escape(address)} dst={re.escape(far)} .* src={re.escape(far)} dst={re.escape(near)} "
     if not re.search(want, table):
         raise AssertionError(f"west's conntrack does not show the translation:\n{table}")

@@ -12,24 +12,24 @@ from vivarium_runner import MachineError, Machines
 async def test(vms: Machines) -> None:
     sw1 = vms.sw1
 
-    who = await sw1.succeed("whoami")
+    who = (await sw1.succeed("whoami")).stdout
     if who.strip() != "admin":
         raise AssertionError(f"whoami is {who!r}, not admin")
     print(f"[test] logged in as {who.strip()}")
 
-    echoed = await sw1.succeed("echo vivarium-$((6 * 7))")
+    echoed = (await sw1.succeed("echo vivarium-$((6 * 7))")).stdout
     if echoed.strip() != "vivarium-42":
         raise AssertionError(f"echo roundtrip returned {echoed!r}")
     print("[test] a command's stdout comes back whole")
 
     # A console guest has no exit status of its own: a failure is rc 1,
     # with the guest's message. The real status rides in that message.
-    rc, out = await sw1.execute("exit 7")
-    if rc != 1 or "exit status 7" not in out:
-        raise AssertionError(f"`exit 7` reported ({rc}, {out!r})")
+    done = await sw1.execute("exit 7")
+    if done.returncode != 1 or "exit status 7" not in done.stderr:
+        raise AssertionError(f"`exit 7` reported {done}")
     print("[test] a failing command fails, with its status in the message")
 
-    version = await sw1.succeed("show version", timeout=60)
+    version = (await sw1.succeed("show version", timeout=60)).stdout
     if "SONiC.202505" not in version:
         raise AssertionError(f"`show version` does not name the build:\n{version}")
     line = next(row for row in version.splitlines() if "SONiC Software Version" in row)

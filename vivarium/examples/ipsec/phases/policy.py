@@ -53,14 +53,18 @@ async def test(vms: Machines) -> None:
     print(f"[test] CHILD_SA policy: ESP AES_GCM_16-256, tunnel, {cfg['policy']['west']} === {cfg['policy']['east']}")
 
     # rfc4106 keys carry a 4-byte salt after the AES key: 256 + 32 bits.
-    states = await west.succeed(f"ip xfrm state show spi 0x{esp['spi-out']}")
+    states = (await west.succeed(f"ip xfrm state show spi 0x{esp['spi-out']}")).stdout
     key = re.search(r"aead rfc4106\(gcm\(aes\)\) 0x([0-9a-f]+) (\d+)", states)
     if not key or len(key.group(1)) * 4 != 288 or key.group(2) != "128":
         raise AssertionError(f"kernel SA is not AES-256-GCM with a 128-bit ICV:\n{states}")
     print("[test] kernel SA: rfc4106(gcm(aes)), 288-bit key (256 + salt), 128-bit ICV")
 
-    policies = await west.succeed(f"ip xfrm policy show src {cfg['policy']['west']} dst {cfg['policy']['east']}")
-    policies += await west.succeed(f"ip xfrm policy show src {cfg['policy']['east']} dst {cfg['policy']['west']}")
+    policies = (
+        await west.succeed(f"ip xfrm policy show src {cfg['policy']['west']} dst {cfg['policy']['east']}")
+    ).stdout
+    policies += (
+        await west.succeed(f"ip xfrm policy show src {cfg['policy']['east']} dst {cfg['policy']['west']}")
+    ).stdout
     for direction in ("out", "in", "fwd"):
         if f"dir {direction}" not in policies:
             raise AssertionError(f"no {direction} policy for the LANs:\n{policies}")
@@ -81,7 +85,7 @@ async def test(vms: Machines) -> None:
         tg.start_soon(watch, "plain-east", east, "internet", "icmp", 1, "-Q out")
         tg.start_soon(watch, "bob", bob, "lan", f"icmp and src {alice_address}", 3)  # type: ignore[arg-type]  # zuban-bug: start_soon counts defaulted parameters
         await anyio.sleep(2)
-        out = await alice.succeed(ping(bob_address))
+        out = (await alice.succeed(ping(bob_address))).stdout
         print(f"[test] alice -> bob: {out.strip().splitlines()[-2]}")
 
     for side in ("esp", "esp-east"):

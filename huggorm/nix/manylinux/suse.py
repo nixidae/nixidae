@@ -14,21 +14,21 @@ async def test(vms: Machines) -> None:
     suse, settings = vms.suse, vms.settings
     await suse.add_closure(settings["closure"])
 
-    version = (await suse.succeed("python3 -c 'import sys; print(sys.version.split()[0])'")).strip()
+    version = (await suse.succeed("python3 -c 'import sys; print(sys.version.split()[0])'")).stdout.strip()
     await suse.succeed("python3 -m venv /tmp/venv")
-    status, _ = await suse.execute("/tmp/venv/bin/python -c 'import huggorm'")
+    status = (await suse.execute("/tmp/venv/bin/python -c 'import huggorm'")).returncode
     if status == 0:
         raise AssertionError("huggorm imports in a venv nothing was installed into")
     print(f"[test] SUSE's python3 is {version}, and a fresh venv on it has no huggorm")
 
-    out = await suse.succeed(
-        f"/tmp/venv/bin/pip install --no-index --find-links {settings['wheelhouse']} huggorm",
-        timeout=300,
-    )
+    out = (
+        await suse.succeed(
+            f"/tmp/venv/bin/pip install --no-index --find-links {settings['wheelhouse']} huggorm",
+            timeout=300,
+        )
+    ).stdout
     installed = next((line for line in out.splitlines() if line.startswith("Successfully")), out)
     print(f"[test] {installed}")
 
-    said = await suse.succeed(
-        f"/tmp/venv/bin/python {settings['smoke']} {settings['modules']}", timeout=300
-    )
+    said = (await suse.succeed(f"/tmp/venv/bin/python {settings['smoke']} {settings['modules']}", timeout=300)).stdout
     print(f"[test] {said.strip()}")

@@ -15,7 +15,7 @@ ADDRESSES = {"a": "10.56.0.1", "b": "10.56.0.2", "u": "10.56.0.3"}
 
 
 async def test(vms: Machines) -> None:
-    kinds = {name: (await vm.execute("systemd-detect-virt"))[1].strip() for name, vm in vms.items()}
+    kinds = {name: (await vm.execute("systemd-detect-virt")).stdout.strip() for name, vm in vms.items()}
     print(f"[test] machines: {kinds}")
     if kinds != {"a": "container-other", "b": "container-other", "u": "uml"}:
         raise AssertionError(f"expected two containers and one UML guest, got {kinds}")

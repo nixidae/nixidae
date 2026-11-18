@@ -97,13 +97,14 @@ async def ssh(vm: Machine, settings: Settings, command: str) -> str:
     # ssh has for failing is on standard error. So is anything sshd says about
     # the session -- "Could not chdir to home directory" for one, since a
     # read-only image has no home.
-    return await vm.succeed(
+    done = await vm.succeed(
         "ssh -F none -i /tmp/dinix-test-key"
         " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         " -o ConnectTimeout=5 -o LogLevel=ERROR"
         f" -p {settings['port']} {settings['loginUser']}@127.0.0.1 {command!r} 2>&1",
         timeout=120,
     )
+    return done.stdout
 
 
 # What a remote command answered, marked so that nothing else on the stream
@@ -153,7 +154,7 @@ async def test(vms: Machines) -> None:
     )
 
     await node.succeed(settings["copyToPodman"], timeout=900)
-    images = await node.succeed("podman images --format '{{.Repository}}:{{.Tag}}'")
+    images = (await node.succeed("podman images --format '{{.Repository}}:{{.Tag}}'")).stdout
     if settings["imageRef"] not in images:
         raise MachineError(f"[{node.name}] {settings['imageRef']} is not loaded:\n{images}")
     print(f"[test] podman has {settings['imageRef']}", flush=True)
@@ -164,15 +165,13 @@ async def test(vms: Machines) -> None:
     )
 
     async def answered() -> tuple[bool, str]:
-        code, out = await node.execute(
-            f"ssh-keyscan -p {settings['port']} -T 2 127.0.0.1", timeout=30
-        )
-        return code == 0 and "ssh-" in out, out.strip() or "(nothing yet)"
+        done = await node.execute(f"ssh-keyscan -p {settings['port']} -T 2 127.0.0.1", timeout=30)
+        return done.returncode == 0 and "ssh-" in done.stdout, done.stdout.strip() or "(nothing yet)"
 
     try:
         await until(f"sshd to answer on port {settings['port']}", answered, 180, node)
     except Exception:
-        logs = await node.succeed(f"podman logs {NAME}")
+        logs = (await node.succeed(f"podman logs {NAME} 2>&1")).stdout
         raise MachineError(
             f"[{node.name}] sshd never answered.\n--- container log ---\n{logs}"
         ) from None
@@ -180,16 +179,16 @@ async def test(vms: Machines) -> None:
     # The user database reached the container. sshd calls a real account an
     # "invalid user" when it did not, which names neither the mount nor the
     # file, so check it here where the message can.
-    passwd = await node.succeed(f"podman exec {NAME} /bin/cat /etc/passwd")
+    passwd = (await node.succeed(f"podman exec {NAME} /bin/cat /etc/passwd")).stdout
     if f":{settings['uid']}:" not in passwd:
         raise MachineError(
             f"[{node.name}] /etc/passwd in the container has no uid "
             f"{settings['uid']} to log in as:\n{passwd}"
         )
-    nsswitch = await node.succeed(f"podman exec {NAME} /bin/cat /etc/nsswitch.conf")
+    nsswitch = (await node.succeed(f"podman exec {NAME} /bin/cat /etc/nsswitch.conf")).stdout
     print(f"[test] the container reads its own user database:\n{passwd}{nsswitch}", flush=True)
 
-    logs = await node.succeed(f"podman logs {NAME}")
+    logs = (await node.succeed(f"podman logs {NAME} 2>&1")).stdout
     print(f"[test] the container's own log:\n{logs}", flush=True)
 
     # The keygen service ran, and dinix-init made the directory it wrote into.
@@ -207,9 +206,9 @@ async def test(vms: Machines) -> None:
             f"[{node.name}] a service with dinix.log = \"buffer\" reached the "
             f"collected stream, which is the one place it must not:\n{logs}"
         )
-    buffered = await node.succeed(
-        f"podman exec {NAME} {settings['dinitctl']} catlog chatty 2>&1", timeout=120
-    )
+    buffered = (
+        await node.succeed(f"podman exec {NAME} {settings['dinitctl']} catlog chatty 2>&1", timeout=120)
+    ).stdout
     if f"DINIX_MARKER={MARKER}" not in buffered:
         raise MachineError(
             f"[{node.name}] the buffer holds no output either, so it was "
@@ -233,10 +232,10 @@ async def test(vms: Machines) -> None:
     try:
         who = await answer(node, settings, "id -u")
     except MachineError as refused:
-        logs = await node.succeed(f"podman logs {NAME}")
+        logs = (await node.succeed(f"podman logs {NAME} 2>&1")).stdout
         raise MachineError(f"{refused}\n--- container log ---\n{logs}") from None
     if who != str(settings["uid"]):
-        logs = await node.succeed(f"podman logs {NAME}")
+        logs = (await node.succeed(f"podman logs {NAME} 2>&1")).stdout
         raise MachineError(
             f"[{node.name}] logged in, but as {who!r} and not {settings['uid']}"
             f"\n--- container log ---\n{logs}"
@@ -292,7 +291,7 @@ async def test(vms: Machines) -> None:
     await node.execute(
         f"podman exec {NAME} {settings['dinitctl']} stop --force sshd 2>&1", timeout=120
     )
-    status = (await node.succeed(f"podman wait --condition exited {NAME}", timeout=120)).strip()
+    status = (await node.succeed(f"podman wait --condition exited {NAME}", timeout=120)).stdout.strip()
     # dinit ends in an unconditional return EXIT_SUCCESS, so this is 0 whatever
     # stopped it. See Lillecarl/dinix#9.
     if status != "0":
@@ -307,11 +306,11 @@ async def test(vms: Machines) -> None:
     # path instead. In the foreground, because dinit always exits 0 and so the
     # exit code says nothing -- what is being checked is what it said.
     without = [path for path in settings["tmpfs"] if path != settings["mustExist"]]
-    _, stopped_with = await node.execute(
+    stopped_with = (await node.execute(
         f"podman run --rm {run_args(settings, 'dinix-nomount', without)}"
         f" {settings['imageRef']} 2>&1",
         timeout=300,
-    )
+    )).stdout
     if f"{settings['mustExist']} must exist and does not" not in stopped_with:
         raise MachineError(
             f"[{node.name}] a container missing {settings['mustExist']} did not say "
@@ -329,11 +328,11 @@ async def test(vms: Machines) -> None:
     await node.succeed("rm -rf /tmp/planted && mkdir -p /tmp/planted")
     await node.succeed("ln -s /run /tmp/planted/logs")
     await node.succeed("chmod 0755 /tmp/planted")
-    _, planted = await node.execute(
+    planted = (await node.execute(
         f"podman run --rm {run_args(settings, 'dinix-planted', without, ('/tmp/planted:/data',))}"
         f" {settings['imageRef']} 2>&1",
         timeout=300,
-    )
+    )).stdout
     if "is a symlink, refusing to touch its target" not in planted:
         raise MachineError(
             f"[{node.name}] dinix-init followed a planted symlink instead of "
@@ -350,19 +349,17 @@ async def test(vms: Machines) -> None:
     )
 
     async def running() -> tuple[bool, str]:
-        code, out = await node.execute(
-            f"podman exec dinix-term {settings['dinitctl']} list 2>&1", timeout=60
-        )
-        return code == 0, out.strip() or "(no control socket yet)"
+        done = await node.execute(f"podman exec dinix-term {settings['dinitctl']} list 2>&1", timeout=60)
+        return done.returncode == 0, done.stdout.strip() or "(no control socket yet)"
 
     await until("dinit to answer on its control socket", running, 120, node)
-    elapsed = await node.succeed(
+    stopped = await node.succeed(
         "start=$(date +%s%3N)"
         " && podman stop --time 30 dinix-term > /dev/null"
         " && end=$(date +%s%3N) && echo $((end - start))",
         timeout=120,
     )
-    milliseconds = int(last_line(elapsed))
+    milliseconds = int(last_line(stopped.stdout))
     if milliseconds > STOP_BUDGET_MS:
         raise MachineError(
             f"[{node.name}] SIGTERM to the container took {milliseconds}ms, over "

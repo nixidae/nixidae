@@ -24,9 +24,9 @@ async def test(vms: Machines) -> None:
     # The guest gets it only because this phase hands it over. A knob is
     # not ambient: nothing in the guest's environment carries it, which
     # is what keeps a guest's behaviour a function of its configuration.
-    out = await vms.one.succeed("echo $SELECTION")
+    out = (await vms.one.succeed("echo $SELECTION")).stdout
     assert out.strip() == "", "a knob leaked into the guest without being passed"
 
-    out = await vms.one.succeed("echo $SELECTION", env={"SELECTION": value})
+    out = (await vms.one.succeed("echo $SELECTION", env={"SELECTION": value})).stdout
     assert out.strip() == value, f"the guest saw {out.strip()!r}, not {value!r}"
     print("[test] and it reaches the guest when a phase passes it")

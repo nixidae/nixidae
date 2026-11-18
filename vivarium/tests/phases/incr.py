@@ -20,7 +20,7 @@ from vivarium_runner import Machine, Machines
 async def sizes(vm: Machine, host_path: Path) -> tuple[int, int]:
     """(what the guest sees, what the host sees), as close to together
     as two different machines allow."""
-    guest = await vm.succeed("stat -c %s /artifacts/drip 2>/dev/null || echo 0")
+    guest = (await vm.succeed("stat -c %s /artifacts/drip 2>/dev/null || echo 0")).stdout
     try:
         host = host_path.stat().st_size
     except OSError:
@@ -50,9 +50,9 @@ async def test(vms: Machines) -> None:
         readings.append(await sizes(vm, here))
     print(f"[test] (guest, host) bytes: {readings}")
 
-    state = await vm.succeed("systemctl is-active drip || true")
+    state = (await vm.succeed("systemctl is-active drip || true")).stdout
     print(f"[test] the writer unit ended as: {state.strip()}")
-    print(await vm.succeed("journalctl -u drip --no-pager -o cat | tail -5"))
+    print((await vm.succeed("journalctl -u drip --no-pager -o cat | tail -5")).stdout)
 
     final = await sizes(vm, here)
     print(f"[test] after it finished: guest {final[0]}, host {final[1]}")

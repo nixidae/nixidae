@@ -123,9 +123,11 @@ async def _run(args: argparse.Namespace) -> int:
     await machine.start()
     try:
         if args.command:
-            rc, out = await machine.execute(args.command, timeout=args.timeout)
-            print(out, flush=True)
-            return rc
+            done = await machine.execute(args.command, timeout=args.timeout)
+            if done.stderr:
+                print(done.stderr, file=sys.stderr, flush=True)
+            print(done.stdout, flush=True)
+            return done.returncode
         # No command: leave it running and stream the console until the
         # guest exits or the user interrupts us.
         where = machine.reachable(args.ssh_port)

@@ -23,14 +23,14 @@ async def test(vms: Machines) -> None:
     print("[test] the services guest runs Kea DHCP4")
 
     # The client's uplink (vec0) leases an address from the pool.
-    address = (await client.wait_until_succeeds(LEASE)).strip()
+    address = (await client.wait_until_succeeds(LEASE)).stdout.strip()
     print(f"[test] the client leased {address} from Kea")
 
     await client.succeed("ping -c1 -W2 10.42.0.1")
     await svc.succeed(f"ping -c1 -W2 {address}")
     print("[test] the client and the services guest reach each other over the management segment")
 
-    leases = await svc.succeed("cat /var/lib/kea/dhcp4.leases")
+    leases = (await svc.succeed("cat /var/lib/kea/dhcp4.leases")).stdout
     if address not in leases:
         raise AssertionError(f"Kea's lease file does not name {address}:\n{leases}")
     print("[test] Kea recorded the lease")

@@ -25,7 +25,7 @@ def loopbacks(vms: Machines) -> dict[str, str]:
 
 async def vtysh(vm: Machine, command: str) -> dict[str, Any]:
     """Run a `vtysh` command with `json` appended, and parse its object."""
-    value: object = json.loads(await vm.succeed(f"vtysh -c '{command} json'"))
+    value: object = json.loads((await vm.succeed(f"vtysh -c '{command} json'")).stdout)
     if not isinstance(value, dict):
         raise AssertionError(f"vtysh {command!r} printed {type(value).__name__}, not an object")
     return value

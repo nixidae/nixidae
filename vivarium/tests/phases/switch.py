@@ -11,7 +11,7 @@ async def agent_pid(vms: Machines) -> str:
 
 
 async def current(vms: Machines) -> str:
-    return (await vms.one.succeed("readlink /run/current-system")).strip()
+    return (await vms.one.succeed("readlink /run/current-system")).stdout.strip()
 
 
 async def test(vms: Machines) -> None:
@@ -19,7 +19,7 @@ async def test(vms: Machines) -> None:
     two = one.systems.configurations["two"]
     booted = one.systems.toplevel
     assert await current(vms) == booted
-    assert (await one.succeed("cat /etc/vivarium-config")).strip() == "one"
+    assert (await one.succeed("cat /etc/vivarium-config")).stdout.strip() == "one"
     assert await one.unit_state("only-in-two.service") == "inactive"
     agent = await agent_pid(vms)
 
@@ -38,17 +38,17 @@ async def test(vms: Machines) -> None:
 
     # By store path, as `vivarium switch` names a system built after boot.
     await one.switch_to(two)
-    profile = await one.succeed("readlink -f /nix/var/nix/profiles/system")
+    profile = (await one.succeed("readlink -f /nix/var/nix/profiles/system")).stdout
     assert profile.strip() == two, profile
-    assert (await one.succeed("cat /etc/vivarium-config")).strip() == "two"
+    assert (await one.succeed("cat /etc/vivarium-config")).stdout.strip() == "two"
 
     await one.switch_to()
     assert await current(vms) == booted
-    assert (await one.succeed("cat /etc/vivarium-config")).strip() == "one"
+    assert (await one.succeed("cat /etc/vivarium-config")).stdout.strip() == "one"
     assert await one.unit_state("only-in-two.service") == "inactive"
-    profile = await one.succeed("readlink -f /nix/var/nix/profiles/system")
+    profile = (await one.succeed("readlink -f /nix/var/nix/profiles/system")).stdout
     assert profile.strip() == booted, profile
-    generations = await one.succeed("nix-env --profile /nix/var/nix/profiles/system --list-generations")
+    generations = (await one.succeed("nix-env --profile /nix/var/nix/profiles/system --list-generations")).stdout
     assert len(generations.strip().splitlines()) == 2, generations
 
     # `two` changes the agent's unit, so only restartIfChanged kept it.

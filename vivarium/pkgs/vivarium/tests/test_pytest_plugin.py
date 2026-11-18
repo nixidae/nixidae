@@ -25,6 +25,7 @@ from vivarium.phases import PhaseState
 from vivarium.session import CasesFailed, Session
 from vivarium.spec import PhaseSpec, PytestSpec, Spec
 from vivarium_runner import Machine, Machines
+from vivarium_runner.control import CommandResult
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -53,11 +54,11 @@ class FakeMachine(Machine):
         command: str,
         timeout: float | None = None,
         env: Mapping[str, str] | None = None,
-    ) -> str:
+    ) -> CommandResult:
         if asyncio.get_running_loop() is not self.loop:
             raise RuntimeError("called from a loop that does not own this machine")
         self.said.append(command)
-        return self.name
+        return CommandResult(0, self.name, "")
 
 
 def fake_vms(*names: str) -> Machines:
@@ -120,7 +121,7 @@ GOOD = """
 
     @pytest.fixture
     async def greeting(one):
-        return await one.succeed("echo from a fixture")
+        return (await one.succeed("echo from a fixture")).stdout
 
     @pytest.fixture
     async def around(one):
@@ -129,7 +130,7 @@ GOOD = """
         await one.succeed("teardown")
 
     async def test_a_guest_is_a_fixture(one):
-        assert await one.succeed("hostname") == "one"
+        assert (await one.succeed("hostname")).stdout == "one"
 
     async def test_async_fixtures(greeting, around):
         assert greeting == "one"
@@ -404,7 +405,7 @@ class TestPytestByHand:
     """`vivarium ctl pytest`: a working tree's tests against a paused run."""
 
     async def test_edit_and_send_again(self, tmp_path: Path) -> None:
-        tests = write_tests(tmp_path, "async def test_it(one):\n    assert await one.succeed('x') == 'one'\n")
+        tests = write_tests(tmp_path, "async def test_it(one):\n    assert (await one.succeed('x')).stdout == 'one'\n")
         sink = Collect()
         control = paused(session_for(tmp_path, sink))
         reply = await control.handle(ask("pytest", str(tests)))

@@ -22,25 +22,25 @@ from vivarium_runner.container import store_is_one_mount, tap_fails
 
 async def test(vms: Machines) -> None:
     one = vms.one
-    kind = (await one.execute("systemd-detect-virt --container"))[1].strip()
+    kind = (await one.execute("systemd-detect-virt --container")).stdout.strip()
     print(f"[test] systemd-detect-virt: {kind}")
     if kind in ("none", ""):
         raise AssertionError(f"expected a container, got {kind!r}")
 
     await one.succeed("test $(hostname) = one")
     await one.wait_for_unit("multi-user.target")
-    failed = await one.succeed("systemctl --failed --no-legend --plain")
+    failed = (await one.succeed("systemctl --failed --no-legend --plain")).stdout
     if failed.strip():
         raise AssertionError(f"failed units:\n{failed}")
 
-    who = await one.succeed("runuser -u nobody -- id -u")
+    who = (await one.succeed("runuser -u nobody -- id -u")).stdout
     if who.strip() != "65534":
         raise AssertionError(f"nobody runs as {who.strip()}")
     print("[test] systemd is up, nothing failed, and nobody is 65534")
 
     # /tmp is on a disk, not in host memory (nixidae/nixidae#1258), and
     # every user may write there.
-    fstype = (await one.succeed("stat -f -c %T /tmp")).strip()
+    fstype = (await one.succeed("stat -f -c %T /tmp")).stdout.strip()
     if fstype == "tmpfs":
         raise AssertionError("/tmp is a tmpfs")
     await one.succeed("test $(stat -c %a /tmp) = 1777 && runuser -u nobody -- touch /tmp/by-nobody")
@@ -48,7 +48,7 @@ async def test(vms: Machines) -> None:
 
     # What a login shell gets, as on the other backends. `daemon` here made
     # a user's own `nix daemon` connect to itself.
-    remote = (await one.succeed("bash -lc 'echo $NIX_REMOTE'")).strip()
+    remote = (await one.succeed("bash -lc 'echo $NIX_REMOTE'")).stdout.strip()
     if remote != "auto":
         raise AssertionError(f"a login shell has NIX_REMOTE={remote!r}, expected 'auto'")
     print("[test] NIX_REMOTE is auto, as on the other backends")
@@ -57,9 +57,9 @@ async def test(vms: Machines) -> None:
     # owned by neither root nor that user. The store reads as uid 65534 in
     # a rootless container, so nothing it includes may come from the store.
     # Not `nobody`: 65534 is nobody, the one user the store belongs to.
-    rc, out = await one.execute("runuser -u sshd -- ssh -G localhost >/dev/null")
-    if rc != 0:
-        raise AssertionError(f"a user's ssh refuses the system config:\n{out}")
+    done = await one.execute("runuser -u sshd -- ssh -G localhost >/dev/null")
+    if done.returncode != 0:
+        raise AssertionError(f"a user's ssh refuses the system config:\n{done.stderr}")
     print("[test] a user's ssh reads the system config")
 
     # What the host pays, as for the other backends: the processes' PSS,
@@ -83,7 +83,7 @@ async def test(vms: Machines) -> None:
 
 async def _writable_store(one: Machine) -> None:
     # The guest adds a path, and the host's store does not get it.
-    added = (await one.succeed("echo from-the-guest > /tmp/f && nix-store --add /tmp/f 2>/dev/null")).strip()
+    added = (await one.succeed("echo from-the-guest > /tmp/f && nix-store --add /tmp/f 2>/dev/null")).stdout.strip()
     await one.succeed(f"test -e {added} && nix-store --verify-path {added}")
     if Path(added).exists():
         raise AssertionError(f"{added} reached the host's store")
@@ -99,8 +99,8 @@ async def _writable_store(one: Machine) -> None:
             # The agent returns stderr after stdout; the path is stdout.
             " 2>/dev/null"
         )
-    ).strip()
-    if (await one.succeed(f"cat {built}")).strip() != "built":
+    ).stdout.strip()
+    if (await one.succeed(f"cat {built}")).stdout.strip() != "built":
         raise AssertionError(f"{built} does not hold what the builder wrote")
     print(f"[test] the guest built {built} in its own sandbox")
 
@@ -111,7 +111,7 @@ async def _uplink(one: Machine) -> None:
     await one.succeed(
         "for i in $(seq 50); do ip -4 -o addr show vec0 | grep -q inet && exit 0; sleep 0.2; done; exit 1"
     )
-    print(f"[test] vec0: {(await one.succeed('ip -4 -o addr show vec0')).split()[3]}")
+    print(f"[test] vec0: {(await one.succeed('ip -4 -o addr show vec0')).stdout.split()[3]}")
     await one.succeed("getent hosts localhost")
 
     # A forward: the host reaches the guest's sshd through pasta.

@@ -21,18 +21,19 @@ async def test(vms: Machines) -> None:
 
     # Socket-activated: the service starts on the first request.
     await cache.wait_for_unit("harmonia.socket")
-    rc, _ = await client.execute(f"nix-store --check-validity {hello}")
+    rc = (await client.execute(f"nix-store --check-validity {hello}")).returncode
     if rc == 0:
         raise MachineError(f"[client] {hello} is valid before any fetch")
 
-    out = await client.succeed(f"nix-store --realise {hello} 2>&1")
+    out = (await client.succeed(f"nix-store --realise {hello} 2>&1")).stdout
     print(f"[test] client realised hello:\n{out}", flush=True)
     await client.succeed(f"{hello}/bin/hello")
 
     started = time.monotonic()
-    rc, out = await client.execute(f"nix-store --realise {MISSING} 2>&1")
+    done = await client.execute(f"nix-store --realise {MISSING} 2>&1")
     took = time.monotonic() - started
-    if rc == 0:
+    out = done.stdout
+    if done.returncode == 0:
         raise MachineError(f"[client] {MISSING} realised: {out}")
     if took > 10:
         raise MachineError(f"[client] a miss took {took:.1f}s: {out}")

@@ -49,6 +49,7 @@ from . import backend as backends, container, display, forward, mconsole, ocr, q
 from .control import (
     AGENT,
     NONE,
+    CommandResult,
     ConsoleConfig,
     ConsoleControl,
     ConsoleError,
@@ -491,17 +492,22 @@ class AgentControl:
 
     conn: AsyncConnection
 
-    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> tuple[int, str]:
+    async def execute(self, command: str, timeout: float, env: Mapping[str, str] | None = None) -> CommandResult:
         # The wire carries a dict; another Mapping would not pickle.
-        return await _agent_rpc(self.conn).run(command, timeout=timeout, env=None if env is None else dict(env))
+        rc, out, err = await _agent_rpc(self.conn).run(command, timeout=timeout, env=None if env is None else dict(env))
+        return CommandResult(rc, out, err)
 
     async def aclose(self) -> None:
         self.conn.close()
 
 
-def _command_outcome(result: tuple[int, str]) -> dict[str, object]:
-    rc, out = result
-    return {"exit": rc, "output": out[-OUTPUT_LIMIT:]}
+def _both(result: CommandResult) -> str:
+    """stdout, then stderr: the whole of what a command said, for a person."""
+    return "\n".join(filter(None, [result.stdout, result.stderr]))
+
+
+def _command_outcome(result: CommandResult) -> dict[str, object]:
+    return {"exit": result.returncode, "output": _both(result)[-OUTPUT_LIMIT:]}
 
 
 class Machine:
@@ -686,9 +692,9 @@ class Machine:
         drop = "" if self.spec.backend == BackendName.CONTAINER else "echo 2 > /proc/sys/vm/drop_caches && "
         nix_store = self.spec.nix_store
         load = "true" if nix_store is None else f"{shlex.quote(nix_store)} --load-db < {shlex.quote(info)}/registration"
-        rc, out = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
-        if rc != 0:
-            raise MachineError(f"[{self.name}] loading {info} failed (exit {rc}):\n{out}")
+        done = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
+        if done.returncode != 0:
+            raise MachineError(f"[{self.name}] loading {info} failed (exit {done.returncode}):\n{_both(done)}")
 
     async def _boot(self, boot: BootSpec | None) -> None:
         """Start the guest's process, on *boot* or the spec's own, and connect."""
@@ -930,9 +936,9 @@ class Machine:
             ) from None
         self._log(f"logged in on the {dialect.name} console")
         if dialect.configure is not None and ConsoleConfig.of(self.name, self.spec.control).configure:
-            rc, out = await self.execute(dialect.configure, timeout=self.boot_timeout, label="apply the config disk")
-            if rc != 0:
-                raise MachineError(f"[{self.name}] the config disk failed:\n{out}")
+            done = await self.execute(dialect.configure, timeout=self.boot_timeout, label="apply the config disk")
+            if done.returncode != 0:
+                raise MachineError(f"[{self.name}] the config disk failed:\n{_both(done)}")
         elapsed = time.monotonic() - started
         self._log(f"up in {elapsed:.1f}s")
         self.recorder.booted(
@@ -1284,8 +1290,8 @@ class Machine:
         timeout: float | None = None,
         label: str | None = None,
         env: Mapping[str, str] | None = None,
-    ) -> tuple[int, str]:
-        """Run a shell command in the guest; returns (exit code, output).
+    ) -> CommandResult:
+        """Run a shell command in the guest; returns how it ended.
 
         *label* is what the timing report calls this step.  A command
         carrying shell plumbing -- a redirect kept so that a deadline has
@@ -1310,7 +1316,7 @@ class Machine:
 
     async def _execute(
         self, control: Control, command: str, timeout: float, env: Mapping[str, str] | None
-    ) -> tuple[int, str]:
+    ) -> CommandResult:
         try:
             return await control.execute(command, timeout, env)
         except ConsoleError as error:
@@ -1321,24 +1327,24 @@ class Machine:
         command: str,
         timeout: float | None = None,
         env: Mapping[str, str] | None = None,
-    ) -> str:
-        """Run a command that must succeed; returns its output."""
-        rc, out = await self.execute(command, timeout=timeout, env=env)
-        if rc != 0:
-            raise MachineError(f"[{self.name}] command failed (exit {rc}): {command}\n{out}")
-        return out
+    ) -> CommandResult:
+        """Run a command that must succeed; returns how it ended."""
+        done = await self.execute(command, timeout=timeout, env=env)
+        if done.returncode != 0:
+            raise MachineError(f"[{self.name}] command failed (exit {done.returncode}): {command}\n{_both(done)}")
+        return done
 
     async def fail(
         self,
         command: str,
         timeout: float | None = None,
         env: Mapping[str, str] | None = None,
-    ) -> str:
-        """Run a command that must fail; returns its output."""
-        rc, out = await self.execute(command, timeout=timeout, env=env)
-        if rc == 0:
-            raise MachineError(f"[{self.name}] command unexpectedly succeeded: {command}\n{out}")
-        return out
+    ) -> CommandResult:
+        """Run a command that must fail; returns how it ended."""
+        done = await self.execute(command, timeout=timeout, env=env)
+        if done.returncode == 0:
+            raise MachineError(f"[{self.name}] command unexpectedly succeeded: {command}\n{_both(done)}")
+        return done
 
     async def switch_to(
         self,
@@ -1347,7 +1353,7 @@ class Machine:
         *,
         check: bool = True,
         timeout: float = 300,
-    ) -> tuple[int, str]:
+    ) -> CommandResult:
         """Switch to `vivarium.configurations.<name>`, to a system's store
         path, or back to the booted system with no *name*, the way
         `nixos-rebuild` does. A store path the host built after boot needs
@@ -1385,14 +1391,16 @@ class Machine:
             " --unit=nixos-rebuild-switch-to-configuration --wait"
             f" {shlex.quote(system)}/bin/switch-to-configuration {action}"
         )
-        rc, out = await self.execute(
+        done = await self.execute(
             " && ".join(steps),
             timeout=timeout,
             label=f"switch_to {name or 'booted'} {action}",
         )
-        if check and rc != 0:
-            raise MachineError(f"[{self.name}] switch to {name or 'the booted system'} failed (exit {rc}):\n{out}")
-        return rc, out
+        if check and done.returncode != 0:
+            raise MachineError(
+                f"[{self.name}] switch to {name or 'the booted system'} failed (exit {done.returncode}):\n{_both(done)}"
+            )
+        return done
 
     async def add_closure(self, info: str) -> list[str]:
         """Make a closure the host built after boot valid in the guest.
@@ -1531,7 +1539,7 @@ class Machine:
         pages as ordinary allocations, so ``MemFree`` falls by what it
         took and ``MemTotal`` does not move.
         """
-        text = await self.succeed("cat /proc/meminfo", timeout=30)
+        text = (await self.succeed("cat /proc/meminfo", timeout=30)).stdout
         values: dict[str, int] = {}
         for line in text.splitlines():
             name, _, rest = line.partition(":")
@@ -1875,8 +1883,8 @@ class Machine:
                 )
             await anyio.sleep(0.5)
 
-    async def wait_until_succeeds(self, command: str, timeout: float = 120, poll: float = 1.0) -> str:
-        """Run *command* in the guest until it exits 0; return its output.
+    async def wait_until_succeeds(self, command: str, timeout: float = 120, poll: float = 1.0) -> CommandResult:
+        """Run *command* in the guest until it exits 0; return how it ended.
 
         The nixos-test idiom for a settle: push the condition into the
         command -- a ``grep -q``, a ``ping`` -- so a wait is a command that
@@ -1884,31 +1892,32 @@ class Machine:
         """
         out = ""
 
-        async def succeeded() -> str | None:
+        async def succeeded() -> CommandResult | None:
             nonlocal out
             try:
-                rc, out = await self.execute(command)
+                done = await self.execute(command)
             except GuestTimeout as error:
                 # One slow attempt: the wait goes on, as after an exit 1.
                 out = str(error)
                 return None
-            return out if rc == 0 else None
+            out = _both(done)
+            return done if done.returncode == 0 else None
 
         async def last() -> str:
             return out
 
         return await self.until(f"`{command}` to succeed", succeeded, timeout, poll, evidence=last)
 
-    async def wait_until_fails(self, command: str, timeout: float = 120, poll: float = 1.0) -> str:
-        """Run *command* in the guest until it exits non-zero; return its output.
+    async def wait_until_fails(self, command: str, timeout: float = 120, poll: float = 1.0) -> CommandResult:
+        """Run *command* in the guest until it exits non-zero; return how it ended.
 
         A withdrawal: a route that goes, a peer that stops answering. An
         attempt that times out raises `GuestTimeout`: it did not exit.
         """
 
-        async def failed() -> str | None:
-            rc, out = await self.execute(command)
-            return out if rc != 0 else None
+        async def failed() -> CommandResult | None:
+            done = await self.execute(command)
+            return done if done.returncode != 0 else None
 
         return await self.until(f"`{command}` to fail", failed, timeout, poll)
 

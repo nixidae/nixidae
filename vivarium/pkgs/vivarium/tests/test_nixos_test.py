@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 import pytest
 from vivarium_runner import nixos_test
+from vivarium_runner.control import CommandResult
 from vivarium_runner.machine import Machine
 
 if TYPE_CHECKING:
@@ -35,12 +36,12 @@ class FakeGuest(Machine):
         timeout: float | None = None,
         label: str | None = None,
         env: Mapping[str, str] | None = None,
-    ) -> tuple[int, str]:
+    ) -> CommandResult:
         self.sent.append(command)
-        for needle, answer in self.answers.items():
+        for needle, (rc, out) in self.answers.items():
             if command.endswith(needle):
-                return answer
-        return 0, ""
+                return CommandResult(rc, out, "")
+        return CommandResult(0, "", "")
 
     def alive(self) -> bool:
         return True
