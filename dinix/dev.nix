@@ -567,6 +567,95 @@ let
     lib.nameValuePair name (lib.genAttrs collectionModes (collectionTest name))
   ) (builtins.readDir ./tests/collections);
 
+  # The collections whose container modes (`root`, `user`) take over a
+  # minute, so `checks` leaves them to `checksExtended`. Seconds per mode,
+  # measured 2026-11-18 on UML: mongodb 199/198, kubernetes 121/124, mysql
+  # 97/97, phpfpm 69/68, mailpit 61/65, postgres 64/59. Their VM modes take
+  # 30-56 s and stay in `checks`.
+  extendedCollections = [
+    "kubernetes"
+    "mailpit"
+    "mongodb"
+    "mysql"
+    "phpfpm"
+    "postgres"
+  ];
+  extendedModes = [
+    "root"
+    "user"
+  ];
+  isExtended =
+    name: mode:
+    assert lib.assertMsg (lib.all (
+      extended: collections ? ${extended}
+    ) extendedCollections) "dinix: extendedCollections names a collection tests/collections lacks";
+    lib.elem name extendedCollections && lib.elem mode extendedModes;
+  collectionChecks =
+    keep:
+    lib.concatLists (
+      lib.mapAttrsToList (
+        name: modes:
+        lib.concatLists (
+          lib.mapAttrsToList (
+            mode: test:
+            lib.optional (keep (isExtended name mode)) {
+              name = "${name}-${mode}";
+              path = test;
+            }
+          ) modes
+        )
+      ) collections
+    );
+
+  # `checks` runs every test on UML. These run on the other backends too,
+  # chosen for what a backend changes: the guest kernel's cgroups, netfilter,
+  # shared memory and user namespaces. Not on `container`: the guest has no
+  # cgroup controller to give podman (nixidae/nixidae#1509).
+  otherBackends = [
+    "krun"
+    "qemu"
+  ];
+  backendChecks =
+    lib.concatMap
+      (
+        { name, test }:
+        map (backend: {
+          name = "${name}-${backend}";
+          path = test.${backend};
+        }) otherBackends
+      )
+      [
+        # Podman in the guest, the simplest service.
+        {
+          name = "redis-root";
+          test = collections.redis.root;
+        }
+        # Shared memory, `run-as` and a run-once init.
+        {
+          name = "postgres-root";
+          test = collections.postgres.root;
+        }
+        # cgroups, netfilter and many processes.
+        {
+          name = "kubernetes-vm-root";
+          test = collections.kubernetes.vm-root;
+        }
+        # User namespaces in the guest.
+        {
+          name = "container-rootless";
+          test = rootlessTest;
+        }
+      ];
+
+  /**
+    The tests that `checks` leaves out: `extendedCollections` in their
+    container modes, and a selection on the krun and QEMU backends. A
+    scheduled workflow builds them, and nothing gates on them.
+  */
+  checksExtended = pkgs.linkFarm "dinix-checks-extended" (
+    collectionChecks (extended: extended) ++ backendChecks
+  );
+
   containerTest = containerTestFor { name = "dinix-openssh"; };
 
   rootlessTest = containerTestFor {
@@ -580,7 +669,7 @@ let
     Everything a change has to pass, under one name.
 
     `nix build --file ./dev.nix checks` builds every collection in every mode
-    and both container tests. A test output is an empty file whose existence
+    but the slow ones in `checksExtended`, and both container tests. A test output is an empty file whose existence
     means it ran and behaved, so this is a symlink farm of them.
 
     One name rather than a list in a workflow: a collection added under
@@ -637,19 +726,20 @@ let
       name = "example-${example.name}";
       path = (import example.file { inherit pkgs; }).config.configDir;
     }) flatExamples
-    ++ lib.concatLists (
-      lib.mapAttrsToList (
-        name: modes:
-        lib.mapAttrsToList (mode: test: {
-          name = "${name}-${mode}";
-          path = test;
-        }) modes
-      ) collections
-    )
+    ++ collectionChecks (extended: !extended)
   );
 
-  # The test workflow; nixidae renders it to .github/workflows/dinix-tests.yml.
-  ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
+  # The test workflows; nixidae renders them to .github/workflows/dinix-*.yml.
+  ciTestWorkflows = {
+    tests = import ./ci/workflows/tests.nix {
+      name = "tests";
+      attr = "checks";
+    };
+    extended = import ./ci/workflows/tests.nix {
+      name = "extended";
+      attr = "checksExtended";
+    };
+  };
 
   # buildImage's output is a JSON manifest naming every layer and the store
   # paths in it, so the count and the sizes come from the image itself rather
@@ -684,6 +774,7 @@ in
 {
   inherit
     checks
+    checksExtended
     consolidated
     split
     report

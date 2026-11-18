@@ -44,10 +44,10 @@ jobs:
     - name: Allow an unprivileged user namespace
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
-    - name: Evaluate every check
+    - name: Evaluate checks
       run: nix eval --raw --file .. dinix.checks.drvPath
       timeout-minutes: 20
-    - name: Build every check
+    - name: Build checks
       run: nix build --file .. dinix.checks --no-link --print-build-logs --keep-going
       timeout-minutes: 330
     timeout-minutes: 350

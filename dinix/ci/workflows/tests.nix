@@ -1,13 +1,14 @@
-# The test workflow, as a value. nixidae renders it to
-# `.github/workflows/dinix-tests.yml`, with dinix as the working directory of
-# every step.
+# A test workflow, as a value: `tests` builds `checks`, the gate, and
+# `extended` builds `checksExtended`, the slow tests the gate leaves out.
+# nixidae renders each to `.github/workflows/dinix-<name>.yml`, with dinix as
+# the working directory of every step.
 #
-# One job that builds `checks`: every collection in every mode, both container
-# tests, the Python packages and the docs. One job and not one per test,
-# because the guest system and the UML kernel are built here, and a second job
-# would build them again rather than share them.
+# One job that builds the attribute. One job and not one per test, because
+# the guest system and the UML kernel are built here, and a second job would
+# build them again rather than share them.
+{ name, attr }:
 {
-  name = "tests";
+  inherit name;
 
   on = {
     push = null;
@@ -55,16 +56,16 @@
       # Evaluation answers in about a minute what a typo in a collection would
       # otherwise cost the whole build to find.
       {
-        name = "Evaluate every check";
+        name = "Evaluate ${attr}";
         timeout-minutes = 20;
-        run = "nix eval --raw --file .. dinix.checks.drvPath";
+        run = "nix eval --raw --file .. dinix.${attr}.drvPath";
       }
       # --keep-going: one failing collection should not hide the state of the
       # others.
       {
-        name = "Build every check";
+        name = "Build ${attr}";
         timeout-minutes = 330;
-        run = "nix build --file .. dinix.checks --no-link --print-build-logs --keep-going";
+        run = "nix build --file .. dinix.${attr} --no-link --print-build-logs --keep-going";
       }
     ];
   };

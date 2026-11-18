@@ -108,7 +108,8 @@ dinit service trees from Nix modules: a container's entrypoint, a user session, 
 
 Run from the nixidae root.
 
-- `nix build --file . dinix.checks`: every collection in every mode, both container tests (vivarium UML guests running podman), the Python packages, the docs. What CI builds (`dinix-tests.yml`).
+- `nix build --file . dinix.checks`: the gate. Every collection in every mode, both container tests (vivarium UML guests running podman), the Python packages, the docs. What CI builds (`dinix-tests.yml`). The container modes of collections over a minute are out: `extendedCollections` in `dev.nix`.
+- `nix build --file . dinix.checksExtended`: those slow tests; `dinix-extended.yml` builds them on a schedule. A collection whose `root` or `user` mode passes a minute joins `extendedCollections`, with its measurement.
 - One collection: `nix build --file . dinix.collections.<name>.{root,user,vm-root,vm-user}`; a port passes all four. By hand: `nix run --file . dinix.collections.<name>.root.driver -- --out DIR`.
 - Python (`dinit-client/`, `tui/`): `nix run --file . dinix.test`, `dinix.lint`, `dinix.format`; they act on the working tree.
 
