@@ -588,17 +588,18 @@ async def drive(
             controller.announce()
         listed = registry.registered(session.out.resolve()) if controller is not None else contextlib.nullcontext()
         try:
-            with listed, sequence:
-                await _sequence(
-                    session,
-                    controller,
-                    set(breaks),
-                    break_on_failure,
-                    serial,
-                    start=break_on_start,
-                    end=break_at_end or interactive,
-                    hold=hold,
-                )
+            async with session.live():
+                with listed, sequence:
+                    await _sequence(
+                        session,
+                        controller,
+                        set(breaks),
+                        break_on_failure,
+                        serial,
+                        start=break_on_start,
+                        end=break_at_end or interactive,
+                        hold=hold,
+                    )
         finally:
             if feed is not None:
                 feed.close()

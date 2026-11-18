@@ -9,10 +9,11 @@ the same object slowly.
 So the session is the program and the CLI is one drive of it:
 
     session = Session(spec, out)
-    await session.boot()
-    for phase in session.pending():
-        await session.run(phase)
-    await session.teardown()
+    async with session.live():
+        await session.boot()
+        for phase in session.pending():
+            await session.run(phase)
+        await session.teardown()
 
 **Teardown is never automatic.** That is the whole point, and it is also
 the risk: a caller that forgets leaves a UML kernel spinning on a core.
@@ -73,8 +74,9 @@ from .pytest_plugin import Plugin, arguments, machine_fixtures
 from .sinks import Broadcast
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Collection, Iterator, Mapping
+    from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterator, Mapping
 
+    from anyio.abc import TaskGroup
     from vivarium_runner.machine import Cpus, MachineSpecJson
 
     from .sinks import Sink
@@ -263,6 +265,7 @@ class Session:
         # The first index an instance may take: the nodes' and the templates' own come before it.
         self._instance_base = 0
         self.cloud = Cloud(self)
+        self._tasks: TaskGroup | None = None
         # Set when a guest's boot has ended, either way.
         self._starting: dict[str, anyio.Event] = {}
         # Every guest whose boot began, so a failed one is torn down too.
@@ -278,6 +281,28 @@ class Session:
         for path in reversed(spec.pythonPath):
             if str(path) not in sys.path:
                 sys.path.insert(0, str(path))
+
+    @contextlib.asynccontextmanager
+    async def live(self) -> AsyncIterator[None]:
+        """Hold the run's background tasks: a cloud instance's boot, its notice.
+
+        Boot, phases and teardown go inside it. A task still held at its
+        end is cancelled, so a missed stop cannot keep the run up.
+        """
+        async with anyio.create_task_group() as group:
+            self._tasks = group
+            try:
+                yield
+            finally:
+                self._tasks = None
+                group.cancel_scope.cancel()
+
+    @property
+    def tasks(self) -> TaskGroup:
+        """The task group `live` holds, for a task that outlives the call that starts it."""
+        if self._tasks is None:
+            raise SessionError("the session is not live: drive it inside `async with session.live()`")
+        return self._tasks
 
     # ── events ─────────────────────────────────────────────────────
 

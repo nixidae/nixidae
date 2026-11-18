@@ -12,8 +12,6 @@ terminate every instance, not only the ones it launched.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import itertools
 import time
 from collections.abc import Mapping
@@ -24,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 from vivarium_agent.arpyc import Service
+from vivarium_runner.held import Held, hold
 
 if TYPE_CHECKING:
     from vivarium_runner import Machine
@@ -85,12 +84,9 @@ class Cloud:
     """Seconds a launch stays `pending` before its guest boots: a cloud's scheduling time."""
     instances: dict[str, Instance] = field(default_factory=dict)
     _ids: itertools.count[int] = field(default_factory=lambda: itertools.count(1))
-    # Held tasks on the runner's loop, not a task group: an instance
-    # outlives the request that launched it and the phase that runs, and
-    # the session spans separate boot, run and teardown calls. Cancelled
-    # in `close`. A task group the session owns replaces them with the
-    # runner's, nixidae/nixidae#949.
-    _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    # In the session's own group: an instance outlives the request that
+    # launched it and the phase that runs. Stopped in `close`.
+    _tasks: dict[str, Held] = field(default_factory=dict)
     _ending: set[str] = field(default_factory=set)
 
     async def handle(self, caller: str | None, op: str, args: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -139,7 +135,7 @@ class Cloud:
             launched_by=caller,
         )
         self.instances[instance.id] = instance
-        self._tasks[instance.id] = asyncio.ensure_future(self._boot(instance))  # noqa: TID251 -- held, see _tasks
+        self._tasks[instance.id] = hold(self.session.tasks, self._boot, instance)
         return instance
 
     async def _boot(self, instance: Instance) -> None:
@@ -204,12 +200,10 @@ class Cloud:
             # The notice's own task takes itself out first, so this never cancels the caller.
             notice = self._tasks.pop(f"{instance_id}/notice", None)
             if notice is not None:
-                notice.cancel()
+                notice.scope.cancel()
             task = self._tasks.pop(instance_id, None)
             if task is not None:
-                task.cancel()
-                with contextlib.suppress(anyio.get_cancelled_exc_class()):
-                    await task
+                await task.stop()
             # A boot cancelled partway may hold ports and a `Machine` already.
             if self.session.holds(instance_id):
                 await self.session.terminate(instance_id)
@@ -239,15 +233,14 @@ class Cloud:
             self._tasks.pop(f"{instance_id}/notice", None)
             await self.terminate(instance_id)
 
-        self._tasks[f"{instance_id}/notice"] = asyncio.ensure_future(end())  # noqa: TID251 -- held, see _tasks
+        self._tasks[f"{instance_id}/notice"] = hold(self.session.tasks, end)
 
     async def close(self) -> None:
-        for task in list(self._tasks.values()):
-            task.cancel()
-        for task in list(self._tasks.values()):
-            with contextlib.suppress(anyio.get_cancelled_exc_class()):
-                await task
-        self._tasks.clear()
+        tasks, self._tasks = list(self._tasks.values()), {}
+        for task in tasks:
+            task.scope.cancel()
+        for task in tasks:
+            await task.wait()
 
 
 class CloudService(Service):
