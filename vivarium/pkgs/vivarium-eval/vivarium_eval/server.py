@@ -48,7 +48,7 @@ from vivarium.control import PARENT, RUN_FILE, SOCKET, Op, Reply, RunFile, Watch
 from vivarium.events import Event, Kind, NotAnEvent
 from vivarium.exits import describe
 from vivarium.journal import Tail
-from vivarium.monitor import LIVE, Channel, channel_event, paused_now
+from vivarium.monitor import LIVE, Channel, channel_event, clip, paused_now
 from vivarium.phases import VERDICT, Verdict
 from vivarium.registry import ASK
 from vivarium.runroot import exit_watch
@@ -151,6 +151,27 @@ def select(
             continue
         found.append(event)
     return found[-limit:] if limit > 0 else found
+
+
+BUDGET: Final = 40_000
+"""Characters of events one `events` reply carries. Measured: one
+unfiltered `case` query was 233k characters."""
+
+
+def budgeted(events: list[EventLine], budget: int = BUDGET) -> tuple[list[EventLine], int]:
+    """The newest of `events` that fit in `budget` characters, each text
+    clipped, and how many older ones did not fit. The newest one is kept
+    whatever its size."""
+    kept: list[EventLine] = []
+    used = 0
+    for event in reversed(events):
+        short: EventLine = clipped(event, "events.jsonl")
+        size = len(json.dumps(short))
+        if kept and used + size > budget:
+            break
+        kept.append(short)
+        used += size
+    return kept[::-1], len(events) - len(kept)
 
 
 def _per_guest(value: float | dict[str, int] | dict[str, float] | None) -> dict[str | None, float]:
@@ -262,6 +283,8 @@ class Run(ABC):
     """Every event pushed for this run: `resume` reads whether a pause is open."""
     pushed: anyio.Event = field(default_factory=anyio.Event)
     """Set, and replaced, at each push: what `resume` waits on."""
+    replies: int = 0
+    """Replies so far: names the file a clipped reply is written to."""
 
     HISTORY: ClassVar[bool] = True
     """Whether the events `watch` replays go to the channel. A run this
@@ -453,7 +476,7 @@ class Runs:
         if not run.finished:
             # Died before a verdict: an evaluation error, a crash. The
             # reason is at the end of what it printed.
-            tail = why_it_exited(_read(run.out / "terminal.log"))
+            tail = clip(why_it_exited(_read(run.out / "terminal.log")), str(run.out / "terminal.log"))
             text = f"run {run.status} without a verdict"
             await self.push(f"{text}:\n{tail}" if tail else text, {"run": run.id, "event": Channel.EXITED})
 
@@ -551,8 +574,35 @@ def why_it_exited(output: str, lines: int = 15) -> str:
     return "\n".join(text[-lines:])
 
 
-def _reply(reply: Reply) -> dict[str, Any]:
-    return {key: value for key, value in vars(reply).items() if value not in (None, "")}
+def clipped(value: Any, where: str) -> Any:  # noqa: ANN401 -- a JSON value of any shape
+    """`value` with each string in it clipped, a mapping's values too."""
+    if isinstance(value, str):
+        return clip(value, where)
+    if isinstance(value, dict):
+        return {key: clipped(inner, where) for key, inner in value.items()}
+    return value
+
+
+def _reply(reply: Reply, run: Run) -> dict[str, Any]:
+    return bounded({key: value for key, value in vars(reply).items() if value not in (None, "")}, run)
+
+
+async def answer(run: Run, op: Op, arg: str = "", reload: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """`ask`, as a tool replies."""
+    return _reply(await ask(run, op, arg, reload), run)
+
+
+def bounded(reply: dict[str, Any], run: Run) -> dict[str, Any]:
+    """`reply` with each long text clipped. A clipped reply is written whole
+    to `<out>/mcp/`, and the clipped text names that file."""
+    run.replies += 1
+    # The pid as well: a second server may reach the same run.
+    where = run.out / "mcp" / f"{os.getpid()}-{run.replies}.json"
+    short: dict[str, Any] = clipped(reply, str(where))
+    if short != reply:
+        where.parent.mkdir(exist_ok=True)
+        where.write_text(json.dumps(reply, indent=2) + "\n")
+    return short
 
 
 def unreachable(run: Run) -> str:
@@ -590,7 +640,7 @@ def verdict(run: Run) -> dict[str, Any]:
     }
     if found.stopped is not None:
         reply["stopped"] = found.stopped
-    errors = {phase.name: phase.error for phase in found.phases if phase.error}
+    errors = {phase.name: clip(phase.error, str(run.out / VERDICT)) for phase in found.phases if phase.error}
     if errors:
         reply["errors"] = errors
     return reply
@@ -617,7 +667,7 @@ async def evaluate_again(run: Run, verb: str, args: list[str]) -> dict[str, Any]
         stderr=subprocess.STDOUT,
         env={**os.environ, **run.source.env},
     )
-    return {"ok": done.returncode == 0, "output": done.stdout.decode(errors="replace")}
+    return bounded({"ok": done.returncode == 0, "output": done.stdout.decode(errors="replace")}, run)
 
 
 # ── the server ──────────────────────────────────────────────────────
@@ -713,14 +763,14 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         found = await runs().get(run)
         if not found.running:
             return verdict(found)
-        return _reply(await ask(found, Op.STATE))
+        return await answer(found, Op.STATE)
 
     @server.tool(name="exec")
     async def exec_(run: str, code: str) -> dict[str, Any]:
         """Run Python in the run, paused or running. Top-level await;
         `vms`, `session` and each guest by name are in scope; names
         persist between calls. The last expression's repr is `result`."""
-        return _reply(await ask(await runs().get(run), Op.EXEC, code))
+        return await answer(await runs().get(run), Op.EXEC, code)
 
     @server.tool()
     async def inject(run: str, path: str, reload: list[str] | None = None) -> dict[str, Any]:
@@ -730,7 +780,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         helper modules: imported from first, their modules dropped, so an
         edited helper is read again too."""
         found = await runs().get(run)
-        return _reply(await ask(found, Op.INJECT, str(Path(path).absolute()), _directories(reload)))
+        return await answer(found, Op.INJECT, str(Path(path).absolute()), _directories(reload))
 
     @server.tool()
     async def run_pytest(
@@ -742,12 +792,12 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         cases are events marked by_hand and do not count toward the run's
         verdict. `reload` is as for `inject`."""
         arg = shlex.join([str(Path(path).absolute()), *(args or [])])
-        return _reply(await ask(await runs().get(run), Op.PYTEST, arg, _directories(reload)))
+        return await answer(await runs().get(run), Op.PYTEST, arg, _directories(reload))
 
     @server.tool()
     async def run_phase(run: str, phase: str) -> dict[str, Any]:
         """Run a declared phase now, in the paused run."""
-        return _reply(await ask(await runs().get(run), Op.RUN, phase))
+        return await answer(await runs().get(run), Op.RUN, phase)
 
     @server.tool()
     async def segment(run: str, name: str, action: str = "show", member: str | None = None) -> dict[str, Any]:
@@ -760,7 +810,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         segment (`segments.<name>.hub`, or three members or more) can do
         either."""
         arg = shlex.join([name, action, *([member] if member is not None else [])])
-        return _reply(await ask(await runs().get(run), Op.SEGMENT, arg))
+        return await answer(await runs().get(run), Op.SEGMENT, arg)
 
     @server.tool()
     async def resume(run: str) -> dict[str, Any]:
@@ -772,7 +822,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         with anyio.move_on_after(10):
             while reply.ok and paused_now(found.backlog) and found.running:
                 await found.pushed.wait()
-        return _reply(reply)
+        return _reply(reply, found)
 
     @server.tool()
     async def switch(run: str, node: str, module: str, action: str = "switch") -> dict[str, Any]:
@@ -805,10 +855,11 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         `await m.send_key("ctrl-alt-f2")`, `await m.click_text("OK")`,
         `await m.wait_for_text("regex")`; pixels count from the top left."""
         code = f"print(await vms[{machine!r}].screenshot({name!r}))"
-        reply = await ask(await runs().get(run), Op.EXEC, code)
+        found = await runs().get(run)
+        reply = await ask(found, Op.EXEC, code)
         lines = (reply.output or "").strip().splitlines()
         if not reply.ok or not lines:
-            return [json.dumps(_reply(reply))]
+            return [json.dumps(_reply(reply, found))]
         path = Path(lines[-1])
         return [Image(data=path.read_bytes(), format="png"), str(path)]
 
@@ -830,27 +881,22 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         case: str | None = None,
         contains: str | None = None,
         limit: int = 50,
-    ) -> dict[str, list[EventLine]]:
+    ) -> dict[str, Any]:
         """The run's events, newest last, filtered. `kind="journal", machine="cp",
         unit="kubelet.service"` is one service on one guest; `kind="case"` is
-        each pytest test; `kind="error"` is every traceback."""
+        each pytest test; `kind="error"` is every traceback. `limit=0` is
+        every match. A reply holds about 40k characters at most: `dropped`
+        counts the older matches left out, so filter more."""
         path = (await runs().get(run)).out / "events.jsonl"
         try:
             lines = path.read_text(errors="replace").splitlines()
         except OSError:
             return {"events": []}
-        return {
-            "events": select(
-                lines,
-                kind=kind,
-                machine=machine,
-                unit=unit,
-                phase=phase,
-                case=case,
-                contains=contains,
-                limit=limit,
-            )
-        }
+        found = select(
+            lines, kind=kind, machine=machine, unit=unit, phase=phase, case=case, contains=contains, limit=limit
+        )
+        kept, dropped = budgeted(found)
+        return {"events": kept, "dropped": dropped} if dropped else {"events": kept}
 
     # Every tool returns an object. FastMCP wraps any other return type
     # as `{"result": ...}`, and `exec`'s own reply has a `result` key, so

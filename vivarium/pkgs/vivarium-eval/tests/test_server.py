@@ -15,15 +15,18 @@ from mcp.shared.message import SessionMessage
 from mcp.types import ImageContent, JSONRPCNotification, TextContent
 from vivarium.control import PARENT, Op, Origin, Reply, RunFile
 from vivarium.events import Event, Kind, Level
-from vivarium.monitor import LIVE, channel_event
+from vivarium.monitor import CLIP, LIVE, channel_event, clip
 from vivarium.phases import PhaseState, Verdict
 from vivarium_eval import server as server_module
 from vivarium_eval.cli import explain
 from vivarium_eval.server import (
     Attached,
+    EventLine,
     Runs,
     Started,
+    _reply,
     ask,
+    budgeted,
     build,
     run_argv,
     select,
@@ -563,3 +566,49 @@ async def test_a_tool_says_why_the_run_cannot_answer(
     assert not reply.ok
     assert reply.error is not None
     assert said in reply.error
+
+
+class TestBounds:
+    def test_short_text_is_kept(self) -> None:
+        assert clip("x" * CLIP, "f") == "x" * CLIP
+
+    def test_long_text_keeps_its_ends_and_names_the_file(self) -> None:
+        text = "head" + "x" * 10_000 + "tail"
+        short = clip(text, "/o/log")
+        assert short.startswith("head")
+        assert short.endswith("tail")
+        assert f"[{len(text) - CLIP} characters elided; the whole text is in /o/log]" in short
+        assert len(short) < CLIP + 100
+
+    def test_a_failed_phase_is_one_bounded_channel_event(self) -> None:
+        pushed = channel_event(
+            event(Kind.PHASE_FINISHED, "", phase="check", data={"state": "failed", "error": "e" * 50_000}), "r"
+        )
+        assert pushed is not None
+        assert len(pushed[0]) < CLIP + 200
+        assert "whole text is in events.jsonl" in pushed[0]
+
+    def test_a_long_reply_is_written_whole(self, tmp_path: Path) -> None:
+        run = _run(tmp_path)
+        long = "o" * 10_000
+        short = _reply(Reply(ok=True, output=long, errors={"check": long}), run)
+        [kept] = (tmp_path / "mcp").iterdir()
+        assert json.loads(kept.read_text()) == {"ok": True, "output": long, "errors": {"check": long}, "refused": False}
+        assert str(kept) in short["output"]
+        assert str(kept) in short["errors"]["check"]
+
+    def test_a_short_reply_writes_nothing(self, tmp_path: Path) -> None:
+        assert _reply(Reply(ok=True, output="hi"), _run(tmp_path)) == {"ok": True, "output": "hi", "refused": False}
+        assert not (tmp_path / "mcp").exists()
+
+    def test_events_keep_the_newest_that_fit(self) -> None:
+        events: list[EventLine] = [{"kind": "case", "text": f"{n}" + "c" * 1000} for n in range(100)]
+        kept, dropped = budgeted(events, budget=10_000)
+        assert kept[-1] == events[-1]
+        assert dropped == 100 - len(kept)
+        assert 5 < len(kept) < 10
+
+    def test_one_huge_event_is_clipped_not_dropped(self) -> None:
+        kept, dropped = budgeted([{"kind": "error", "text": "t" * 100_000}], budget=1000)
+        assert dropped == 0
+        assert "whole text is in events.jsonl" in kept[0]["text"]

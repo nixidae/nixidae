@@ -35,7 +35,7 @@ def _object(value: object) -> dict[str, Any]:
 
 
 LINE = 1 << 24
-"""The longest JSON-RPC line read: an `events` reply has no size limit."""
+"""The longest JSON-RPC line read: far above any reply the server sends."""
 
 
 class Client:

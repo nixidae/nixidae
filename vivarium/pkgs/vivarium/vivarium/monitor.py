@@ -92,6 +92,21 @@ GRACE: Final = 10.0
 the run as gone. The run binds it moments after `events.jsonl` starts."""
 
 
+CLIP: Final = 4000
+"""Characters of one text a channel event, a monitor line or a tool reply
+carries. A failed `succeed` puts the command's whole output in the
+phase's error."""
+
+
+def clip(text: str, where: str, limit: int = CLIP) -> str:
+    """`text`, or its head and tail when it is longer than `limit`, with a
+    line that names `where` the whole text is."""
+    if len(text) <= limit:
+        return text
+    half = limit // 2
+    return f"{text[:half]}\n[{len(text) - 2 * half} characters elided; the whole text is in {where}]\n{text[-half:]}"
+
+
 def channel_event(event: Event, run: str) -> tuple[str, dict[str, str]] | None:
     """What of the run's event stream is worth interrupting Claude for.
 
@@ -126,7 +141,8 @@ def channel_event(event: Event, run: str) -> tuple[str, dict[str, str]] | None:
         return f"phase {phase} passed in {event.seconds or 0:.0f}s", meta
     if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.FAILED:
         meta |= {"event": Channel.FAILED, "phase": phase}
-        return f"phase {phase} failed: {data.get('error', '')}".strip(), meta
+        error = clip(str(data.get("error", "")), "events.jsonl and phases.json")
+        return f"phase {phase} failed: {error}".strip(), meta
     if event.kind is Kind.RUN_FINISHED:
         passed = bool(data.get("passed"))
         meta |= {"event": Channel.FINISHED, "passed": "true" if passed else "false"}

@@ -99,7 +99,8 @@ The `vivarium` server (`vivarium-mcp`) does the same through tools: `start(attr,
 - Every tool takes a run's id or its `--out`: a run from `vivarium up`, the pytest plugin or a shell is attached at first use and never stopped by the server. `runs` lists every run up on this host.
 - `start` returns `monitor`: run it with the Monitor tool or in the background, exactly as above.
 - The `vivarium-runs` mod (`share/claude-plugins/vivarium-runs`, if loaded) shows each run in a pane with Continue and Stop; it follows `start` and `vivarium run --out <literal>` by itself, `/vivarium-runs <out>` any other.
-- `events` replies have no size limit: always pass `kind`, `machine`, `phase` or `contains`, and a small `limit`. One unfiltered `case` query returned 233k characters.
+- An `events` reply holds about 40k characters: the newest matches that fit, and `dropped` counts the rest. Pass `kind`, `machine`, `phase` or `contains`, and a small `limit`.
+- A long text in a reply or a channel event keeps its head and tail, and names the file that holds all of it (`<out>/mcp/`, `events.jsonl`, `phases.json`).
 
 ## Evidence
 
