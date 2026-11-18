@@ -357,6 +357,7 @@ in
           pkgs.iproute2
           pkgs.nftables
           pkgs.procps
+          pkgs.util-linux
         ];
         serviceConfig = {
           Type = "oneshot";
@@ -370,17 +371,21 @@ in
           ip netns add ${netns}
           ip link add vec0 mtu ${toString config.vivarium.mtu} type veth \
             peer name ${bridge} mtu ${toString config.vivarium.mtu} netns ${netns}
-          ip -n ${netns} link set lo up
-          ip -n ${netns} link set ${bridge} up
-          ip -n ${netns} address add ${gateway}/24 dev ${bridge}
-          ip -n ${netns} address add ${dns}/24 dev ${bridge}
-          ip -n ${netns} address add ${gateway6}/64 dev ${bridge} nodad
-          ip -n ${netns} rule add fwmark 1 table 100
-          ip -n ${netns} -6 rule add fwmark 1 table 100
-          ip -n ${netns} route add local 0.0.0.0/0 dev lo table 100
-          ip -n ${netns} -6 route add local ::/0 dev lo table 100
-          ip netns exec ${netns} sysctl -q -w net.ipv4.icmp_echo_ignore_all=1 net.ipv6.icmp.echo_ignore_all=1
-          ip netns exec ${netns} nft -f ${pkgs.writeText "uplink.nft" ruleset}
+          # Not `ip -n` or `ip netns exec`: both mount a new /sys, which a
+          # container may not do.
+          nsenter --net=/run/netns/${netns} ${pkgs.runtimeShell} -e -c '
+            ip link set lo up
+            ip link set ${bridge} up
+            ip address add ${gateway}/24 dev ${bridge}
+            ip address add ${dns}/24 dev ${bridge}
+            ip address add ${gateway6}/64 dev ${bridge} nodad
+            ip rule add fwmark 1 table 100
+            ip -6 rule add fwmark 1 table 100
+            ip route add local 0.0.0.0/0 dev lo table 100
+            ip -6 route add local ::/0 dev lo table 100
+            sysctl -q -w net.ipv4.icmp_echo_ignore_all=1 net.ipv6.icmp.echo_ignore_all=1
+            nft -f ${pkgs.writeText "uplink.nft" ruleset}
+          '
         '';
         preStop = "ip netns delete ${netns}";
       };
