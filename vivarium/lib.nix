@@ -921,14 +921,18 @@ rec {
       );
       attempt =
         pkgs.runCommand "vivarium-session-${name}-${backends}-attempt"
-          {
-            requiredSystemFeatures = featuresFor machines;
-            # The guests run where the build was asked for, so `report.json`
-            # times that machine. A UML run asks for no feature, and without
-            # this a remote builder takes it.
-            preferLocalBuild = true;
-            passthru = { inherit spec probe; };
-          }
+          (
+            {
+              requiredSystemFeatures = featuresFor machines;
+              # The guests run where the build was asked for, so `report.json`
+              # times that machine. A UML run asks for no feature, and without
+              # this a remote builder takes it.
+              preferLocalBuild = true;
+              passthru = { inherit spec probe; };
+            }
+            # A forward binds 127.0.0.1, which the darwin sandbox refuses.
+            // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin { __darwinAllowLocalNetworking = true; }
+          )
           ''
             export HOME="$TMPDIR"
             mkdir -p "$out"

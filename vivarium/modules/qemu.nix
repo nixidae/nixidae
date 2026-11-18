@@ -122,11 +122,16 @@ lib.mkMerge [
         it, and in a sandbox that maps one uid it cannot become uid 1000
         (EINVAL, measured: `artifacts.qemu`). A guest that boots its own disk
         runs no virtiofsd.
+
+        On macOS, krun runs on Hypervisor.framework, which a daemon offers as
+        `apple-virt` (Nix 2.19). libkrun serves the store itself, with no
+        virtiofsd, and a macOS daemon has no `uid-range` to give.
       */
-      vivarium.requiredSystemFeatures = [
-        "kvm"
-      ]
-      ++ lib.optional (cfg.kind == "nixos") "uid-range";
+      vivarium.requiredSystemFeatures =
+        if hostPkgs.stdenv.hostPlatform.isDarwin then
+          [ "apple-virt" ]
+        else
+          [ "kvm" ] ++ lib.optional (cfg.kind == "nixos") "uid-range";
 
       # Without ACPI, libkrun's machine has no power-off: a poweroff only
       # halts the CPU, and the process stays up at 100% of a core (measured:
