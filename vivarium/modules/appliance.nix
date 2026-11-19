@@ -18,11 +18,12 @@ in
     type = types.bool;
     default = true;
     description = ''
-      Whether the guest gets passt's uplink, `vec0`: NAT to the host's
-      network and the `inbound` forwards. Off, an appliance's first port is
+      Whether the guest gets an uplink, `vec0`: behind the run's router,
+      which an appliance with an uplink asks for, NAT to the host's network
+      and the `inbound` forwards. Off, an appliance's first port is
       its first segment, as on a router whose only cables are the ones the
-      test lays. Only `vivarium.appliance` honours it; `uplink.segment` is
-      the other way to replace passt.
+      test lays. Only `vivarium.appliance` honours it; `uplink.segment` puts
+      the uplink on a segment instead.
     '';
   };
 
@@ -107,6 +108,12 @@ in
       };
     };
     launch.config.uplink = lib.mkIf (config.vivarium.backend == "qemu") config.vivarium.uplink.enable;
+    # A vendor image runs no relay; it is assumed to lease its first NIC by
+    # DHCP, as RouterOS and VyOS do. Below mkDefault: a kind's own
+    # mkDefault (routeros, vyos, sonic) would otherwise conflict with it.
+    uplink.wantsRouter = lib.mkOverride 1100 (
+      config.vivarium.uplink.enable && config.vivarium.uplink.segment == null
+    );
   };
 
   config.assertions = [
@@ -120,7 +127,7 @@ in
     }
     {
       assertion = config.vivarium.uplink.enable || config.vivarium.inbound == [ ];
-      message = "vivarium.inbound needs the uplink: forwards are passt's.";
+      message = "vivarium.inbound needs the uplink: forwards arrive on it.";
     }
   ];
 }

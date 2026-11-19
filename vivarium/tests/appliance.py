@@ -3,7 +3,7 @@
 RouterOS CHR here, beside a NixOS guest on one segment. What is checked is
 what an appliance can get wrong and a NixOS guest cannot:
 
-  * the uplink is the first NIC, so passt's forward reaches the
+  * the uplink is the first NIC, so the run router's forward reaches the
     appliance's own management port;
   * each segment is one more NIC, in `interfaces` order, with the MAC
     vivarium chose, so the peer reaches it by IPv6 link-local address
