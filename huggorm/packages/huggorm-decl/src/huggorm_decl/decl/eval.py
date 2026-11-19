@@ -138,7 +138,7 @@ from huggorm_dsl.declare import (
     # every access, so Python identity says nothing: two wrappers over
     # one value differ, and a wrapper that dies hands its id() to the
     # next one. The underlying value's address is the identity.
-    identity="_identity",
+    identity="identity",
     # A forcing walk (nixidae/nixidae#721) forces each node it visits, and does
     # not enter a derivation: forcing one instantiates it, and nixpkgs
     # is a tree of them. `printValueAsJSON` stops there too.
@@ -176,14 +176,18 @@ class Value:
     pointer-to-member on `nix::Value`; each one is a Bridge method
     that checks the tag first."""
 
-    @cxx_name("identity")
-    def _identity(self) -> I64:
+    def identity(self) -> I64:
         """The underlying value's address, as a number.
 
-        Private: it is not surface, so the codegen leaves it out of
-        every generated form. The tree walk uses it to visit a shared
-        value once - values are immutable and shared freely, so
-        without it a diamond is copied and a cycle never ends."""
+        A walk over a value tree needs it: values are immutable and
+        shared freely, so without it a diamond is copied and a cycle
+        never ends. A wrapper is fresh on every access, so Python's
+        `id()` cannot stand in.
+
+        Equal identities are one value, not one position. Nix shares a
+        single value for constants such as `true`, so in
+        `{ p = true; q = true; }` both attributes answer the same
+        identity: a walk that skips every value it has seen skips `q`."""
 
     def _force(self) -> None:
         """Force this value to weak head normal form, in place.
