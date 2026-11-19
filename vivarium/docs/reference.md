@@ -389,11 +389,10 @@ restarting it, which drops every connection through it, including the ssh
 session you were in when you started the service you wanted to reach.
 
 passt and gvproxy are deprecated: `vivarium.uplink.proxy = "vsock"` replaces
-them, and is the default for a NixOS guest on QEMU, krun or a container
+them, and is the default for a NixOS guest on every backend
 (nixidae/nixidae#1404, nixidae/nixidae#1522). A container has no vsock
 device: its relay and the egress share two unix sockets instead. passt stays
-the default on UML and for a guest that is not NixOS, until vsock serves
-those too.
+the default for a guest that is not NixOS, which cannot run the relay.
 
 A krun guest can take gvproxy instead: `vivarium.uplink.proxy = "gvproxy"`
 (nixidae/nixidae#1163). gvproxy runs on macOS and needs no user namespace.
@@ -580,8 +579,7 @@ The uplink is the guest's `vec0` (`vivarium.uplink.proxy`):
 
 What a guest gets when its run sets nothing:
 
-- A NixOS guest on `qemu`, `krun` or `container`: `vsock`.
-- A NixOS guest on `uml`: `passt`.
+- A NixOS guest: `vsock`.
 - A guest that is not NixOS: `passt`, unless its run has a router.
 - A run gets a router when one of its guests asks for one
   (`vivarium.uplink.wantsRouter`), and then every guest of the run goes

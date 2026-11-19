@@ -980,28 +980,15 @@ in
         "vsock"
       ];
       # Not by `uplink.segment`: a routed guest's segment default reads this.
-      default =
-        if
-          config.vivarium.kind == "nixos"
-          && lib.elem config.vivarium.backend [
-            "qemu"
-            "krun"
-            "container"
-          ]
-        then
-          "vsock"
-        else
-          "passt";
-      defaultText = lib.literalMD "`vsock` for a NixOS guest on QEMU, krun or a container, else `passt`";
+      default = if config.vivarium.kind == "nixos" then "vsock" else "passt";
+      defaultText = lib.literalMD "`vsock` for a NixOS guest, else `passt`";
       description = ''
         What serves the uplink (`vec0`).
 
         `passt` and `gvproxy` are deprecated: `vsock` replaces them
-        (nixidae/nixidae#1404). Choosing either where `vsock` serves the
-        guest, a NixOS guest on QEMU, krun or a container, is a warning.
-        passt stays the default where `vsock` does not serve the guest
-        yet: UML and a guest that is not NixOS. It goes once `vsock`
-        serves those and works on macOS (nixidae/nixidae#1163).
+        (nixidae/nixidae#1404). Choosing either for a NixOS guest is a
+        warning. passt stays the default for a guest that is not NixOS,
+        which cannot run the relay.
 
         An `uplink.segment` takes precedence over `vsock`.
         `gvproxy`, deprecated, is gvisor-tap-vsock's,
@@ -1137,14 +1124,7 @@ in
       let
         proxy = config.vivarium.uplink.proxy;
         # The router's `passt` names no proxy: it reaches the host over vsock.
-        vsockServes =
-          config.vivarium.kind == "nixos"
-          && lib.elem config.vivarium.backend [
-            "qemu"
-            "krun"
-            "container"
-          ]
-          && !config.vivarium.router.enable;
+        vsockServes = config.vivarium.kind == "nixos" && !config.vivarium.router.enable;
       in
       lib.optional (proxy == "gvproxy" || (proxy == "passt" && vsockServes)) ''
         ${config.networking.hostName}: vivarium.uplink.proxy = "${proxy}" is deprecated, and `vsock` replaces it (nixidae/nixidae#1404).

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import select
 import shutil
 import signal
 import subprocess
@@ -26,13 +25,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Final, Literal
 
-PASST: Final = ("passt", "passt.avx2")
-"""passt execs `passt.avx2` on a CPU that has AVX2."""
+EGRESS: Final = "egress"
+"""The guest's uplink on the host: `vivarium.uplink.proxy = "vsock"`."""
 
 LEFT_BEHIND = {
-    "uml": ("linux", "uml-passt-bridg", *PASST),
-    "qemu": ("qemu-system-x86", "virtiofsd", *PASST),
-    "krun": ("vivarium-krun", *PASST),
+    "uml": ("linux", EGRESS),
+    "qemu": ("qemu-system-x86", "virtiofsd", EGRESS),
+    "krun": ("vivarium-krun", EGRESS),
 }
 """The runner's own children per backend, by the name the kernel keeps:
 `comm`, cut at 15 bytes."""
@@ -40,14 +39,10 @@ LEFT_BEHIND = {
 STOPPED: Final = 5
 """The exit status of a run that `ctl stop` ended."""
 
-POWERED_OFF = {
-    "uml": "the kernel exited (0)",
-    "qemu": "reboot: Power down",
-    "krun": "reboot: Power down",
-}
-"""What a guest's console says when it powered itself off. A krun guest
-on x86 powers off through libkrun's ACPI S5 (modules/qemu.nix), so it
-prints what a QEMU guest prints."""
+POWERED_OFF: Final = "reboot: Power down"
+"""What a guest's console says when it powered itself off, on every
+backend. A krun guest on x86 powers off through libkrun's ACPI S5
+(modules/qemu.nix)."""
 
 
 def roots() -> list[Path]:
@@ -76,44 +71,6 @@ def until(check: Callable[[], bool], seconds: float, step: float = 0.1) -> bool:
     return check()
 
 
-def tree(root: int) -> dict[int, tuple[int, str]]:
-    """*root* and every process under it: pid to parent pid and `comm`."""
-    found: dict[int, tuple[int, str]] = {}
-    for stat in Path("/proc").glob("[0-9]*/stat"):
-        try:
-            text = stat.read_text()
-        except OSError:
-            continue
-        comm, _, rest = text.partition(" (")[2].rpartition(")")
-        found[int(stat.parent.name)] = (int(rest.split()[1]), comm)
-    under = {root}
-    while grown := {pid for pid, (parent, _) in found.items() if parent in under} - under:
-        under |= grown
-    return {pid: found[pid] for pid in under if pid in found}
-
-
-def kill_the_bridge(runner: int) -> None:
-    """SIGKILL the UML bridge: the kernel and passt under it must exit too.
-    Nothing is left to kill them but their parent-death signal."""
-    processes = tree(runner)
-    [bridge] = [pid for pid, (_, comm) in processes.items() if comm == "uml-passt-bridg"]
-    children = {pid: comm for pid, (parent, comm) in processes.items() if parent == bridge}
-    if "linux" not in children.values() or not set(PASST) & set(children.values()):
-        sys.exit(f"the bridge runs {children}, not the kernel and passt")
-    watches = {os.pidfd_open(pid): pid for pid in children}
-    os.kill(bridge, signal.SIGKILL)
-    pending = set(watches)
-    deadline = time.monotonic() + 5
-    while pending and (remaining := deadline - time.monotonic()) > 0:
-        pending -= set(select.select(list(pending), [], [], remaining)[0])
-    left = [f"{children[watches[watch]]} ({watches[watch]})" for watch in pending]
-    for watch in watches:
-        os.close(watch)
-    if left:
-        sys.exit(f"the bridge died and left {', '.join(left)}")
-    print("ok: the kernel and passt exited with the bridge")
-
-
 STOP: Final = "ctl-stop"
 """End the run with `vivarium ctl stop` rather than a signal."""
 
@@ -126,13 +83,11 @@ def case(
     left_behind: tuple[str, ...],
     *,
     keep: bool = False,
-    first: Callable[[int], None] | None = None,
     flags: tuple[str, ...] = (),
 ) -> int:
-    """*first*, given the runner's pid, runs once the phase started and before *end*.
-    *flags* go to `vivarium run`."""
+    """*flags* go to `vivarium run`."""
     how = end if isinstance(end, str) else end.name
-    name = f"{how}{'-keep' if keep else ''}{'-' + first.__name__ if first else ''}{''.join(flags)}"
+    name = f"{how}{'-keep' if keep else ''}{''.join(flags)}"
     out = work / f"run-{name}"
     log = work / f"run-{name}.log"
     env = {**os.environ, **({"VIVARIUM_KEEP": "1"} if keep else {})}
@@ -151,8 +106,6 @@ def case(
 
     if not until(started, 300, 0.2):
         sys.exit(f"{how}: no phase started")
-    if first is not None:
-        first(runner.pid)
     if isinstance(end, str):
         # While `hold` runs: the drive is cancelled from the socket's
         # handler, not from a signal handler, and must still tear down.
@@ -207,8 +160,6 @@ def main() -> None:
     os.environ.setdefault("HOME", str(work))
     left_behind = LEFT_BEHIND[backend]
     ends_by_itself(vivarium, spec, work, left_behind)
-    if backend == "uml":
-        case(vivarium, spec, work, signal.SIGKILL, left_behind, first=kill_the_bridge)
     case(vivarium, spec, work, signal.SIGKILL, left_behind, keep=True)
     case(vivarium, spec, work, signal.SIGKILL, left_behind)
     status = case(vivarium, spec, work, signal.SIGTERM, left_behind)
@@ -217,7 +168,7 @@ def main() -> None:
     if status != 128 + signal.SIGTERM:
         sys.exit(f"SIGTERM: exit {status}, not 143")
     console = (work / "run-SIGTERM" / "console" / "one.log").read_text()
-    if POWERED_OFF[backend] not in console:
+    if POWERED_OFF not in console:
         sys.exit("SIGTERM: the guest did not power itself off")
     print("ok: SIGTERM powered the guest off before the run ended")
 
@@ -226,7 +177,7 @@ def main() -> None:
     if status != 128 + signal.SIGTERM:
         sys.exit(f"SIGTERM --no-control: exit {status}, not 143")
     console = (work / "run-SIGTERM--no-control" / "console" / "one.log").read_text()
-    if POWERED_OFF[backend] in console:
+    if POWERED_OFF in console:
         sys.exit("SIGTERM --no-control: the guest powered itself off, it was not killed")
     print("ok: SIGTERM with no control socket killed the guest")
 
