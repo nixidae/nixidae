@@ -25,14 +25,22 @@
 //! is an error. ROUTER is the path libkrun listens on for the relay, or
 //! `vsock:PORT` on the device. Every listener is bound before the device's
 //! socket appears.
+//!
+//! `--control=FD` is a stream socket whose other end the runner holds.
+//! Each message is one line, `add PROTO GUEST_ADDR:PORT ROUTER`, with one
+//! socket the runner bound (`SCM_RIGHTS`): a TCP listener or a UDP socket.
+//! The runner binds, so the bind is the claim of the port, and no other
+//! process takes it between a choice and a bind (nixidae/nixidae#1546).
+//! The egress answers each with one line, `ok` or `error WHY`. The end of
+//! the stream ends the egress.
 
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 #[cfg(all(target_os = "linux", feature = "vhost-user"))]
@@ -101,7 +109,8 @@ struct Outside {
     loopback: Vec<IpAddr>,
     maps: Vec<(SocketAddr, SocketAddr)>,
     outbound: Vec<IpAddr>,
-    forwards: Vec<Ports>,
+    /// Grows while the egress runs, as the runner sends listeners.
+    forwards: RwLock<Vec<Ports>>,
 }
 
 impl Outside {
@@ -112,6 +121,8 @@ impl Outside {
         network == Network::Uplink
             || !self
                 .forwards
+                .read()
+                .unwrap()
                 .iter()
                 .any(|ports| ports.hold(proto, dst, local))
     }
@@ -280,6 +291,145 @@ fn parse_port(text: &str) -> io::Result<u16> {
 type DeviceRef<'a> = Option<&'a Arc<vsock::Device>>;
 #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
 type DeviceRef<'a> = Option<&'a ()>;
+#[cfg(all(target_os = "linux", feature = "vhost-user"))]
+type Device = Option<Arc<vsock::Device>>;
+#[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
+type Device = Option<()>;
+
+/// The control socket's token in the `Poller`.
+const CONTROL: usize = usize::MAX;
+
+/// One control message: a socket the runner bound, and the guest port it reaches.
+struct Add {
+    proto: u8,
+    guest: SocketAddr,
+    router: String,
+}
+
+fn parse_add(line: &str) -> io::Result<Add> {
+    let bad = |why: &str| io::Error::other(format!("control {line:?}: {why}"));
+    let words: Vec<&str> = line.split(' ').collect();
+    let ["add", proto, guest, router] = words[..] else {
+        return Err(bad("not `add PROTO GUEST_ADDR:PORT ROUTER`"));
+    };
+    Ok(Add {
+        proto: match proto {
+            "tcp" => TCP,
+            "udp" => UDP,
+            _ => return Err(bad("not tcp or udp")),
+        },
+        guest: guest.parse().map_err(|_| bad("not a guest ADDR:PORT"))?,
+        router: router.to_owned(),
+    })
+}
+
+/// One line from the control socket, and the socket that came with it.
+/// `None` at the end of the stream: the runner is gone. The runner sends
+/// the next line only after the answer, so a read never takes two.
+fn recv_line(control: &UnixStream) -> io::Result<Option<(String, Option<OwnedFd>)>> {
+    let mut line = Vec::new();
+    let mut fd = None;
+    loop {
+        let mut buf = [0u8; 512];
+        // u64, for the alignment a cmsghdr needs.
+        let mut space = [0u64; 8];
+        let mut iov = libc::iovec {
+            iov_base: buf.as_mut_ptr().cast(),
+            iov_len: buf.len(),
+        };
+        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+        msg.msg_iov = &raw mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = space.as_mut_ptr().cast();
+        msg.msg_controllen = std::mem::size_of_val(&space) as _;
+        let n = unsafe { libc::recvmsg(control.as_raw_fd(), &raw mut msg, 0) };
+        if n < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        let mut header = unsafe { libc::CMSG_FIRSTHDR(&raw const msg) };
+        while !header.is_null() {
+            let cmsg = unsafe { &*header };
+            if cmsg.cmsg_level == libc::SOL_SOCKET && cmsg.cmsg_type == libc::SCM_RIGHTS {
+                let bytes = cmsg.cmsg_len as usize - unsafe { libc::CMSG_LEN(0) } as usize;
+                let data = unsafe { libc::CMSG_DATA(header) }.cast::<libc::c_int>();
+                for i in 0..bytes / std::mem::size_of::<libc::c_int>() {
+                    let raw = unsafe { data.add(i).read_unaligned() };
+                    // Owned at once, so a second one closes when dropped.
+                    let owned = unsafe { OwnedFd::from_raw_fd(raw) };
+                    if unsafe { libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    fd.get_or_insert(owned);
+                }
+            }
+            header = unsafe { libc::CMSG_NXTHDR(&raw const msg, header) };
+        }
+        if n == 0 {
+            return Ok(None);
+        }
+        line.extend_from_slice(&buf[..n as usize]);
+        if line.last() == Some(&b'\n') {
+            line.pop();
+            let line = String::from_utf8(line).map_err(io::Error::other)?;
+            return Ok(Some((line, fd)));
+        }
+    }
+}
+
+/// The socket `add` brings, as a listener the egress serves.
+fn adopt(add: &Add, fd: OwnedFd, router: usize) -> io::Result<(Listener, Ports)> {
+    let mut kind: libc::c_int = 0;
+    let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+    let rc = unsafe {
+        libc::getsockopt(
+            fd.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_TYPE,
+            (&raw mut kind).cast(),
+            &raw mut len,
+        )
+    };
+    if rc != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let wanted = if add.proto == UDP {
+        libc::SOCK_DGRAM
+    } else {
+        libc::SOCK_STREAM
+    };
+    if kind != wanted {
+        return Err(io::Error::other("the socket is not of the message's protocol"));
+    }
+    let (socket, local) = if add.proto == UDP {
+        let socket = UdpSocket::from(fd);
+        socket.set_nonblocking(true)?;
+        let local = socket.local_addr()?;
+        (Socket::Udp(Arc::new(socket)), local)
+    } else {
+        let socket = TcpListener::from(fd);
+        socket.set_nonblocking(true)?;
+        let local = socket.local_addr()?;
+        (Socket::Tcp(socket), local)
+    };
+    let ports = Ports {
+        proto: add.proto,
+        bind: local.ip(),
+        first: local.port(),
+        last: local.port(),
+    };
+    Ok((
+        Listener {
+            socket,
+            guest: add.guest,
+            router,
+        },
+        ports,
+    ))
+}
 
 fn parse_spec(text: &str) -> io::Result<Spec> {
     let bad = |why: &str| io::Error::other(format!("forward {text:?}: {why}"));
@@ -427,61 +577,53 @@ struct Poller {
 }
 
 impl Poller {
-    fn new(listeners: &[Listener]) -> io::Result<Self> {
+    fn new() -> io::Result<Self> {
         #[cfg(target_os = "linux")]
-        {
-            let epoll = unsafe { owned(libc::epoll_create1(libc::EPOLL_CLOEXEC))? };
-            for (index, listener) in listeners.iter().enumerate() {
-                let mut event = libc::epoll_event {
-                    events: libc::EPOLLIN as u32,
-                    u64: index as u64,
-                };
-                let rc = unsafe {
-                    libc::epoll_ctl(
-                        epoll.as_raw_fd(),
-                        libc::EPOLL_CTL_ADD,
-                        listener.fd(),
-                        &mut event,
-                    )
-                };
-                if rc != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-            }
-            Ok(Self { epoll })
-        }
+        let poller = Self {
+            epoll: unsafe { owned(libc::epoll_create1(libc::EPOLL_CLOEXEC))? },
+        };
         #[cfg(not(target_os = "linux"))]
-        {
-            let kqueue = unsafe { owned(libc::kqueue())? };
-            let changes: Vec<libc::kevent> = listeners
-                .iter()
-                .enumerate()
-                .map(|(index, listener)| libc::kevent {
-                    ident: listener.fd() as libc::uintptr_t,
-                    filter: libc::EVFILT_READ,
-                    flags: libc::EV_ADD,
-                    fflags: 0,
-                    data: 0,
-                    udata: index as *mut libc::c_void,
-                })
-                .collect();
-            for chunk in changes.chunks(1024) {
-                let rc = unsafe {
-                    libc::kevent(
-                        kqueue.as_raw_fd(),
-                        chunk.as_ptr(),
-                        chunk.len() as libc::c_int,
-                        std::ptr::null_mut(),
-                        0,
-                        std::ptr::null(),
-                    )
-                };
-                if rc != 0 {
-                    return Err(io::Error::last_os_error());
-                }
+        let poller = Self {
+            kqueue: unsafe { owned(libc::kqueue())? },
+        };
+        Ok(poller)
+    }
+
+    /// Wait on `fd` too; `wait` names it by `token`.
+    fn add(&mut self, fd: RawFd, token: usize) -> io::Result<()> {
+        #[cfg(target_os = "linux")]
+        let rc = {
+            let mut event = libc::epoll_event {
+                events: libc::EPOLLIN as u32,
+                u64: token as u64,
+            };
+            unsafe { libc::epoll_ctl(self.epoll.as_raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) }
+        };
+        #[cfg(not(target_os = "linux"))]
+        let rc = {
+            let change = libc::kevent {
+                ident: fd as libc::uintptr_t,
+                filter: libc::EVFILT_READ,
+                flags: libc::EV_ADD,
+                fflags: 0,
+                data: 0,
+                udata: token as *mut libc::c_void,
+            };
+            unsafe {
+                libc::kevent(
+                    self.kqueue.as_raw_fd(),
+                    &raw const change,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
             }
-            Ok(Self { kqueue })
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
         }
+        Ok(())
     }
 
     /// The indexes of the listeners that are readable.
@@ -560,8 +702,42 @@ fn open_udp(router: &Router, guest: SocketAddr) -> io::Result<Stream> {
     Ok(Stream::from(relay))
 }
 
-fn serve(listeners: Vec<Listener>, routers: Vec<Router>) -> io::Result<()> {
-    let mut poller = Poller::new(&listeners)?;
+/// Take the listener a control message brings: answered on the control
+/// socket, so a refused one costs the runner its answer and nothing else.
+fn take(
+    line: &str,
+    fd: Option<OwnedFd>,
+    listeners: &mut Vec<Listener>,
+    routers: &mut Vec<Router>,
+    poller: &mut Poller,
+    outside: &Outside,
+    device: DeviceRef,
+) -> io::Result<()> {
+    let add = parse_add(line)?;
+    let fd = fd.ok_or_else(|| io::Error::other("no socket came with the message"))?;
+    let relay = router(&add.router, device)?;
+    let (listener, ports) = adopt(&add, fd, routers.len())?;
+    poller.add(listener.fd(), listeners.len())?;
+    routers.push(relay);
+    outside.forwards.write().unwrap().push(ports);
+    listeners.push(listener);
+    Ok(())
+}
+
+fn serve(
+    mut listeners: Vec<Listener>,
+    mut routers: Vec<Router>,
+    control: Option<UnixStream>,
+    outside: Arc<Outside>,
+    device: Device,
+) -> io::Result<()> {
+    let mut poller = Poller::new()?;
+    for (index, listener) in listeners.iter().enumerate() {
+        poller.add(listener.fd(), index)?;
+    }
+    if let Some(control) = &control {
+        poller.add(control.as_raw_fd(), CONTROL)?;
+    }
     let flows: Flows = Arc::default();
     let mut next_id = 0u64;
     let mut ready = Vec::new();
@@ -569,6 +745,27 @@ fn serve(listeners: Vec<Listener>, routers: Vec<Router>) -> io::Result<()> {
     loop {
         poller.wait(&mut ready)?;
         for &index in &ready {
+            if let (CONTROL, Some(control)) = (index, &control) {
+                let Some((line, fd)) = recv_line(control)? else {
+                    // The runner is gone, and with it every guest this serves.
+                    std::process::exit(0);
+                };
+                let taken = take(
+                    &line,
+                    fd,
+                    &mut listeners,
+                    &mut routers,
+                    &mut poller,
+                    &outside,
+                    device.as_ref(),
+                );
+                let answer = match taken {
+                    Ok(()) => "ok\n".to_owned(),
+                    Err(err) => format!("error {err}\n"),
+                };
+                (&*control).write_all(answer.as_bytes())?;
+                continue;
+            }
             let listener = &listeners[index];
             let router = &routers[listener.router];
             let guest = listener.guest;
@@ -638,8 +835,20 @@ fn main() -> io::Result<()> {
     let mut outside = Outside::default();
     let mut args: Vec<String> = Vec::new();
     let mut networks: Vec<String> = Vec::new();
+    let mut control = None;
     for arg in env::args() {
-        if let Some(path) = arg.strip_prefix("--network=") {
+        if let Some(fd) = arg.strip_prefix("--control=") {
+            let fd: RawFd = fd
+                .parse()
+                .map_err(|err| io::Error::other(format!("{arg}: {err}")))?;
+            if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+                return Err(io::Error::other(format!(
+                    "{arg}: {}",
+                    io::Error::last_os_error()
+                )));
+            }
+            control = Some(unsafe { UnixStream::from_raw_fd(fd) });
+        } else if let Some(path) = arg.strip_prefix("--network=") {
             networks.push(path.to_owned());
         } else if let Some(map) = arg.strip_prefix("--map=") {
             let (from, to) = map
@@ -663,7 +872,7 @@ fn main() -> io::Result<()> {
         }
     }
     let path = args.get(1).ok_or_else(|| {
-        io::Error::other("usage: egress LISTEN_PATH|vhost-user:SOCKET [GATEWAY [FORWARD...]] [--loopback=ADDR] [--map=FROM=TO] [--outbound=ADDR] [--network=PATH]")
+        io::Error::other("usage: egress LISTEN_PATH|vhost-user:SOCKET [GATEWAY [FORWARD...]] [--loopback=ADDR] [--map=FROM=TO] [--outbound=ADDR] [--network=PATH] [--control=FD]")
     })?;
     if let Some(gateway) = args.get(2) {
         outside
@@ -674,7 +883,7 @@ fn main() -> io::Result<()> {
         .iter()
         .map(|spec| parse_spec(spec))
         .collect::<io::Result<Vec<_>>>()?;
-    outside.forwards = specs.iter().map(|spec| spec.ports).collect();
+    outside.forwards = RwLock::new(specs.iter().map(|spec| spec.ports).collect());
     let outside = Arc::new(outside);
     // vhost-user:SOCKET serves the router's vsock device on SOCKET.
     #[cfg(all(target_os = "linux", feature = "vhost-user"))]
@@ -686,15 +895,16 @@ fn main() -> io::Result<()> {
     let device_ref = device.as_ref().map(|(device, _)| device);
     #[cfg(not(all(target_os = "linux", feature = "vhost-user")))]
     let device_ref = None;
-    if !specs.is_empty() {
+    if !specs.is_empty() || control.is_some() {
         raise_nofile()?;
         let listeners = bind_all(&specs)?;
         let routers = specs
             .iter()
             .map(|spec| router(&spec.router, device_ref))
             .collect::<io::Result<Vec<_>>>()?;
+        let (outside, device) = (outside.clone(), device_ref.cloned());
         thread::spawn(move || {
-            if let Err(err) = serve(listeners, routers) {
+            if let Err(err) = serve(listeners, routers, control, outside, device) {
                 eprintln!("egress: forwards: {err}");
                 std::process::exit(1);
             }
@@ -721,8 +931,9 @@ fn main() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Network, Outside, Ports, Router, parse_spec, router};
+    use super::{Network, Outside, Ports, Router, parse_add, parse_spec, router};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+    use std::sync::RwLock;
     use vivarium_egress::{ICMP, TCP, UDP};
 
     fn at(text: &str) -> SocketAddr {
@@ -746,6 +957,23 @@ mod tests {
         }
     }
 
+    // The line `start_egress` in vivarium-runner's backends/host.py sends.
+    #[test]
+    fn a_control_add_parses() {
+        let add = parse_add("add udp 10.0.2.16:53 /run/relay.sock").unwrap();
+        assert_eq!(add.proto, UDP);
+        assert_eq!(add.guest, at("10.0.2.16:53"));
+        assert_eq!(add.router, "/run/relay.sock");
+        for bad in [
+            "add sctp 10.0.2.16:53 /r",
+            "add tcp 10.0.2.16 /r",
+            "add tcp 10.0.2.16:53",
+            "remove tcp 10.0.2.16:53 /r",
+        ] {
+            assert!(parse_add(bad).is_err(), "{bad}");
+        }
+    }
+
     #[test]
     fn a_range_with_no_protocol_or_address_is_tcp_on_localhost() {
         let spec = parse_spec("8080-8082=10.0.2.15:80@/r").unwrap();
@@ -761,10 +989,12 @@ mod tests {
 
     fn outside(forwards: &[&str]) -> Outside {
         Outside {
-            forwards: forwards
-                .iter()
-                .map(|text| parse_spec(text).unwrap().ports)
-                .collect(),
+            forwards: RwLock::new(
+                forwards
+                    .iter()
+                    .map(|text| parse_spec(text).unwrap().ports)
+                    .collect(),
+            ),
             ..Outside::default()
         }
     }
@@ -813,11 +1043,12 @@ mod tests {
         // 192.0.2.0/24 is TEST-NET-1: no host holds it.
         assert!(v4.allows(Network::Data, TCP, at("192.0.2.1:8080")));
         // FORWARD has no IPv6 host address.
+        let first = v4.forwards.read().unwrap()[0];
         let v6 = Outside {
-            forwards: vec![Ports {
+            forwards: RwLock::new(vec![Ports {
                 bind: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-                ..v4.forwards[0]
-            }],
+                ..first
+            }]),
             ..Outside::default()
         };
         assert!(!v6.allows(Network::Data, TCP, at("[::1]:8080")));
