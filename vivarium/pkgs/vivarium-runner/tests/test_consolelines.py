@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 import socket
 from collections.abc import Awaitable, Callable
@@ -27,7 +28,9 @@ async def pumped(console: ConsoleLines, *chunks: bytes) -> None:
         console.start(tasks, stream, "console")
         with guest:
             for chunk in chunks:
-                guest.sendall(chunk)
+                # In a thread: a chunk past the socket's buffer blocks until the pump reads, and
+                # a macOS socketpair's buffer is smaller than LINE_LIMIT (it hung, 2026-11-19).
+                await anyio.to_thread.run_sync(functools.partial(guest.sendall, chunk))
         await console.drained()
     await stream.aclose()
 

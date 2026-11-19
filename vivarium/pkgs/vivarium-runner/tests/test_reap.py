@@ -36,6 +36,9 @@ time.sleep(60)
 """
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "pidfd_open"), reason="waits on a process that is not its child through a pidfd: Linux only"
+)
 def test_the_guest_pid_outside_the_group_is_reaped(tmp_path: Path) -> None:
     pid_file = tmp_path / "pid"
 
