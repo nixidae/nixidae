@@ -258,7 +258,9 @@ The way in is in `--out`, written before any guest boots:
 - `access.json`: each guest's ssh address and forwards. The runner picks
   each guest's forward address when the run starts (`127.0.0.2`
   upwards), so read it from here.
-- `ssh_config`: `ssh -F <out>/ssh_config <guest>`. The root password is
+- `ssh_config`: `ssh -F <out>/ssh_config <guest>`, for a guest whose
+  `vivarium.inbound` lists `{ guest = config.vivarium.sshPort; }`; no
+  guest forwards ssh unless it asks. The root password is
   `vivarium.rootPassword` (`uml` by default).
 - `access/`: what a phase writes for the host, through `vms.access`.
   `vivarium_k8s.bring_up` writes `access/kubeconfig` there when the
