@@ -22,8 +22,6 @@ LAB, OTHER = "lab", "other"
 LAB_ROUTER = "10.9.0.1"
 GATEWAY, GATEWAY6 = "10.0.2.2", "fd00:10:0:2::2"
 TCP, UDP = 7777, 7778
-FORWARD_TCP, FORWARD_UDP = 47777, 47778
-"""`m`'s forwards of `TCP` and `UDP` on the host's 127.0.0.1, in default.nix."""
 UPLINK_RELAY, LAB_RELAY, OTHER_RELAY = 9000, 9002, 9004
 RAW = 253
 """An IP protocol for experiments (RFC 3692): no rule on the router names it."""
@@ -157,7 +155,10 @@ async def test(vms: Machines) -> None:
 
     # The control: d on the uplink reaches m's forwards through the gateway.
     for udp in (False, True):
-        port = FORWARD_UDP if udp else FORWARD_TCP
+        # The host port of m's forward is the runner's to say: a build binds
+        # any free one (nixidae/nixidae#1546).
+        [where] = m.reachable(UDP if udp else TCP)
+        port = int(where.rpartition(":")[2])
         got = await probe(d, GATEWAY, port, "vec0", udp)
         if got != m.name:
             raise AssertionError(f"d: m's forward {GATEWAY}:{port}{'/udp' if udp else ''} on the uplink said {got!r}")

@@ -219,6 +219,7 @@ def run_argv(
     only: list[str],
     offline: bool,
     pytest_args: list[str],
+    random_ports: bool = False,
     runner: Path | None = None,
     kernel: str | dict[str, str] | None = None,
     cpus: int | dict[str, int] | None = None,
@@ -247,6 +248,8 @@ def run_argv(
         argv.append("--break-on-failure")
     if offline:
         argv.append("--offline")
+    if random_ports:
+        argv.append("--random-ports")
     if hold:
         argv.append("--hold")
     argv += kernel_flags(kernel)
@@ -701,6 +704,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         break_on_failure: bool = True,
         only: list[str] | None = None,
         offline: bool = False,
+        random_ports: bool = True,
         pytest_args: list[str] | None = None,
         env: dict[str, str] | None = None,
         kernel: str | dict[str, str] | None = None,
@@ -721,6 +725,8 @@ def build(runs_holder: list[Runs]) -> FastMCP:
         `cpus` is a processor count, `cpu_scale` a share of the host's
         cores (0.5 is half); a number is every guest, `{"db": 8}` one
         guest. Either replaces `vivarium.cpus` for this run.
+        `random_ports` binds each forward on any free host port, so runs
+        beside other agents' never collide; `access.json` names the ports.
         `hold` runs it as an environment: once every phase passed it is
         `ready`, its guests stay up, and `stop` ends it with its verdict;
         `<out>/access.json` and `<out>/ssh_config` are the way in.
@@ -742,6 +748,7 @@ def build(runs_holder: list[Runs]) -> FastMCP:
             only=only or [],
             offline=offline,
             pytest_args=pytest_args or [],
+            random_ports=random_ports,
             runner=Path(written["vivarium"]) if written.get("vivarium") else None,
             kernel=kernel,
             cpus=cpus,

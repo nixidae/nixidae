@@ -266,6 +266,14 @@ def add_run_options(add: Callable[..., argparse.Action]) -> None:
         help=("give the guests no way off this host, the way a sandboxed check has none"),
     )
     add(
+        "--random-ports",
+        action="store_true",
+        help=(
+            "bind every forward through an egress on any free host port, as a build does;"
+            " without it a forward's port that another process holds fails the boot"
+        ),
+    )
+    add(
         "--keep",
         action="store_true",
         help="remove nothing at the end: guest disks, sockets, the run directory",
@@ -431,6 +439,7 @@ async def run(args: argparse.Namespace) -> int:
         spec,
         args.out,
         offline=args.offline,
+        random_ports=args.random_ports,
         sink=sink,
         pytest_args=args.pytest_args,
         kernel=kernels_of(args),

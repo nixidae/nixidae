@@ -296,6 +296,12 @@ class MachineSpec:
         unless its uplink joins a segment."""
         return self.router or (self.uplink_proxy == UplinkProxy.VSOCK and self.uplink is None)
 
+    @property
+    def forwards_through_egress(self) -> bool:
+        """An egress binds this guest's forwards: its router's, or its own as a
+        `vsock` guest. The router has none of its own (modules/router.nix)."""
+        return self.uplink_address is not None or (self.vsock and not self.router)
+
     @classmethod
     def from_json(cls, data: MachineSpecJson) -> MachineSpec:
         store_paths = data.get("storePaths")

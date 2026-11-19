@@ -27,7 +27,7 @@ mkTest {
     { config, ... }:
     {
       imports = [ answer ];
-      # FORWARD_TCP and FORWARD_UDP in router-network.py.
+      # A build binds any free host port; router-network.py asks `reachable`.
       vivarium.forward = [
         { ports = [ config.vivarium.sshPort ]; }
         {

@@ -230,6 +230,7 @@ class Session:
         out: Path,
         *,
         offline: bool = False,
+        random_ports: bool = False,
         sink: Sink | None = None,
         pytest_args: list[str] | None = None,
         kernel: PerGuest[Path] | None = None,
@@ -241,6 +242,7 @@ class Session:
         self.cpus = cpus
         self.out = out
         self.offline = offline
+        self.random_ports = random_ports
         self.sink = sink
         # Added to every pytest phase's own `args`: `vivarium run ... -- -k x`.
         self.pytest_args = pytest_args or []
@@ -549,6 +551,7 @@ class Session:
             artifacts=self._guest_artifacts(one.name),
             recorder=self.report,
             offline=self.offline,
+            random_ports=self.random_ports,
             on_console=self._console,
             on_command=self._command,
             on_say=self._say,

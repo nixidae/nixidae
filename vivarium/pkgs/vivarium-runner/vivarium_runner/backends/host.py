@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import socket
 import subprocess
@@ -153,20 +154,46 @@ RELAY_IN_PORT = 5001
 """Where the router's relay takes forwards in: its IN_PORT, in modules/router.nix."""
 
 
-def egress_args(machine: Machine, relay: str) -> list[str]:
-    """The egress's options and forwards for *machine*, whose relay is at
-    *relay*: a router's for each of its guests' rules, a `vsock` guest's
-    for its own."""
+def egress_args(machine: Machine) -> list[str]:
+    """The egress's options for *machine*'s uplink."""
+    return forward.egress_uplink_args(machine.spec.uplink_network, machine.offline)
+
+
+def egress_adds(machine: Machine, relay: str) -> list[forward.Add]:
+    """The sockets *machine*'s egress serves, whose relay is at *relay*: a
+    router's for each of its guests, a `vsock` guest's for itself."""
     guests = machine.routed if machine.spec.router else (machine,)
     return [
-        *forward.egress_uplink_args(machine.spec.uplink_network, machine.offline),
-        *(
-            arg
-            for guest in guests
-            if (address := guest.uplink_ip) is not None
-            for arg in forward.egress_args(guest.forward, address, relay)
-        ),
+        add
+        for guest in guests
+        if (address := guest.uplink_ip) is not None
+        for add in forward.egress_adds(guest.claims, address, relay)
     ]
+
+
+EGRESS_ANSWER = 10.0
+"""Seconds the egress has to answer one control message."""
+
+
+def _hand_over(control: socket.socket, adds: list[forward.Add]) -> None:
+    """Send the egress each claimed socket and wait for its answer: the
+    next goes only after it, so one read on the far side is one message."""
+    control.settimeout(EGRESS_ANSWER)
+    try:
+        for add in adds:
+            socket.send_fds(control, [add.line()], [add.claim.sock.fileno()])
+            answer = b""
+            while not answer.endswith(b"\n"):
+                chunk = control.recv(512)
+                if not chunk:
+                    raise BackendError(f"the egress ended before it answered {add.line().decode().strip()!r}")
+                answer += chunk
+            if answer != b"ok\n":
+                raise BackendError(f"the egress refused {add.line().decode().strip()!r}: {answer.decode().strip()}")
+    except TimeoutError as error:
+        raise BackendError(f"the egress did not answer in {EGRESS_ANSWER:g}s") from error
+    finally:
+        control.settimeout(None)
 
 
 async def start_egress(
@@ -176,34 +203,48 @@ async def start_egress(
     listen: str,
     ready: Path,
     args: list[str],
+    adds: list[forward.Add],
     helpers: list[subprocess.Popen[bytes]],
-) -> None:
-    """Start the router's egress on *listen*, into *helpers*, and wait until *ready* exists.
+) -> socket.socket:
+    """Start the router's egress on *listen*, into *helpers*, wait until
+    *ready* exists, and hand it *adds*: the control socket.
 
-    The egress binds every forward before it binds *ready*, and maps the
-    uplink's *gateway* to the host's loopback.
+    The egress maps the uplink's *gateway* to the host's loopback. It ends
+    when the control socket closes, so the caller keeps it for as long as
+    the egress serves.
     """
     if egress is None:
         raise BackendError("the router needs egress in vivarium.launch.config")
     log = rundir / "egress.log"
-    with log.open("wb") as handle:
-        proc = subprocess.Popen(
-            [str(egress), listen, gateway, *args],
-            stdin=subprocess.DEVNULL,
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            preexec_fn=die_with_parent,
-        )
-    helpers.append(proc)
-    # A poll: the egress says nothing when it listens.
-    with anyio.move_on_after(10):
-        while not ready.exists():
-            if proc.poll() is not None:
-                raise BackendError(f"the egress exited ({proc.returncode}):\n{log_tail(log)}")
-            await anyio.sleep(0.02)
-        return
-    raise BackendError(f"the egress did not listen on {ready}:\n{log_tail(log)}")
+    control, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        with child, log.open("wb") as handle:
+            proc = subprocess.Popen(
+                [str(egress), listen, gateway, *args, f"--control={child.fileno()}"],
+                stdin=subprocess.DEVNULL,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                preexec_fn=die_with_parent,
+                pass_fds=(child.fileno(),),
+            )
+        helpers.append(proc)
+        # A poll: the egress says nothing when it listens.
+        with anyio.move_on_after(10) as waited:
+            while not ready.exists():
+                if proc.poll() is not None:
+                    raise BackendError(f"the egress exited ({proc.returncode}):\n{log_tail(log)}")
+                await anyio.sleep(0.02)
+        if waited.cancelled_caught:
+            raise BackendError(f"the egress did not listen on {ready}:\n{log_tail(log)}")
+        try:
+            await anyio.to_thread.run_sync(functools.partial(_hand_over, control, adds))
+        except BackendError as error:
+            raise BackendError(f"{error}\n{log_tail(log)}") from error
+    except BaseException:
+        control.close()
+        raise
+    return control
 
 
 async def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:

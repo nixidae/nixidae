@@ -991,7 +991,7 @@ rec {
             # A dependency, so a sandbox that cannot run a container guest
             # fails there, in seconds and by name, before this boots one.
             ${lib.optionalString (probe != null) ''cp ${probe} "$out/probe"''}
-            ${vivarium} run --spec ${spec} --out "$out" --no-control || true
+            ${vivarium} run --spec ${spec} --out "$out" --no-control --random-ports || true
             test -f "$out/status" || echo 1 > "$out/status"
           '';
     in

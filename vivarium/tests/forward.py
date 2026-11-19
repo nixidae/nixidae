@@ -11,8 +11,8 @@ The three things worth guarding, in order of how quietly they break:
 
   * a listed port bound in the guest after boot is reachable: passt and
     the egress listen on it from the start;
-  * a privileged port is reachable at its offset, because nothing here
-    may bind below `net.ipv4.ip_unprivileged_port_start`;
+  * a privileged guest port is reachable at a host port anyone may bind,
+    because nothing here may bind below `net.ipv4.ip_unprivileged_port_start`;
   * a port nobody listed is *not* reachable, and says so rather than
     appearing to work.
 """
@@ -81,13 +81,16 @@ async def test(vms: Machines) -> None:
     for port in (PLAIN, PRIVILEGED, UNLISTED):
         await serve(vm, port)
 
+    # The host port is the runner's to say: a build binds any free one
+    # (nixidae/nixidae#1546). The offset rule is test_forward.py's.
     where = vm.reachable(PLAIN)
-    assert where == [f"{address}:{PLAIN}"], where
+    assert len(where) == 1 and where[0].startswith(f"{address}:"), where
     assert await fetch(where[0]) == PAGE
     print(f"[test] port bound after boot answers on {where[0]}")
 
     where = vm.reachable(PRIVILEGED)
-    assert where == [f"{address}:{PRIVILEGED + 10000}"], where
+    assert len(where) == 1 and where[0].startswith(f"{address}:"), where
+    assert int(where[0].rpartition(":")[2]) >= 1024, where
     assert await fetch(where[0]) == PAGE
     print(f"[test] privileged {PRIVILEGED} answers on {where[0]}")
 

@@ -22,6 +22,7 @@ from .base import BackendError, Launch, Stop, config_maybe_path, config_path, la
 from .host import (
     RELAY_IN_PORT,
     abandon,
+    egress_adds,
     egress_args,
     log_tail,
     memory_bytes,
@@ -282,9 +283,16 @@ class Krun:
                 # A reboot finds the last boot's sockets, and neither side binds over one.
                 for path in (listen, relay, *networks.values()):
                     path.unlink(missing_ok=True)
-                args = [*egress_args(machine, str(relay)), *(f"--network={path}" for path in networks.values())]
-                await start_egress(
-                    config.egress, rundir, spec.uplink_network.gateway, str(listen), listen, args, helpers
+                args = [*egress_args(machine), *(f"--network={path}" for path in networks.values())]
+                machine.egress_control = await start_egress(
+                    config.egress,
+                    rundir,
+                    spec.uplink_network.gateway,
+                    str(listen),
+                    listen,
+                    args,
+                    egress_adds(machine, str(relay)),
+                    helpers,
                 )
                 uplink = [
                     f"--vsock={RELAY_PORT},{listen}",

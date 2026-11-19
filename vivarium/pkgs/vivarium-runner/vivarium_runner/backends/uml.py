@@ -17,7 +17,16 @@ from ..boot import RootFormat
 from ..capability import Controls
 from ..store import BoundStore
 from .base import BackendError, Launch, Stop, config_maybe_path, config_path, launch_config, with_boot_image
-from .host import RELAY_IN_PORT, abandon, egress_args, memory_bytes, memory_file_kib, socket_dir, start_egress
+from .host import (
+    RELAY_IN_PORT,
+    abandon,
+    egress_adds,
+    egress_args,
+    memory_bytes,
+    memory_file_kib,
+    socket_dir,
+    start_egress,
+)
 
 if TYPE_CHECKING:
     from ..boot import Boot, Kernel, Root
@@ -259,11 +268,17 @@ class Uml:
             # vhost-user device the egress serves (E7). The kernel connects
             # at boot and fails if nothing listens yet.
             device = uml_dir / "vsock.sock"
-            args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
             notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
             try:
-                await start_egress(
-                    config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args, helpers
+                machine.egress_control = await start_egress(
+                    config.egress,
+                    rundir,
+                    spec.uplink_network.gateway,
+                    f"vhost-user:{device}",
+                    device,
+                    egress_args(machine),
+                    egress_adds(machine, f"vsock:{RELAY_IN_PORT}"),
+                    helpers,
                 )
             except BaseException:
                 abandon(helpers, ())

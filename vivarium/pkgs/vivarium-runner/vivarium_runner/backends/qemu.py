@@ -32,6 +32,7 @@ from .host import (
     RELAY_IN_PORT,
     abandon,
     alive,
+    egress_adds,
     egress_args,
     log_tail,
     memory_file_kib,
@@ -355,9 +356,15 @@ class Qemu:
             # leaves the socket.
             device = sockets / "vsock"
             device.unlink(missing_ok=True)
-            args = egress_args(machine, f"vsock:{RELAY_IN_PORT}")
-            await start_egress(
-                config.egress, rundir, spec.uplink_network.gateway, f"vhost-user:{device}", device, args, helpers
+            machine.egress_control = await start_egress(
+                config.egress,
+                rundir,
+                spec.uplink_network.gateway,
+                f"vhost-user:{device}",
+                device,
+                egress_args(machine),
+                egress_adds(machine, f"vsock:{RELAY_IN_PORT}"),
+                helpers,
             )
             uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
             notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)

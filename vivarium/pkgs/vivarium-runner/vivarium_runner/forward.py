@@ -15,6 +15,7 @@ guest nor the rule.
 
 from __future__ import annotations
 
+import errno
 import ipaddress
 import itertools
 import os
@@ -22,7 +23,7 @@ import socket
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TypedDict
+from typing import Final, TypedDict
 
 from . import sysctl
 from .spec import closed
@@ -186,6 +187,97 @@ def _bind(address: str, port: int) -> socket.socket:
     return sock
 
 
+# ── claims: the runner binds what the egress serves ────────────────
+
+
+@dataclass(frozen=True)
+class Claim:
+    """A host socket the runner bound for one guest port.
+
+    The bind is the claim: nothing else takes the port between a choice
+    and the egress's start (nixidae/nixidae#1546). The runner keeps the
+    socket for the guest's life and gives each egress it starts a copy.
+    """
+
+    protocol: str
+    sock: socket.socket
+    guest: int
+
+
+_RANDOM_TRIES: Final = 32
+"""Binds of one random port before giving up. A port the kernel picked
+for one protocol can be taken for another; each try is a new pick."""
+
+
+def _listen(protocol: str, address: str, port: int) -> socket.socket:
+    """*protocol* bound on *address*:*port*; a TCP one listens."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM if protocol == "tcp" else socket.SOCK_DGRAM)
+    try:
+        if protocol == "tcp":
+            # As the egress's own listeners: a TIME_WAIT leftover is no
+            # collision. A port another socket listens on still is.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((address, port))
+        if protocol == "tcp":
+            sock.listen(socket.SOMAXCONN)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
+def _claim_port(address: str, protocols: tuple[str, ...], port: int | None) -> tuple[int, list[Claim]]:
+    """One host port on *address* for each of *protocols*, the same number
+    for all: *port*, or any free one when it is None."""
+    for _ in range(_RANDOM_TRIES if port is None else 1):
+        claims: list[Claim] = []
+        try:
+            chosen = port or 0
+            for protocol in protocols:
+                sock = _listen(protocol, address, chosen)
+                chosen = sock.getsockname()[1]
+                claims.append(Claim(protocol, sock, guest=0))
+            return chosen, claims
+        except OSError as error:
+            for held in claims:
+                held.sock.close()
+            if port is not None:
+                if error.errno == errno.EADDRINUSE:
+                    raise ForwardError(
+                        f"cannot forward port {port} on {address}: {address}:{port} is already bound"
+                    ) from error
+                raise ForwardError(f"cannot forward port {port} on {address}: {error}") from error
+            if error.errno != errno.EADDRINUSE:
+                raise ForwardError(f"cannot forward a port on {address}: {error}") from error
+    raise ForwardError(f"no host port on {address} free for {', '.join(protocols)} after {_RANDOM_TRIES} tries")
+
+
+def claim(rules: list[Rule], *, random: bool) -> tuple[list[Rule], list[Claim]]:
+    """Bind every port of *rules*, after :func:`resolve`: the rules as
+    bound, and the sockets. *random* binds any free port in place of the
+    one each rule names: a build's choice, where nobody outside reaches a
+    port and macOS builds share one loopback."""
+    bound: list[Rule] = []
+    claims: list[Claim] = []
+    try:
+        for rule in rules:
+            if rule.address is None:
+                raise ForwardError(f"forward of {rule.ports} has no address: claim() runs after resolve()")
+            ports: list[PortMap] = []
+            for port in rule.ports:
+                if port.host is None:
+                    raise ForwardError("claim() gets a host port for every guest port; resolve() picks them")
+                host, bound_now = _claim_port(rule.address, rule.protocols, None if random else port.host)
+                claims += [replace(one, guest=port.guest) for one in bound_now]
+                ports.append(replace(port, host=host))
+            bound.append(replace(rule, ports=tuple(ports)))
+    except BaseException:
+        for held in claims:
+            held.sock.close()
+        raise
+    return bound, claims
+
+
 def _probe(address: str, ports: list[int]) -> int | None:
     """The first of *ports* that will not bind on *address*, if any."""
     held: list[socket.socket] = []
@@ -343,23 +435,26 @@ def to_args(rules: list[Rule]) -> list[str]:
     return [arg for rule in rules for protocol in rule.protocols for arg in (flags[protocol], _spec(rule))]
 
 
-# ── egress arguments, for a guest behind the router ────────────────
+# ── what the egress takes, for a guest behind it ───────────────────
 
 
-def egress_args(rules: list[Rule], guest_address: str, router: str) -> list[str]:
-    """The egress's FORWARD arguments for one guest: one host port each."""
-    args: list[str] = []
-    for rule in rules:
-        if rule.address is None:
-            raise ForwardError("egress_args() runs after resolve()")
-        for port in rule.ports:
-            if port.host is None:
-                raise ForwardError("the egress gets a host port for every guest port; resolve() picks them")
-            args += [
-                f"{protocol}/{rule.address}:{port.host}={guest_address}:{port.guest}@{router}"
-                for protocol in rule.protocols
-            ]
-    return args
+@dataclass(frozen=True)
+class Add:
+    """One claimed socket for the egress, and where its flows go."""
+
+    claim: Claim
+    guest_address: str
+    router: str
+
+    def line(self) -> bytes:
+        """The control message the socket travels with (`egress.rs`, `parse_add`)."""
+        return f"add {self.claim.protocol} {self.guest_address}:{self.claim.guest} {self.router}\n".encode()
+
+
+def egress_adds(claims: list[Claim], guest_address: str, router: str) -> list[Add]:
+    """What the egress takes for one guest: each claimed socket, reaching
+    its guest port at *guest_address* through *router*."""
+    return [Add(one, guest_address, router) for one in claims]
 
 
 def reachable(rules: list[Rule], guest_port: int) -> list[str]:

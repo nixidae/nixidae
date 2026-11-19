@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from .. import container, forward
 from ..store import ContainerStore
 from .base import BackendError, Launch, Stop, config_maybe_path, config_path, launch_config
-from .host import abandon, egress_args, memory_bytes, processes_pss_kib, socket_dir, start_egress
+from .host import abandon, egress_adds, egress_args, memory_bytes, processes_pss_kib, socket_dir, start_egress
 
 if TYPE_CHECKING:
     from ..boot import Boot
@@ -195,13 +195,14 @@ class Container:
         if spec.vsock:
             listen, relay = agent_dir / EGRESS_SOCKET, agent_dir / RELAY_SOCKET
             try:
-                await start_egress(
+                machine.egress_control = await start_egress(
                     config.egress,
                     rundir,
                     spec.uplink_network.gateway,
                     str(listen),
                     listen,
-                    egress_args(machine, str(relay)),
+                    egress_args(machine),
+                    egress_adds(machine, str(relay)),
                     helpers,
                 )
             except BaseException:

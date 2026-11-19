@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
 import socket
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import cast
 
 import pytest
 from vivarium_runner import Machine, MachineError, forward
 from vivarium_runner.forward import ForwardError, PortMap, Rule, UplinkNetwork
+from vivarium_runner.machine_spec import MachineSpec
 
 FIRST = "127.0.0.2" if sys.platform == "linux" else forward.SHARED_LOOPBACK
 """The address `resolve` gives a run's first guest."""
@@ -94,26 +98,38 @@ def test_each_guest_gets_a_loopback_address_no_other_guest_has() -> None:
     assert first.ports == second.ports == (PortMap(port, port),)
 
 
+@dataclass(frozen=True)
+class _Spec:
+    """The one field of a `MachineSpec` that `resolve_forward` reads."""
+
+    forwards_through_egress: bool
+
+
 class Forwarding(Machine):
     """A machine with forwards and nothing else."""
 
-    def __init__(self, rules: list[Rule]) -> None:
+    def __init__(self, rules: list[Rule], *, egress: bool = False) -> None:
         self.forward = rules
         self.on_console = None
+        self.spec = cast(MachineSpec, _Spec(forwards_through_egress=egress))
+        self.random_ports = False
+        self.claims = []
 
     @property
     def name(self) -> str:
         return "web"
 
 
-def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name() -> None:
+@pytest.mark.parametrize("egress", [False, True], ids=["probed", "claimed"])
+def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name(egress: bool) -> None:
     """`Session.prepare` reports a `MachineError` as a failed boot; a bare
-    `ForwardError` ended the run as a traceback (nixidae/nixidae#1335)."""
+    `ForwardError` ended the run as a traceback (nixidae/nixidae#1335). A
+    forward through an egress fails at its claim, a passt one at its probe."""
     port = free_port_above(FIRST, 22000)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
         holder.bind((FIRST, port))
         holder.listen()
-        vm = Forwarding([Rule(address=FIRST, ports=(PortMap(port, port),))])
+        vm = Forwarding([Rule(address=FIRST, ports=(PortMap(port, port),))], egress=egress)
         escaped = FIRST.replace(".", r"\.")
         with pytest.raises(
             MachineError, match=rf"^\[web\] forward: cannot forward .*{escaped}:{port} is already bound"
@@ -121,21 +137,61 @@ def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name() -> None:
             vm.resolve_forward(set())
 
 
-def test_the_egress_gets_one_port_each() -> None:
-    rule = Rule(address="127.0.0.3", ports=(PortMap(14325, 22), PortMap(8080, 8080)), protocols=("tcp", "udp"))
-    assert forward.egress_args([rule], "10.0.2.16", "vsock:5001") == [
-        "tcp/127.0.0.3:14325=10.0.2.16:22@vsock:5001",
-        "udp/127.0.0.3:14325=10.0.2.16:22@vsock:5001",
-        "tcp/127.0.0.3:8080=10.0.2.16:8080@vsock:5001",
-        "udp/127.0.0.3:8080=10.0.2.16:8080@vsock:5001",
-    ]
+def test_a_claim_holds_its_port_until_it_is_closed() -> None:
+    """The bind is the claim: while it lives, a second bind of the port
+    fails, on macOS too, where SO_REUSEADDR is looser (nixidae/nixidae#1546)."""
+    port = free_port_above(FIRST, 23000)
+    rules = [Rule(address=FIRST, ports=(PortMap(port, 22),))]
+    [rule], [held] = forward.claim(rules, random=False)
+    assert rule.ports == (PortMap(port, 22),)
+    assert (held.protocol, held.guest, held.sock.getsockname()) == ("tcp", 22, (FIRST, port))
+    with pytest.raises(ForwardError, match=rf"{re.escape(FIRST)}:{port} is already bound"):
+        forward.claim(rules, random=False)
+    held.sock.close()
+    _, [again] = forward.claim(rules, random=False)
+    again.sock.close()
+
+
+def test_random_claims_of_one_port_get_one_number_each() -> None:
+    """Two runs that both want 4325 both start; TCP and UDP of one forward share a number."""
+    rules = [Rule(address=FIRST, ports=(PortMap(4325, 22),), protocols=("tcp", "udp"))]
+    [first], held = forward.claim(rules, random=True)
+    [second], more = forward.claim(rules, random=True)
+    try:
+        ours, theirs = first.ports[0].host, second.ports[0].host
+        assert ours != theirs
+        assert [(one.protocol, one.sock.getsockname()[1], one.guest) for one in held] == [
+            ("tcp", ours, 22),
+            ("udp", ours, 22),
+        ]
+    finally:
+        for one in (*held, *more):
+            one.sock.close()
+
+
+def test_a_failed_claim_lets_go_of_what_it_bound() -> None:
+    port = free_port_above(FIRST, 24000)
+    taken = free_port_above(FIRST, port + 1)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+        holder.bind((FIRST, taken))
+        holder.listen()
+        with pytest.raises(ForwardError, match=rf":{taken} is already bound"):
+            forward.claim([Rule(address=FIRST, ports=(PortMap(port, 1), PortMap(taken, 2)))], random=False)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((FIRST, port))
+
+
+def test_the_egress_line_names_the_guest_port() -> None:
+    """The line `parse_add` reads (`a_control_add_parses` in vivarium-egress)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        add = forward.egress_adds([forward.Claim("udp", sock, 53)], "10.0.2.16", "vsock:5001")
+        assert [one.line() for one in add] == [b"add udp 10.0.2.16:53 vsock:5001\n"]
 
 
 def test_a_privileged_port_reaches_the_guest_at_its_offset() -> None:
-    """Where `reachable` points is what the egress binds."""
+    """Where `reachable` points is the port the runner claims."""
     [rule], notes = forward.resolve([Rule(address="127.0.0.3", ports=(PortMap(80, 80),))], taken=set(), start=1024)
     assert forward.reachable([rule], 80) == ["127.0.0.3:10080"]
-    assert forward.egress_args([rule], "10.0.2.15", "vsock:5001") == ["tcp/127.0.0.3:10080=10.0.2.15:80@vsock:5001"]
     assert notes == ["127.0.0.3: host port 80 needs privileges we do not have; forwarding 10080 -> guest 80 instead"]
 
 

@@ -144,6 +144,7 @@ class Machine:
         command_timeout: float = 120,
         recorder: report.Report | None = None,
         offline: bool = False,
+        random_ports: bool = False,
         on_console: Callable[[str, str], None] | None = None,
         on_command: Callable[[str, str, float, dict[str, object]], None] | None = None,
         on_say: Callable[[str, str], None] | None = None,
@@ -170,10 +171,18 @@ class Machine:
         # image runs either way. A sandboxed run is offline whatever this
         # says, because the sandbox has no network for passt to use.
         self.offline = offline
+        # Every forward through an egress on any free host port: a build's,
+        # where nobody outside reaches one (nixidae/nixidae#1546).
+        self.random_ports = random_ports
         self.on_console = on_console
         self.on_command = on_command
         self.on_say = on_say
         self.forward: list[forward.Rule] = list(spec.forward)
+        self.claims: list[forward.Claim] = []
+        """The host sockets of this guest's forwards through an egress, bound
+        before it boots and kept until it is gone: a reboot's egress gets them again."""
+        self.egress_control: socket.socket | None = None
+        """The control socket of the egress this guest's boot started; closing it ends the egress."""
         self.service: Service | None = None
         """What answers this guest's own calls to the host: the session's cloud API. Set before boot."""
         self.routed: tuple[Machine, ...] = ()
@@ -256,7 +265,10 @@ class Machine:
             self.forward, notes = forward.resolve(self.forward, taken=taken)
             for note in notes:
                 self._log(f"warning: {note}")
-            forward.probe(self.forward)
+            if self.spec.forwards_through_egress:
+                self.forward, self.claims = forward.claim(self.forward, random=self.random_ports)
+            else:
+                forward.probe(self.forward)
         except forward.ForwardError as error:
             raise MachineError(f"[{self.name}] forward: {error}") from error
         for rule in self.forward:
@@ -626,15 +638,21 @@ class Machine:
                 self._rundir = None
 
     def _close_kept(self) -> None:
-        """The disk and segment fds kept for a reboot."""
+        """The disk and segment fds and the claimed ports kept for a reboot."""
         for fd in (*self._disk_fds, *self._lan_kept.values()):
             os.close(fd)
         self._disk_fds = ()
         self._lan_kept = {}
+        for held in self.claims:
+            held.sock.close()
+        self.claims = []
 
     async def _stop_process(self) -> None:
         """What one boot of the guest leaves after its process exited."""
         await self._console.stop()
+        if self.egress_control is not None:
+            self.egress_control.close()
+            self.egress_control = None
 
         channel, self._controls = self._controls.channel, Controls()
         if channel is not None:
