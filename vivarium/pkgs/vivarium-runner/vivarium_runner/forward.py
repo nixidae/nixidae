@@ -365,6 +365,19 @@ def egress_adds(claims: list[Claim], guest_address: str, router: str) -> list[Ad
     return [Add(one, guest_address, router) for one in claims]
 
 
+def diff(old: list[Rule], new: list[Rule]) -> tuple[list[Rule], list[Rule]]:
+    """The entries of *old* that *new* drops, and those *new* adds: what a
+    switch to *new* changes. An entry with a changed host port, address or
+    protocol is one of each."""
+    gone, added = list(old), []
+    for rule in new:
+        if rule in gone:
+            gone.remove(rule)
+        else:
+            added.append(rule)
+    return gone, added
+
+
 def reachable(rules: list[Rule], guest_port: int, protocol: str = "tcp") -> list[str]:
     """Where a guest port can be reached from the host over *protocol*,
     as ``addr:port``.

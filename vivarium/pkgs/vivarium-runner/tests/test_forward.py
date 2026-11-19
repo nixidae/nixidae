@@ -323,6 +323,49 @@ def test_a_runtime_add_while_the_egress_is_down_waits_for_the_next_boot() -> Non
     assert vm.claims == []
 
 
+def test_the_diff_names_what_a_switch_drops_and_adds() -> None:
+    ssh, web = Rule(ports=(PortMap(None, 22),)), Rule(ports=(PortMap(None, 80),))
+    moved = Rule(ports=(PortMap(18080, 80),))
+    assert forward.diff([ssh, web], [ssh, web]) == ([], [])
+    assert forward.diff([ssh, web], [ssh, moved]) == ([web], [moved])
+    assert forward.diff([ssh], []) == ([ssh], [])
+
+
+def test_a_switch_keeps_a_staying_port_and_rolls_back_on_failure(
+    egress: tuple[socket.socket, list[tuple[bytes, int]]],
+) -> None:
+    control, heard = egress
+    vm = Runtime(control)
+    web, dns = Rule(ports=(PortMap(None, 80),)), Rule(ports=(PortMap(None, 53),))
+
+    async def switched() -> str:
+        return "switched"
+
+    async def broken() -> str:
+        raise MachineError("switch-to-configuration failed")
+
+    async def main() -> None:
+        [before] = await vm.open_inbound(80)
+        with pytest.raises(MachineError, match="switch-to-configuration failed"):
+            await vm.switch_inbound([web, dns], broken)
+        assert vm.declared == [web]
+        assert vm.reachable(53) == []
+        assert await vm.switch_inbound([web, dns], switched) == "switched"
+        assert vm.reachable(80) == [before]
+        assert vm.reachable(53) != []
+        assert await vm.switch_inbound([dns], switched) == "switched"
+        assert (vm.declared, vm.reachable(80)) == ([dns], [])
+
+    anyio.run(main)
+    assert [line.split()[:2] for line, _ in heard] == [
+        [b"add", b"tcp"],  # 80
+        [b"add", b"tcp"],  # 53, then the broken switch
+        [b"remove", b"tcp"],  # 53 again
+        [b"add", b"tcp"],  # 53
+        [b"remove", b"tcp"],  # 80
+    ]
+
+
 def test_a_guest_behind_passt_refuses_a_runtime_change() -> None:
     vm = Runtime(None, egress=False)
     with pytest.raises(MachineError, match="passt and gvproxy take forwards only when they start"):

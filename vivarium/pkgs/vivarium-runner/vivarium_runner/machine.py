@@ -35,7 +35,7 @@ from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connec
 from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
 from . import backends, display, forward, ocr, report, storeview
-from .backends.host import egress_exchange, memory_bytes
+from .backends.host import EGRESS_ANSWER, egress_exchange, memory_bytes
 from .boot import Boot, BootspecJson
 from .capability import ControlError, Controls, Framebuffer, Power, Screen
 from .consolelines import ConsoleLines, GuestExited
@@ -59,6 +59,9 @@ from .store import Store, StoreError
 
 POWEROFF_GRACE = 20
 """Seconds a guest has to power itself off before the runner signals it."""
+
+ROLLBACK_WITHIN = 2 * EGRESS_ANSWER
+"""Seconds a failed switch's forwards have to close again."""
 
 RESETS_BEFORE_UP = 3
 """Resets a guest may make before it comes up, before the runner gives up.
@@ -399,6 +402,41 @@ class Machine:
                 bound.append(still)
         self.declared, self.forward = declared, bound
         self._inbound_changed()
+
+    async def switch_inbound[T](self, wanted: list[forward.Rule], switch: Callable[[], Awaitable[T]]) -> T:
+        """Run *switch*, and change this guest's forwards to *wanted*, its
+        new `vivarium.inbound`: by difference, so a port that stays keeps its
+        host port and its flows.
+
+        A new guest port binds before *switch*, so a taken port stops the
+        switch with nothing changed; a failed *switch* closes them again.
+        Removals follow it, then the entries whose host port, address or
+        protocols changed, which need their old socket gone first.
+        """
+        gone, added = forward.diff(self.declared, wanted)
+        if not gone and not added:
+            return await switch()
+        owner = self._runtime_inbound()
+        staying = {port.guest for rule in gone for port in rule.ports}
+        fresh = [rule for rule in added if not {port.guest for port in rule.ports} & staying]
+        later = [rule for rule in added if rule not in fresh]
+        opened: list[forward.Rule] = []
+        try:
+            for rule in fresh:
+                [port] = rule.ports
+                await self.open_inbound(port.guest, port.host, rule.protocols, rule.address)
+                opened.append(rule)
+            done = await switch()
+        except BaseException:
+            with anyio.CancelScope(shield=True) as scope:
+                scope.deadline = anyio.current_time() + ROLLBACK_WITHIN
+                await self._close(owner, [self.declared.index(rule) for rule in opened], None)
+            raise
+        await self._close(owner, [self.declared.index(rule) for rule in gone], None)
+        for rule in later:
+            [port] = rule.ports
+            await self.open_inbound(port.guest, port.host, rule.protocols, rule.address)
+        return done
 
     def _inbound_changed(self) -> None:
         for rule in self.forward:

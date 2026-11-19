@@ -49,6 +49,7 @@ from huggorm_bindings import DerivedPathBuilt, OutputsSpec
 from vivarium import access, cli as runner_cli, control, monitor, registry
 from vivarium.exits import Exit, describe
 from vivarium.phases import VERDICT, Verdict
+from vivarium_runner.forward import InboundJson
 
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
@@ -288,12 +289,19 @@ EXTENDED: Final = """session: node: module:
   if !(builtins.elem node names) then
     throw "no guest ${node} in this session; it has: ${builtins.concatStringsSep ", " names}"
   else
-    { system = build.toplevel; registration = build.vivariumNixRegistration; }
+    {
+      system = build.toplevel;
+      registration = build.vivariumNixRegistration;
+      # The spec's drvPath forces the run's checks, a fixed host port
+      # asked for twice among them, as a fresh run would.
+      inbound = builtins.seq extended.spec.drvPath (builtins.toJSON extended.nodes.${node}.vivarium.inbound);
+    }
 """
 
 
-async def build_extended(file: Path, attr: list[str], node: str, module: Path) -> tuple[str, str]:
-    """The node's system with *module* added, and its closure's registration."""
+async def build_extended(file: Path, attr: list[str], node: str, module: Path) -> tuple[str, str, list[InboundJson]]:
+    """The node's system with *module* added, its closure's registration,
+    and its `vivarium.inbound`."""
     async with evaluator(Recorder(None, sys.stderr)) as (state, _):
         target = await session_of(state, file, attr)
         extend = await state.eval_expr(EXTENDED)
@@ -302,7 +310,10 @@ async def build_extended(file: Path, attr: list[str], node: str, module: Path) -
         )
         system = await (await select_attr_path(state, extended, ["system"])).realise_string()
         registration = await (await select_attr_path(state, extended, ["registration"])).realise_string()
-    return system, registration
+        inbound: list[InboundJson] = json.loads(
+            await (await select_attr_path(state, extended, ["inbound"])).realise_string()
+        )
+    return system, registration, inbound
 
 
 def add_switch(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -404,12 +415,12 @@ def switch(args: argparse.Namespace) -> Exit:
     started = time.monotonic()
     say(f"evaluating {origin.attr} with {args.module} on {args.node}")
     try:
-        system, registration = anyio.run(build_extended, origin.file, attr, args.node, args.module)
+        system, registration, inbound = anyio.run(build_extended, origin.file, attr, args.node, args.module)
     except (NixError, AttrPathError) as error:
         say(f"evaluation failed: {explain(str(error))}")
         return Exit.FAILED
     say(f"built {system} in {time.monotonic() - started:.1f}s")
-    asked = control.SwitchRequest(args.node, system, registration, args.action).encode()
+    asked = control.SwitchRequest(args.node, system, registration, args.action, inbound).encode()
     # Every argument given: zuban's TypeVarTuple does not count a defaulted parameter.
     reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.SWITCH, asked, (), None)
     if reply.output:

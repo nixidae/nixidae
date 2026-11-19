@@ -46,6 +46,8 @@ from typing import TYPE_CHECKING, Any, Final, get_args
 import anyio
 from pydantic import ValidationError
 from vivarium_runner import MachineError, unixpath
+from vivarium_runner.control import CommandResult
+from vivarium_runner.forward import InboundJson, Rule
 from vivarium_runner.machine import SwitchAction
 
 from .events import Kind, Level
@@ -137,9 +139,14 @@ class SwitchRequest:
     registration: str
     """The closure's registration, for `Machine.add_closure`."""
     action: SwitchAction = "switch"
+    inbound: list[InboundJson] | None = None
+    """The node's new `vivarium.inbound`, applied by difference; None leaves the forwards be."""
 
     def encode(self) -> str:
         return json.dumps(asdict(self))
+
+    def rules(self) -> list[Rule] | None:
+        return None if self.inbound is None else [Rule.from_json(entry) for entry in self.inbound]
 
     @classmethod
     def decode(cls, arg: str) -> SwitchRequest:
@@ -152,7 +159,12 @@ class SwitchRequest:
         action = next((known for known in SWITCH_ACTIONS if known == raw.get("action")), None)
         if action is None:
             raise ValueError(f"no switch action {raw.get('action')!r}; have {', '.join(SWITCH_ACTIONS)}")
-        return cls(raw["node"], raw["system"], raw["registration"], action)
+        asked = cls(raw["node"], raw["system"], raw["registration"], action, raw.get("inbound"))
+        try:
+            asked.rules()
+        except (KeyError, TypeError) as error:
+            raise ValueError(f"switch: inbound is not a list of vivarium.inbound entries: {error}") from error
+        return asked
 
 
 @dataclass
@@ -866,9 +878,14 @@ class Controller:
             guest = vms[asked.node]
         except (ValueError, KeyError) as error:
             return Reply.refuse(f"switch: {error}")
-        try:
+
+        async def switch() -> CommandResult:
             await guest.add_closure(asked.registration)
-            done = await guest.switch_to(asked.system, asked.action)
+            return await guest.switch_to(asked.system, asked.action)
+
+        wanted = asked.rules()
+        try:
+            done = await (switch() if wanted is None else guest.switch_inbound(wanted, switch))
         except MachineError as error:
             return Reply(ok=False, error=str(error))
         # switch-to-configuration reports on stderr.

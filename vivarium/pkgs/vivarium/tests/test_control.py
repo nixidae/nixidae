@@ -37,6 +37,7 @@ from vivarium.phases import PhaseState
 from vivarium.session import Session
 from vivarium_runner import Lan, Machines
 from vivarium_runner.control import CommandResult
+from vivarium_runner.forward import InboundJson, PortMap, Rule
 
 if TYPE_CHECKING:
     from anyio.abc import ByteStream
@@ -357,11 +358,20 @@ class TestSwitchRequest:
     def test_it_reads_back_what_it_wrote(self) -> None:
         asked = SwitchRequest("a", "/nix/store/s-system", "/nix/store/r-registration", "test")
         assert SwitchRequest.decode(asked.encode()) == asked
+        assert asked.rules() is None
+        entry: InboundJson = {"guest": 80, "host": None, "protocols": ["tcp"], "address": None}
+        with_inbound = SwitchRequest("a", "/s", "/r", "switch", [entry])
+        assert SwitchRequest.decode(with_inbound.encode()) == with_inbound
+        assert with_inbound.rules() == [Rule(ports=(PortMap(None, 80),))]
 
     @pytest.mark.parametrize(
         ("arg", "message"),
         [
             ('{"node": "a", "system": "/s", "registration": "/r", "action": "reboot"}', "no switch action 'reboot'"),
+            (
+                '{"node": "a", "system": "/s", "registration": "/r", "action": "switch", "inbound": [{"guest": 80}]}',
+                "inbound is not a list of vivarium.inbound entries",
+            ),
             ('{"node": "a", "system": "/s"}', "a node, a system and a registration"),
             ("[]", "a node, a system and a registration"),
         ],
