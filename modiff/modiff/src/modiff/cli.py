@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from .app import ModiffApp
+from .engine import EngineThread, Source, nixos_source
+from .model import Edit, parse_option_path
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="modiff",
+        description="Edit a Nix module system configuration and see what the edit changes.",
+    )
+    which = parser.add_mutually_exclusive_group()
+    which.add_argument(
+        "--nixos", type=Path, metavar="FILE", help="a NixOS configuration module (default: a minimal one)"
+    )
+    which.add_argument("--expr", help="an expression that evaluates to an evalModules result")
+    parser.add_argument(
+        "--nixpkgs",
+        default="<nixpkgs>",
+        help="the nixpkgs a NixOS configuration evaluates against (default: <nixpkgs>)",
+    )
+    parser.add_argument(
+        "--force",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="a path under the --expr result to evaluate first, such as config.system.build.toplevel.drvPath",
+    )
+    parser.add_argument("--set", action="append", default=[], metavar="OPTION=EXPR", help="an edit to start with")
+    return parser.parse_args(argv)
+
+
+def source_of(args: argparse.Namespace) -> Source:
+    if args.expr is not None:
+        return Source(args.expr, tuple(parse_option_path(p) for p in args.force), base_dir=str(Path.cwd()))
+    nixos = None if args.nixos is None else str(args.nixos.resolve())
+    return nixos_source(nixos, args.nixpkgs)
+
+
+def edits_of(args: argparse.Namespace) -> list[Edit]:
+    edits: list[Edit] = []
+    for item in args.set:
+        path, sep, expr = item.partition("=")
+        if not sep:
+            raise SystemExit(f"modiff: --set {item!r} has no '='")
+        edits.append(Edit(parse_option_path(path.strip()), expr.strip()))
+    return edits
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    ModiffApp(EngineThread(source_of(args)), edits_of(args)).run()

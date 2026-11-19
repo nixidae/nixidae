@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "modiff"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "Edit a Nix module system configuration and see what the edit changes"
+requires-python = ">=3.13"
+dependencies = [
+  "anyio",
+  "huggorm",
+  "textual",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+]
+
+[project.scripts]
+modiff = "modiff.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/modiff"]
