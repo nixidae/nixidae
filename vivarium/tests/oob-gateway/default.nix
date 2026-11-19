@@ -43,7 +43,7 @@ mkTest {
       ];
       # passt must forward 8080 for the DNAT to have anything to rewrite;
       # its forwards are fixed before boot.
-      vivarium.forward = [ { ports = [ 8080 ]; } ];
+      vivarium.inbound = [ { guest = 8080; } ];
     };
   nodes.sw = {
     vivarium.uplink.segment = "mgmt";

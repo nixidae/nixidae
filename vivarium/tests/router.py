@@ -188,7 +188,7 @@ async def forwards(vms: Machines) -> None:
 
     checks = [(name, TCP, False) for name in GUESTS] + [("a", PRIVILEGED, False), ("a", UDP, True)]
     for name, port, udp in checks:
-        where = vms[name].reachable(port)
+        where = vms[name].reachable(port, "udp" if udp else "tcp")
         if not where:
             raise AssertionError(f"{name}: guest port {port} is not forwarded")
         got = await ask(where[0], udp=udp)

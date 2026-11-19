@@ -72,9 +72,10 @@ async def test(vms: Machines) -> None:
     address = svc.forward[0].address
     if address is None:
         raise AssertionError("the services guest booted with an unresolved forward")
+    # The host port is the runner's to say (nixidae/nixidae#1546).
     where = svc.reachable(PORT)
-    if where != [f"{address}:{PORT}"]:
-        raise AssertionError(f"8080 is not forwarded as expected: {where}")
+    if len(where) != 1 or not where[0].startswith(f"{address}:"):
+        raise AssertionError(f"{PORT} is not forwarded as expected: {where}")
     print(f"[test] the host reaches the gateway on {where[0]}")
 
     got = await _fetch(where[0])

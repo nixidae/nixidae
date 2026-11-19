@@ -19,7 +19,7 @@ in
     default = true;
     description = ''
       Whether the guest gets passt's uplink, `vec0`: NAT to the host's
-      network and the `forward` rules. Off, an appliance's first port is
+      network and the `inbound` forwards. Off, an appliance's first port is
       its first segment, as on a router whose only cables are the ones the
       test lays. Only `vivarium.appliance` honours it; `uplink.segment` is
       the other way to replace passt.
@@ -32,7 +32,7 @@ in
       A disk image QEMU boots (`vivarium.backend = "qemu"`). The image's own kernel
       runs it, so nothing of vivarium's is inside: no `succeed`, no
       journal, no `/artifacts`. A test reaches it over the network,
-      through `vivarium.forward` on the uplink or from a NixOS guest on a
+      through `vivarium.inbound` on the uplink or from a NixOS guest on a
       segment.
 
       NICs follow `interfaces` order after the uplink, so a guest that
@@ -119,8 +119,8 @@ in
       message = "vivarium.uplink.enable = false: only vivarium.appliance can leave the uplink out.";
     }
     {
-      assertion = config.vivarium.uplink.enable || config.vivarium.forward == [ ];
-      message = "vivarium.forward needs the uplink: forwards are passt's.";
+      assertion = config.vivarium.uplink.enable || config.vivarium.inbound == [ ];
+      message = "vivarium.inbound needs the uplink: forwards are passt's.";
     }
   ];
 }

@@ -21,31 +21,18 @@ mkTest {
   router.enable = true;
   nodes.a = {
     imports = [ answer ];
-    vivarium.forward = [
+    vivarium.inbound = [
+      { guest = 7777; }
+      { guest = 80; }
       {
-        ports = [
-          7777
-          80
-        ];
-      }
-      {
-        ports = [ 7778 ];
+        guest = 7778;
         protocols = [ "udp" ];
       }
     ];
   };
   nodes.b = {
     imports = [ answer ];
-    vivarium.forward = [
-      {
-        ports = [
-          {
-            host = null;
-            guest = 7777;
-          }
-        ];
-      }
-    ];
+    vivarium.inbound = [ { guest = 7777; } ];
   };
   phases.router = {
     script = ../router.py;

@@ -157,7 +157,7 @@ async def test(vms: Machines) -> None:
     for udp in (False, True):
         # The host port of m's forward is the runner's to say: a build binds
         # any free one (nixidae/nixidae#1546).
-        [where] = m.reachable(UDP if udp else TCP)
+        [where] = m.reachable(UDP, "udp") if udp else m.reachable(TCP)
         port = int(where.rpartition(":")[2])
         got = await probe(d, GATEWAY, port, "vec0", udp)
         if got != m.name:

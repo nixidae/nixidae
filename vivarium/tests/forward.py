@@ -35,8 +35,8 @@ PLAIN = 8080
 """An ordinary port, bound long after passt stopped taking arguments."""
 
 PRIVILEGED = 80
-"""Bound in the guest as root; the host cannot listen this low, so the
-runner is expected to have moved it up by `privilegedOffset`."""
+"""Bound in the guest as root; its forward takes any free host port,
+which is one the host lets anyone bind."""
 
 
 async def serve(vm: Machine, port: int) -> None:
@@ -82,7 +82,7 @@ async def test(vms: Machines) -> None:
         await serve(vm, port)
 
     # The host port is the runner's to say: a build binds any free one
-    # (nixidae/nixidae#1546). The offset rule is test_forward.py's.
+    # (nixidae/nixidae#1546).
     where = vm.reachable(PLAIN)
     assert len(where) == 1 and where[0].startswith(f"{address}:"), where
     assert await fetch(where[0]) == PAGE

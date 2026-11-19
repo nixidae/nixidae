@@ -12,14 +12,10 @@ mkTest {
     { config, ... }:
     {
       # ssh, and forward.py's PLAIN and PRIVILEGED.
-      vivarium.forward = [
-        {
-          ports = [
-            config.vivarium.sshPort
-            8080
-            80
-          ];
-        }
+      vivarium.inbound = [
+        { guest = config.vivarium.sshPort; }
+        { guest = 8080; }
+        { guest = 80; }
       ];
       environment.systemPackages = [ pkgs.python3 ];
     };

@@ -57,7 +57,7 @@ def instance_spec(
         )
         for nic in template.interfaces
     )
-    return replace(template, name=name, index=index, interfaces=interfaces, forward=())
+    return replace(template, name=name, index=index, interfaces=interfaces, inbound=())
 
 
 def seed(spec: MachineSpec, template: str, user_data: str | None) -> dict[str, object]:

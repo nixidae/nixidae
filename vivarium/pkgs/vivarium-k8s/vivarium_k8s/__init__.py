@@ -708,7 +708,7 @@ async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
     """`<out>/access/kubeconfig`: *cp*'s admin kubeconfig, aimed at the
     host's forward of the API server. `None`, with a note, when nothing
     forwards it: `modules/k8s.nix` forwards 6443 on a control plane unless
-    the test sets its own `vivarium.forward`."""
+    the test sets its own `vivarium.inbound`."""
     reachable = cp.reachable(APISERVER_PORT)
     if not reachable:
         cp.say(f"[k8s] {cp.name}: no host forward of {APISERVER_PORT}; no kubeconfig for the host")

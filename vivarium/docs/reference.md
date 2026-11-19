@@ -403,36 +403,38 @@ a forward on dynhetz, 8 runs at MTU 1500: host to guest 2.7 to 6.0 Gbit/s
 with passt and 1.7 to 2.5 with gvproxy; guest to host 5.9 to 9.1 with passt
 and 2.8 to 3.7 with gvproxy.
 
-So `vivarium.forward` lists the ports before boot. The default is the ssh
-port alone:
+So `vivarium.inbound` lists the guest ports before boot, one entry each.
+Nothing else reaches the guest from the host. The default is the ssh port
+alone:
 
 ```nix
-vivarium.forward = [
-  { ports = [ 8080 { host = null; guest = 6443; } ]; } # privately
-  { address = "0.0.0.0"; ports = [ 8080 ]; }           # and one port, publicly
+vivarium.inbound = [
+  { guest = 6443; }                                     # any free host port
+  { host = 8080; guest = 80; }                          # host port 8080
+  { guest = 53; protocols = [ "tcp" "udp" ]; }          # one host port for both
+  { address = "0.0.0.0"; host = 9090; guest = 9090; }   # off the machine too
 ];
 ```
 
+An entry with no `host` takes any free host port when the guest boots.
+`<out>/access.json`, `ssh_config` and `Machine.reachable(port, protocol)`
+name it. A test asks `reachable`; it never writes a host port.
+
 `address = null` — the default — means the runner gives this guest an address
-out of `127.0.0.2` upwards and keeps it for the guest's lifetime. All of
-`127.0.0.0/8` is on `lo` without anyone configuring it, so that costs no
-privileges and no setup, and it is what makes the collisions go away: two
-guests can both serve 8080, because they are not on the same address.
+out of `127.0.0.2` upwards and keeps it for the guest's lifetime. macOS has
+only 127.0.0.1 on `lo0`, and there every guest's forwards share it.
 
-macOS has only 127.0.0.1 on `lo0`. There every guest's forwards go to
-127.0.0.1, and a port another guest or the host already holds moves to the
-next free one; the runner says where.
+Four things to know:
 
-Two things to know:
-
-- **Privileged ports get moved, loudly.** Nothing here may bind below
-  `net.ipv4.ip_unprivileged_port_start` (1024 on most hosts), so guest port
-  22 is reachable on host port 10022 and the runner says so on the console
-  every time. Set `remapPrivileged = false` to leave them unforwarded
-  instead, or lower the sysctl on the host and the remapping stops happening.
-- **A port that is taken fails by name.** The runner probes each requested
-  port before spawning passt so the error names the guest and the port,
-  rather than passt exiting with a bare `Address already in use`.
+- **A fixed port that is taken fails the boot by name.** First come, first
+  served: the run that binds it first keeps it.
+- **A fixed privileged port fails too.** Nothing here may bind below
+  `net.ipv4.ip_unprivileged_port_start` (1024 on most hosts). Leave `host`
+  unset, or ask for a port at or above it.
+- **In a Nix build every port is random.** `--random-ports` does the same
+  by hand, and the MCP `start` passes it.
+- **Two guests of one run cannot share a fixed host port.** Evaluation
+  fails and names both.
 
 ### A router network for a lab
 

@@ -25,57 +25,24 @@ let
     inherit lib;
   };
 
-  portPair = lib.types.submodule {
+  inboundEntry = lib.types.submodule {
     options = {
+      guest = lib.mkOption {
+        type = lib.types.port;
+        description = "The port it reaches inside the guest.";
+      };
+
       host = lib.mkOption {
         type = lib.types.nullOr lib.types.port;
         default = null;
         description = ''
-          Port to listen on, on the host. `null`: the runner picks the
-          guest's port, or the first free port above it, when the run
-          starts. `<out>/access.json` and `Machine.reachable` name it.
+          The port to listen on, on the host. `null` takes any free port
+          when the guest boots; `<out>/access.json` and
+          `Machine.reachable` name it. A fixed port that is taken, or
+          below `net.ipv4.ip_unprivileged_port_start`, fails the boot.
+          A run in a Nix build, or with `--random-ports`, takes any free
+          port for every entry.
         '';
-      };
-      guest = lib.mkOption {
-        type = lib.types.port;
-        description = "Port it reaches inside the guest.";
-      };
-    };
-  };
-
-  # A host port and the guest port behind it, written as a bare port
-  # when the two are the same -- which they are unless the host will not
-  # give us the number the guest wants.
-  samePort = port: {
-    host = port;
-    guest = port;
-  };
-  portMap = lib.types.coercedTo lib.types.port samePort portPair;
-
-  forwardRule = lib.types.submodule {
-    options = {
-      address = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        example = "0.0.0.0";
-        description = ''
-          Host address to listen on.  Null means the runner picks this
-          guest a free address out of `127.0.0.2` upwards and keeps it
-          for the guest's lifetime, which is what makes two guests able
-          to serve the same port number without arranging anything.
-
-          macOS has 127.0.0.1 alone, so there every guest shares it, and
-          a port that is taken moves to the next free one.
-
-          Anything else is taken literally, so `0.0.0.0` reaches the
-          guest from off the machine.
-        '';
-      };
-
-      ports = lib.mkOption {
-        type = lib.types.listOf portMap;
-        example = lib.literalExpression "[ 8080 { host = 9090; guest = 80; } ]";
-        description = "Which ports to forward.";
       };
 
       protocols = lib.mkOption {
@@ -87,34 +54,20 @@ let
         );
         default = [ "tcp" ];
         description = ''
-          Which protocols to forward these ports for.  UDP doubles the
-          socket count, so it is off unless asked for.
+          The protocols to forward. With more than one, every protocol
+          gets the same host port.
         '';
       };
 
-      remapPrivileged = lib.mkOption {
-        type = lib.types.bool;
-        default = true;
+      address = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "0.0.0.0";
         description = ''
-          What to do about host ports below
-          `net.ipv4.ip_unprivileged_port_start`, which nothing here may
-          bind: move them up by `privilegedOffset`, so guest port 22 is
-          reachable on host port 10022.
-
-          The runner says so on the console every time it does this --
-          a port that is not the port you asked for is worth hearing
-          about at boot rather than deducing from a refused connection.
-          Turn this off to leave those ports unforwarded instead.
-        '';
-      };
-
-      privilegedOffset = lib.mkOption {
-        type = lib.types.port;
-        default = 10000;
-        description = ''
-          How far up to move privileged ports.  The default keeps the
-          original port readable in the new one: 22 becomes 10022, 80
-          becomes 10080.
+          The host address to listen on. `null`: on Linux, a free
+          address of `127.0.0.2` upwards that the guest keeps for its
+          life; on macOS, 127.0.0.1. Anything else is taken literally,
+          so `0.0.0.0` reaches the guest from off the machine.
         '';
       };
     };
@@ -185,6 +138,10 @@ in
     ./qemu.nix
     ./router.nix
     ./store.nix
+    (lib.mkRemovedOptionModule [ "vivarium" "forward" ] ''
+      Use `vivarium.inbound`, one entry per guest port: `{ guest = 80; }` takes
+      any free host port, `{ host = 8080; guest = 80; }` a fixed one.
+    '')
   ]
   ++
     map
@@ -612,8 +569,9 @@ in
       type = lib.types.port;
       default = 4325;
       description = ''
-        Port sshd listens on, forwarded from the same port on the host's
-        loopback by passt.  Tests drive the guest over the serial line
+        The port sshd listens on in the guest. The default
+        `vivarium.inbound` forwards it from any free host port, which
+        `<out>/ssh_config` names. Tests drive the guest over the agent
         instead; this is for looking around by hand.
       '';
     };
@@ -628,21 +586,24 @@ in
       '';
     };
 
-    forward = lib.mkOption {
-      type = lib.types.listOf forwardRule;
-      default = [ { ports = [ config.vivarium.sshPort ]; } ];
-      defaultText = lib.literalExpression "[ { ports = [ config.vivarium.sshPort ]; } ]";
+    inbound = lib.mkOption {
+      type = lib.types.listOf inboundEntry;
+      default = [ { guest = config.vivarium.sshPort; } ];
+      defaultText = lib.literalExpression "[ { guest = config.vivarium.sshPort; } ]";
       example = lib.literalExpression ''
         [
-          { ports = [ 4325 8080 ]; }                      # privately
-          { address = "0.0.0.0"; ports = [ 8080 ]; }      # and one port, publicly
+          { guest = 80; }                                       # any free host port
+          { host = 8080; guest = 80; }                          # host port 8080
+          { guest = 53; protocols = [ "tcp" "udp" ]; }
+          { address = "0.0.0.0"; host = 9090; guest = 9090; }   # off the machine too
         ]
       '';
       description = ''
-        How the host reaches services in this guest.
+        How the host reaches services in this guest: one entry per guest
+        port. Nothing reaches the guest from the host but these.
 
-        passt and the egress bind every forward when they start and take
-        no new one later, so this is decided before the guest boots.
+        Two guests of one run cannot ask for the same fixed host port on
+        one address; evaluation fails.
       '';
     };
 
@@ -1208,8 +1169,8 @@ in
       {
         assertion =
           config.vivarium.uplink.proxy == "gvproxy"
-          -> lib.all (rule: rule.protocols == [ "tcp" ]) config.vivarium.forward;
-        message = "vivarium.forward under gvproxy: TCP ports only; gvproxy cannot forward UDP.";
+          -> lib.all (entry: entry.protocols == [ "tcp" ]) config.vivarium.inbound;
+        message = "vivarium.inbound under gvproxy: TCP ports only; gvproxy cannot forward UDP.";
       }
       {
         assertion = lib.all (

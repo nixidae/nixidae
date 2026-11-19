@@ -28,25 +28,17 @@ mkTest {
     {
       imports = [ answer ];
       # A build binds any free host port; router-network.py asks `reachable`.
-      vivarium.forward = [
-        { ports = [ config.vivarium.sshPort ]; }
+      vivarium.inbound = [
+        { guest = config.vivarium.sshPort; }
         {
           address = "127.0.0.1";
-          ports = [
-            {
-              host = 47777;
-              guest = 7777;
-            }
-          ];
+          host = 47777;
+          guest = 7777;
         }
         {
           address = "127.0.0.1";
-          ports = [
-            {
-              host = 47778;
-              guest = 7778;
-            }
-          ];
+          host = 47778;
+          guest = 7778;
           protocols = [ "udp" ];
         }
       ];

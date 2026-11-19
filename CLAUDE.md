@@ -445,8 +445,8 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 
 ### Network
 
-- `vivarium.forward` is fixed before boot: passt binds every socket while parsing arguments and has no control socket. `auto` is pasta-only.
-- In `forward.py`: a spec of only exclusions (`127.0.0.2/~32768-60999`) puts passt in weak mode (unbindable ports skipped); any base range makes failures fatal. Overlapping specs are fatal, so the privileged block is excluded and re-added with an offset. Check against real passt: `passt --foreground -s /tmp/p.sock <-t args>`, `ss -tlnH | grep -c 127.0.0.2`; the socket path must be short.
+- `vivarium.inbound` is fixed before boot: passt binds every socket while parsing arguments and has no control socket. `auto` is pasta-only.
+- passt: a spec of only exclusions (`127.0.0.2/~32768-60999`) is weak mode (unbindable ports skipped, ephemeral ones too); a listed port that will not bind is fatal, so `forward.pick` checks it first. Check against real passt: `passt --foreground -s /tmp/p.sock <-t args>`, `ss -tlnH | grep -c 127.0.0.2`; the socket path must be short.
 - `nix build .#iperf` lies under host load (1.9 vs 4.4 Gbit/s) and outside a fresh netns (`net.unix.max_dgram_qlen`); compare back to back, under `unshare -rn`.
 
 ### Kubernetes test

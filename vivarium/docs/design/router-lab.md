@@ -229,7 +229,7 @@ iperf3 `-u`, 5 s, host load 6-7:
 
 ## E6, 2026-11-16
 
-`lab/router/e6.py`: a forward, as `vivarium.forward` does with passt.
+`lab/router/e6.py`: a forward, as `vivarium.inbound` does with passt.
 The egress listens on the host's 127.0.0.1:5202. Per connection it
 connects to a unix socket that libkrun listens on (`krun-router` with
 `IN_PORT IN_PATH`, `add_unix_port(..., listen = true)`), names the guest
@@ -417,7 +417,7 @@ The UML router as a vivarium machine: `router.enable` in `mkTest`,
 two guests behind one router and passes sandboxed.
 
 - Each guest leases 10.0.2.(15 + index) from the router by its MAC.
-- Forwards: the egress binds each routed guest's `vivarium.forward`,
+- Forwards: the egress binds each routed guest's `vivarium.inbound`,
   TCP and UDP, on the address and port `forward.reachable` names. A
   guest with every port takes 72,555 sockets, ready in 0.26 s, 7.7 MiB.
 - As passt: a wide rule skips a port it cannot bind; the privileged

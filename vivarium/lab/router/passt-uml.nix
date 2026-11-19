@@ -25,7 +25,7 @@ vivarium.lib.mkTest {
   nodes.passt = {
     imports = [ ../../modules/iperf3.nix ];
     services.iperf3-server.enable = true;
-    vivarium.forward = [ { ports = [ 5201 ]; } ];
+    vivarium.inbound = [ { guest = 5201; } ];
     vivarium.mtu = pkgs.lib.toInt (builtins.getEnv "LAB_MTU");
     # A krun guest's uplink stays at 1500 whatever vivarium.mtu says
     # (nixidae/nixidae#1179). On UML this setting leaves vec0 at 1500.

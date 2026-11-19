@@ -34,6 +34,6 @@ mkTest {
         imports = [ ../../modules/iperf3.nix ];
         services.iperf3-server.enable = true;
         vivarium.uplink.proxy = proxy;
-        vivarium.forward = [ { ports = [ 5201 ]; } ];
+        vivarium.inbound = [ { guest = 5201; } ];
       });
 }

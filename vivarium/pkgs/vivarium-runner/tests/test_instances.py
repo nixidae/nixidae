@@ -36,7 +36,7 @@ def test_a_slot_past_the_network_is_an_error() -> None:
 
 def test_an_instance_carries_its_index_in_each_mac_and_has_no_forwards() -> None:
     one = instance_spec(_template(), "w1", 7, {"fleet": ["10.9.0.100/24"]}, slot=1)
-    assert (one.name, one.index, one.forward) == ("w1", 7, ())
+    assert (one.name, one.index, one.inbound) == ("w1", 7, ())
     assert [(nic.mac, nic.addresses) for nic in one.interfaces] == [("52:54:00:12:01:07", ("10.9.0.101/24",))]
 
 

@@ -129,7 +129,7 @@ class MachineSpecJson(TypedDict):
     uplinkProxy: UplinkProxy
     uplinkNetwork: UplinkNetworkJson
     router: bool
-    forward: list[forward.RuleJson]
+    inbound: list[forward.InboundJson]
     boot: BootJson | None
     nested: bool
     display: DisplayJson | None
@@ -248,10 +248,11 @@ class MachineSpec:
     router: bool
     """The run's router guest (`vivarium.router.enable`): no `vec0`, and
     vsock to an egress on the host instead (nixidae/nixidae#1404)."""
-    forward: tuple[forward.Rule, ...]
-    """Host-side port forwards.  Addresses in these are still None until
-    :func:`vivarium_runner.forward.resolve` has run over every machine in the
-    run at once, which `vivarium run` does before it boots any."""
+    inbound: tuple[forward.Rule, ...]
+    """`vivarium.inbound`: the host-side port forwards.  Addresses in these
+    are still None until :func:`vivarium_runner.forward.resolve` has run over
+    every machine in the run at once, which `vivarium run` does before it
+    boots any."""
     boot: Boot | None
     """`vivarium.boot`. None for a guest that names nothing to boot, which
     every backend refuses."""
@@ -327,7 +328,7 @@ class MachineSpec:
             uplink_proxy=UplinkProxy(data["uplinkProxy"]),
             uplink_network=UplinkNetwork.from_json(data["uplinkNetwork"]),
             router=data["router"],
-            forward=tuple(forward.Rule.from_json(rule) for rule in data["forward"]),
+            inbound=tuple(forward.Rule.from_json(entry) for entry in data["inbound"]),
             boot=Boot.from_json(boot) if (boot := data["boot"]) is not None else None,
             nested=data["nested"],
             display=Display.from_json(shown) if (shown := data["display"]) is not None else None,

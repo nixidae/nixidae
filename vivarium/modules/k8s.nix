@@ -1239,14 +1239,10 @@ in
     # The runner picks the host port: a host that runs a cluster of its
     # own listens on *:6443, which takes 6443 on every loopback address
     # (measured on dynhetz: "no free address in 127.0.0.2-254").
-    vivarium.forward = lib.mkIf (cfg.role == "control-plane") (
+    vivarium.inbound = lib.mkIf (cfg.role == "control-plane") (
       lib.mkDefault [
-        {
-          ports = [
-            config.vivarium.sshPort
-            { guest = 6443; }
-          ];
-        }
+        { guest = config.vivarium.sshPort; }
+        { guest = 6443; }
       ]
     );
   };

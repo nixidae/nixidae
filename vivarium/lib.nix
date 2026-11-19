@@ -237,7 +237,7 @@ rec {
       uplinkProxy = machine.vivarium.uplink.proxy;
       uplinkNetwork = (import ./nix/uplink.nix).spec;
       router = machine.vivarium.router.enable;
-      forward = machine.vivarium.forward;
+      inbound = machine.vivarium.inbound;
       inherit (machine.vivarium) control boot;
       nested = machine.vivarium.nestedVirtualization;
       display =
@@ -754,6 +754,43 @@ rec {
 
       machines = lib.attrValues nodes;
 
+      # Fixed host ports two `vivarium.inbound` entries of the run share.
+      # The second bind would fail the boot; evaluation names both first.
+      # A null address is 127.0.0.1 on macOS, so it clashes with every
+      # address, as 0.0.0.0 does.
+      inboundClashes =
+        let
+          wildcard = address: address == null || address == "0.0.0.0";
+          fixed = lib.concatMap (
+            machine:
+            lib.concatMap (
+              entry:
+              lib.optionals (entry.host != null) (
+                map (protocol: {
+                  node = machine.networking.hostName;
+                  inherit protocol;
+                  inherit (entry) host address;
+                }) entry.protocols
+              )
+            ) machine.vivarium.inbound
+          ) machines;
+          clash =
+            a: b:
+            a.protocol == b.protocol
+            && a.host == b.host
+            && (wildcard a.address || wildcard b.address || a.address == b.address);
+          show =
+            each:
+            "${each.node} (${toString each.host}/${each.protocol}${
+              lib.optionalString (each.address != null) " on ${each.address}"
+            })";
+        in
+        lib.concatLists (
+          lib.imap0 (
+            index: a: map (b: "${show a} and ${show b}") (lib.filter (clash a) (lib.drop (index + 1) fixed))
+          ) fixed
+        );
+
       pythonPackages = lib.unique (
         checkedConfig.python.packages ++ lib.concatMap (machine: machine.vivarium.python.packages) machines
       );
@@ -846,39 +883,43 @@ rec {
           # Not for `vivarium.hostStore`, whose point is the host's whole
           # store and its database under the guest's own. Nor for a
           # guest that never sees the store (`vivarium.closure = null`).
-          machines = map (
-            machine:
-            let
-              inherit (machine.vivarium) closure;
-            in
-            machineSpec machine
-            # Not in the guest's root image: a late path is often a source
-            # tree, and an image that held it rebuilt for every edit
-            # (nixidae/nixidae#1182).
-            # Not a guest assertion: a late path may be a system built from
-            # this guest, and its toplevel checks every assertion.
-            // lib.optionalAttrs (machine.vivarium.lateClosure != [ ]) {
-              lateClosure =
-                if closure == null then
-                  throw "${machine.networking.hostName}: vivarium.lateClosure is set, but this guest (kind ${machine.vivarium.kind}) has no store to add it to."
-                else
-                  "${pkgs.closureInfo { rootPaths = machine.vivarium.lateClosure; }}";
-            }
-            // lib.optionalAttrs (!machine.vivarium.hostStore.enable && closure != null) {
-              storePaths = "${closure}/store-paths";
-            }
-            // lib.optionalAttrs (machine.vivarium.requires != [ ]) {
-              requires =
+          machines =
+            if inboundClashes != [ ] then
+              throw "vivarium.inbound: one fixed host port, asked for twice: ${lib.concatStringsSep "; " inboundClashes}. Give one another port, or none to take any free one."
+            else
+              map (
+                machine:
                 let
-                  names = map (each: each.networking.hostName) machines;
-                  unknown = lib.subtractLists names machine.vivarium.requires;
+                  inherit (machine.vivarium) closure;
                 in
-                if unknown == [ ] then
-                  machine.vivarium.requires
-                else
-                  throw "${machine.networking.hostName}: vivarium.requires names ${lib.concatStringsSep ", " unknown}, which are not guests of this run (${lib.concatStringsSep ", " names}).";
-            }
-          ) machines;
+                machineSpec machine
+                # Not in the guest's root image: a late path is often a source
+                # tree, and an image that held it rebuilt for every edit
+                # (nixidae/nixidae#1182).
+                # Not a guest assertion: a late path may be a system built from
+                # this guest, and its toplevel checks every assertion.
+                // lib.optionalAttrs (machine.vivarium.lateClosure != [ ]) {
+                  lateClosure =
+                    if closure == null then
+                      throw "${machine.networking.hostName}: vivarium.lateClosure is set, but this guest (kind ${machine.vivarium.kind}) has no store to add it to."
+                    else
+                      "${pkgs.closureInfo { rootPaths = machine.vivarium.lateClosure; }}";
+                }
+                // lib.optionalAttrs (!machine.vivarium.hostStore.enable && closure != null) {
+                  storePaths = "${closure}/store-paths";
+                }
+                // lib.optionalAttrs (machine.vivarium.requires != [ ]) {
+                  requires =
+                    let
+                      names = map (each: each.networking.hostName) machines;
+                      unknown = lib.subtractLists names machine.vivarium.requires;
+                    in
+                    if unknown == [ ] then
+                      machine.vivarium.requires
+                    else
+                      throw "${machine.networking.hostName}: vivarium.requires names ${lib.concatStringsSep ", " unknown}, which are not guests of this run (${lib.concatStringsSep ", " names}).";
+                }
+              ) machines;
         }
       );
 

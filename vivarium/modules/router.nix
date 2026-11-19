@@ -301,7 +301,7 @@ in
       # that name the other guests' uplink.
       vivarium.uplink.proxy = lib.mkForce "passt";
       # Its egress binds nothing for it: no ssh, and nothing to reach.
-      vivarium.forward = lib.mkForce [ ];
+      vivarium.inbound = lib.mkForce [ ];
       vivarium.launch.config.egress = "${egress}/bin/egress";
 
       vivarium.interfaces = lib.mapAttrs' (

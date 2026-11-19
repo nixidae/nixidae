@@ -177,7 +177,7 @@ class Machine:
         self.on_console = on_console
         self.on_command = on_command
         self.on_say = on_say
-        self.forward: list[forward.Rule] = list(spec.forward)
+        self.forward: list[forward.Rule] = list(spec.inbound)
         self.claims: list[forward.Claim] = []
         """The host sockets of this guest's forwards through an egress, bound
         before it boots and kept until it is gone: a reboot's egress gets them again."""
@@ -262,13 +262,11 @@ class Machine:
         guest: the run reports it as a failed boot, not as a traceback.
         """
         try:
-            self.forward, notes = forward.resolve(self.forward, taken=taken)
-            for note in notes:
-                self._log(f"warning: {note}")
+            rules = forward.resolve(self.forward, taken=taken)
             if self.spec.forwards_through_egress:
-                self.forward, self.claims = forward.claim(self.forward, random=self.random_ports)
+                self.forward, self.claims = forward.claim(rules, random=self.random_ports)
             else:
-                forward.probe(self.forward)
+                self.forward = forward.pick(rules, taken=taken, random=self.random_ports)
         except forward.ForwardError as error:
             raise MachineError(f"[{self.name}] forward: {error}") from error
         for rule in self.forward:
@@ -1021,13 +1019,14 @@ class Machine:
         known = ", ".join(f"{nic.name} on {nic.segment}" for nic in self.spec.interfaces) or "none"
         raise MachineError(f"[{self.name}] no interface on segment {segment!r}; it has: {known}")
 
-    def reachable(self, guest_port: int) -> list[str]:
-        """Where *guest_port* answers from the host, as ``address:port``.
+    def reachable(self, guest_port: int, protocol: str = "tcp") -> list[str]:
+        """Where *guest_port* answers from the host over *protocol*
+        (``tcp`` or ``udp``), as ``address:port``.
 
         Empty when nothing forwards it -- which is the answer worth
         having, since it cannot be fixed without rebooting the guest.
         """
-        return forward.reachable(self.forward, guest_port)
+        return forward.reachable(self.forward, guest_port, protocol)
 
     async def processes(self) -> list[ProcessInfo]:
         """Every process in the guest: pid, ppid, name and cmdline.

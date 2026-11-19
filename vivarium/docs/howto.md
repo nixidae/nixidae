@@ -267,15 +267,13 @@ The way in is in `--out`, written before any guest boots:
   certificate, not the forward address. The run empties `access/` when
   the guests go down.
 
-A host port reaches only what `vivarium.forward` names, and forwards are
-fixed when a guest boots. A port map with no `host`, such as
-`{ guest = 6443; }`, gets the guest's port on the host, or the first
-free port above it; `access.json` says which. A guest behind the router,
-or on a vsock uplink, gets its forwards from sockets the runner binds
-and the egress serves: a port another process holds at that bind fails
-the boot and names the port. `--random-ports` binds any free port
-instead, as a sandboxed check does; the MCP `start` passes it, so runs
-beside each other never collide. `ctl`, `switch` and
+A host port reaches only what `vivarium.inbound` names, and forwards are
+fixed when a guest boots. An entry with no `host`, such as
+`{ guest = 6443; }`, takes any free host port; `access.json` says which.
+A fixed `host` that another process holds fails the boot and names the
+port. `--random-ports` binds any free port for every entry, as a
+sandboxed check does; the MCP `start` passes it, so runs beside each
+other never collide. `ctl`, `switch` and
 `reload` work on a ready environment as on a paused run. `continue` at
 ready runs the phases a `reload` added, then holds again. Only `stop`
 ends the environment.
