@@ -2770,6 +2770,7 @@ def init_plugins() -> Bint:
     """)
 
 
+# The `set-options-by-name` feature: nixidae/nixidae#1198.
 @needs(Local("huggorm_decl/cpp/settings.hpp"), Local("nix/store/remote-store.hh"))
 def set_setting(name: Str, value: Str) -> None:
     """Set one setting for the process, as a line of nix.conf would.
@@ -2784,7 +2785,7 @@ def set_setting(name: Str, value: Str) -> None:
 
     A `pynixd-*` name is the daemon's, not this process's: it is kept,
     and a remote store sends it to a daemon that names the
-    `set-options-by-name` feature (nixidae/nixidae#1198)."""
+    `set-options-by-name` feature."""
     Cxx("""
         if (!nix::globalConfig.set(name, value) && !nix::hasPrefix(name, nix::pynixdSettingPrefix))
             throw nix::UsageError("unknown setting '%s'", name);
