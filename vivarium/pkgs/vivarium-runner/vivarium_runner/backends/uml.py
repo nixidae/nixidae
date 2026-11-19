@@ -280,6 +280,7 @@ class Uml:
                     egress_adds(machine, f"vsock:{RELAY_IN_PORT}"),
                     helpers,
                 )
+                machine.egress_relay = f"vsock:{RELAY_IN_PORT}"
             except BaseException:
                 abandon(helpers, ())
                 raise

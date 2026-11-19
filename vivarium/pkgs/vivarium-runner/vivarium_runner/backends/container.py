@@ -205,6 +205,7 @@ class Container:
                     egress_adds(machine, str(relay)),
                     helpers,
                 )
+                machine.egress_relay = str(relay)
             except BaseException:
                 abandon(helpers, ())
                 raise

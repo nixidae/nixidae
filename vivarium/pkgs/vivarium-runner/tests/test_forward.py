@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import functools
 import re
 import socket
 import sys
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import cast
 
+import anyio
 import pytest
 from vivarium_runner import Machine, MachineError, forward
 from vivarium_runner.forward import ForwardError, PortMap, Rule, UplinkNetwork
@@ -215,6 +218,115 @@ def test_two_guests_on_one_loopback_never_share_a_port() -> None:
     [one] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))], taken=taken), taken=taken, random=False)
     [two] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))], taken=taken), taken=taken, random=False)
     assert len({port, one.ports[0].host, two.ports[0].host}) == 3
+
+
+@dataclass(frozen=True)
+class _EgressSpec:
+    """What a runtime add or remove reads of a `MachineSpec`."""
+
+    forwards_through_egress: bool
+    uplink_address: str | None = "10.0.2.16"
+
+
+class Runtime(Machine):
+    """A guest whose forwards an egress serves, and nothing else."""
+
+    def __init__(self, control: socket.socket | None, *, egress: bool = True) -> None:
+        self.spec = cast(MachineSpec, _EgressSpec(forwards_through_egress=egress))
+        self.on_console = None
+        self.on_inbound = None
+        self.random_ports = False
+        self.claims = []
+        self.forward = []
+        self.declared = []
+        self.behind = None
+        self.egress_relay = "/r"
+        self.egress_control = control
+        self._egress_lock = anyio.Lock()
+        self._taken = set()
+        self._loopback = FIRST
+
+    @property
+    def name(self) -> str:
+        return "web"
+
+
+@pytest.fixture
+def egress() -> Iterator[tuple[socket.socket, list[tuple[bytes, int]]]]:
+    """The runner's end of a control socket, and what a stand-in egress
+    heard on it: each line, and how many sockets came with it."""
+    ours, theirs = socket.socketpair()
+    heard: list[tuple[bytes, int]] = []
+
+    def answer() -> None:
+        while True:
+            line, fds, _, _ = socket.recv_fds(theirs, 512, 1)
+            if not line:
+                return
+            for fd in fds:
+                socket.close(fd)
+            heard.append((line, len(fds)))
+            theirs.sendall(b"ok\n")
+
+    thread = threading.Thread(target=answer, daemon=True)
+    thread.start()
+    yield ours, heard
+    ours.close()
+    thread.join(5)
+    theirs.close()
+
+
+def test_a_runtime_add_and_remove_reach_the_egress_and_the_port(
+    egress: tuple[socket.socket, list[tuple[bytes, int]]],
+) -> None:
+    control, heard = egress
+    vm = Runtime(control)
+    told: list[str] = []
+    vm.on_inbound = lambda one: told.append(one.name)
+
+    async def main() -> None:
+        [where] = await vm.open_inbound(8080, protocols=("tcp", "udp"))
+        address, _, port = where.rpartition(":")
+        assert address == FIRST
+        assert vm.reachable(8080) == vm.reachable(8080, "udp") == [where]
+        assert [(one.protocol, one.guest) for one in vm.claims] == [("tcp", 8080), ("udp", 8080)]
+        with pytest.raises(MachineError, match="forwarded already"):
+            await vm.open_inbound(8080)
+        await vm.close_inbound(8080, "udp")
+        assert vm.reachable(8080, "udp") == []
+        assert vm.reachable(8080) == [where]
+        await vm.close_inbound(8080)
+        assert vm.reachable(8080) == []
+        assert (vm.claims, vm.forward, vm.declared) == ([], [], [])
+        # The runner let go of its copy: the port binds again.
+        with socket.socket() as sock:
+            sock.bind((address, int(port)))
+
+    anyio.run(main)
+    assert [line.split()[0] for line, _ in heard] == [b"add", b"add", b"remove", b"remove"]
+    assert [count for _, count in heard] == [1, 1, 0, 0]
+    assert heard[0][0] == b"add tcp 10.0.2.16:8080 /r\n"
+    assert heard[2][0].startswith(b"remove udp ")
+    assert told == ["web", "web", "web"]
+
+
+def test_a_runtime_add_while_the_egress_is_down_waits_for_the_next_boot() -> None:
+    """The claim is kept; the next boot's hand-over carries it."""
+    vm = Runtime(None)
+
+    async def main() -> None:
+        await vm.open_inbound(9000)
+        assert [one.guest for one in vm.claims] == [9000]
+        await vm.close_inbound(9000)
+
+    anyio.run(main)
+    assert vm.claims == []
+
+
+def test_a_guest_behind_passt_refuses_a_runtime_change() -> None:
+    vm = Runtime(None, egress=False)
+    with pytest.raises(MachineError, match="passt and gvproxy take forwards only when they start"):
+        anyio.run(functools.partial(vm.open_inbound, 9000))
 
 
 NETWORK = UplinkNetwork(

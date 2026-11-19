@@ -294,6 +294,7 @@ class Krun:
                     egress_adds(machine, str(relay)),
                     helpers,
                 )
+                machine.egress_relay = str(relay)
                 uplink = [
                     f"--vsock={RELAY_PORT},{listen}",
                     f"--vsock-listen={RELAY_IN_PORT},{relay}",

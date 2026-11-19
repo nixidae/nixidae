@@ -366,6 +366,7 @@ class Qemu:
                 egress_adds(machine, f"vsock:{RELAY_IN_PORT}"),
                 helpers,
             )
+            machine.egress_relay = f"vsock:{RELAY_IN_PORT}"
             uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
             notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
         else:

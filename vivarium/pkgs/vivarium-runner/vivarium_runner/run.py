@@ -186,6 +186,8 @@ class Run:
         for vm in self._all.values():
             if vm.spec.router:
                 vm.routed = routed
+                for guest in routed:
+                    guest.behind = vm
 
         for lan in self._lans:
             lan.start()

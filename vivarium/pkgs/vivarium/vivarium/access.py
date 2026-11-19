@@ -83,9 +83,15 @@ def ssh_config(guests: Mapping[str, Guest]) -> str:
 def write(guests: Mapping[str, Guest], out: Path) -> Path:
     """Both files, and an empty `access/`: a reused `--out` must not hand
     over the last run's kubeconfig, whose address may be another run's now."""
+    refresh(guests, out)
+    return empty(out)
+
+
+def refresh(guests: Mapping[str, Guest], out: Path) -> None:
+    """Both files again, `access/` untouched: a guest's forwards changed
+    while it runs."""
     (out / FILE).write_text(document(guests, out))
     (out / SSH_CONFIG).write_text(ssh_config(guests))
-    return empty(out)
 
 
 def empty(out: Path) -> Path:

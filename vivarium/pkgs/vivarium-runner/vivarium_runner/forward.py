@@ -340,6 +340,24 @@ class Add:
         """The control message the socket travels with (`egress.rs`, `parse_add`)."""
         return f"add {self.claim.protocol} {self.guest_address}:{self.claim.guest} {self.router}\n".encode()
 
+    def fds(self) -> list[int]:
+        return [self.claim.sock.fileno()]
+
+
+@dataclass(frozen=True)
+class Remove:
+    """The egress stops serving one claimed socket, and ends its flows."""
+
+    claim: Claim
+
+    def line(self) -> bytes:
+        """The control message (`egress.rs`, `parse_message`)."""
+        address, port = self.claim.sock.getsockname()[:2]
+        return f"remove {self.claim.protocol} {address}:{port}\n".encode()
+
+    def fds(self) -> list[int]:
+        return []
+
 
 def egress_adds(claims: list[Claim], guest_address: str, router: str) -> list[Add]:
     """What the egress takes for one guest: each claimed socket, reaching

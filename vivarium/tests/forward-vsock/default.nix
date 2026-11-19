@@ -8,6 +8,10 @@ mkTest {
     script = ../forward.py;
     after = [ "boot" ];
   };
+  phases.runtime = {
+    script = ../inbound-runtime.py;
+    after = [ "test" ];
+  };
   nodes.node =
     { config, ... }:
     {
@@ -18,6 +22,9 @@ mkTest {
         { guest = 8080; }
         { guest = 80; }
       ];
-      environment.systemPackages = [ pkgs.python3 ];
+      environment.systemPackages = [
+        pkgs.python3
+        pkgs.socat
+      ];
     };
 }

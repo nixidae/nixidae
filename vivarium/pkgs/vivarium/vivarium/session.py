@@ -531,10 +531,13 @@ class Session:
         vms.cloud = self.cloud
         vms.phase = None
         vms.pytest_args = self.pytest_args
-        vms.access = access.write(
-            {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in run.machines.items()},
-            self.out,
-        )
+
+        def guests() -> dict[str, access.Guest]:
+            return {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in run.machines.items()}
+
+        vms.access = access.write(guests(), self.out)
+        for vm in run.machines.values():
+            vm.on_inbound = lambda _vm: access.refresh(guests(), self.out)
         self.vms = vms
 
     def _machine(self, one: MachineSpec, lan_fds: dict[str, int] | None) -> Machine:

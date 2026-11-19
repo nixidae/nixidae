@@ -25,7 +25,7 @@ import socket
 import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -35,7 +35,7 @@ from vivarium_agent.arpyc import AsyncConnection, ProtocolError, Service, connec
 from vivarium_agent.channel import AGENT_READY, AgentRpc, ProcessInfo, SystemState, UnitInfo
 
 from . import backends, display, forward, ocr, report, storeview
-from .backends.host import memory_bytes
+from .backends.host import egress_exchange, memory_bytes
 from .boot import Boot, BootspecJson
 from .capability import ControlError, Controls, Framebuffer, Power, Screen
 from .consolelines import ConsoleLines, GuestExited
@@ -177,7 +177,19 @@ class Machine:
         self.on_console = on_console
         self.on_command = on_command
         self.on_say = on_say
+        self.declared: list[forward.Rule] = list(spec.inbound)
+        """`vivarium.inbound` as asked, then each runtime add: what a switch
+        diffs against. `forward` holds the same entries as bound."""
         self.forward: list[forward.Rule] = list(spec.inbound)
+        self.on_inbound: Callable[[Machine], None] | None = None
+        """Told after a runtime add or remove: the session writes `access.json` again."""
+        self.behind: Machine | None = None
+        """The router whose egress serves this guest, if one does."""
+        self.egress_relay: str | None = None
+        """Where the egress this guest's boot started reaches the guests' relay."""
+        self._egress_lock = anyio.Lock()
+        self._taken: set[str] = set()
+        self._loopback: str | None = None
         self.claims: list[forward.Claim] = []
         """The host sockets of this guest's forwards through an egress, bound
         before it boots and kept until it is gone: a reboot's egress gets them again."""
@@ -261,6 +273,7 @@ class Machine:
         A forward that cannot be set up is a `MachineError` naming the
         guest: the run reports it as a failed boot, not as a traceback.
         """
+        self._taken = taken
         try:
             rules = forward.resolve(self.forward, taken=taken)
             if self.spec.forwards_through_egress:
@@ -269,8 +282,129 @@ class Machine:
                 self.forward = forward.pick(rules, taken=taken, random=self.random_ports)
         except forward.ForwardError as error:
             raise MachineError(f"[{self.name}] forward: {error}") from error
+        self._loopback = next(
+            (bound.address for asked, bound in zip(self.declared, self.forward, strict=True) if asked.address is None),
+            None,
+        )
         for rule in self.forward:
             self._log(f"forwarding {', '.join(str(port) for port in rule.ports)} on {rule.address}")
+
+    def _runtime_inbound(self) -> Machine:
+        """The machine whose egress serves this guest's forwards; a
+        `MachineError` for a guest behind passt or gvproxy, which bind
+        their forwards when they start and take no new one."""
+        if not self.spec.forwards_through_egress:
+            raise MachineError(
+                f"[{self.name}] inbound: passt and gvproxy take forwards only when they start; "
+                "a runtime change needs the vsock uplink or the router"
+            )
+        return self.behind or self
+
+    async def _tell_egress(self, owner: Machine, messages: list[forward.Add | forward.Remove]) -> None:
+        """*messages* to *owner*'s egress. None while it is down: the next
+        boot hands over `claims`, which holds the change already."""
+        async with owner._egress_lock:  # noqa: SLF001 -- one lock per egress, held by its owner
+            if owner.egress_control is None:
+                return
+            try:
+                await anyio.to_thread.run_sync(egress_exchange, owner.egress_control, messages)
+            except backends.BackendError as error:
+                raise MachineError(f"[{self.name}] inbound: {error}") from error
+
+    async def open_inbound(
+        self,
+        guest: int,
+        host: int | None = None,
+        protocols: tuple[str, ...] = ("tcp",),
+        address: str | None = None,
+    ) -> list[str]:
+        """Forward *guest* from the host while the guest runs, as a
+        `vivarium.inbound` entry would: *host* or any free port, on
+        *address* or the guest's own. Where it answers, as `reachable`."""
+        owner = self._runtime_inbound()
+        if any(
+            port.guest == guest and set(protocols) & set(rule.protocols) for rule in self.forward for port in rule.ports
+        ):
+            raise MachineError(f"[{self.name}] inbound: guest port {guest} is forwarded already")
+        asked = forward.Rule(address=address, ports=(forward.PortMap(host, guest),), protocols=protocols)
+        try:
+            [rule] = forward.resolve(
+                [forward.Rule(address=address or self._loopback, ports=asked.ports, protocols=protocols)],
+                taken=self._taken,
+            )
+            [bound], claims = forward.claim([rule], random=self.random_ports)
+        except forward.ForwardError as error:
+            raise MachineError(f"[{self.name}] inbound: {error}") from error
+        if address is None:
+            self._loopback = bound.address
+        relay, guest_ip = owner.egress_relay, self.uplink_ip
+        try:
+            if owner.egress_control is not None and (relay is None or guest_ip is None):
+                raise MachineError(f"[{self.name}] inbound: the egress runs, but this guest has no uplink address")
+            adds = forward.egress_adds(claims, guest_ip, relay) if relay and guest_ip else []
+            await self._tell_egress(owner, list(adds))
+        except BaseException:
+            for claim in claims:
+                claim.sock.close()
+            raise
+        self.declared.append(asked)
+        self.forward.append(bound)
+        self.claims += claims
+        self._inbound_changed()
+        return forward.reachable([bound], guest, protocols[0])
+
+    async def close_inbound(self, guest: int, protocol: str | None = None) -> None:
+        """Stop forwarding *guest* (*protocol* only, if given): its host
+        port closes and its open flows end."""
+        owner = self._runtime_inbound()
+        gone = [
+            index
+            for index, rule in enumerate(self.forward)
+            if any(port.guest == guest for port in rule.ports) and (protocol is None or protocol in rule.protocols)
+        ]
+        if not gone:
+            raise MachineError(f"[{self.name}] inbound: guest port {guest} is not forwarded")
+        await self._close(owner, gone, protocol)
+
+    async def _close(self, owner: Machine, gone: list[int], protocol: str | None) -> None:
+        """Close the entries at *gone* in `forward` (*protocol* only, if given)."""
+        ends = {
+            (rule.address, port.host, port.guest)
+            for index in gone
+            for rule in [self.forward[index]]
+            for port in rule.ports
+        }
+        closing = [
+            claim
+            for claim in self.claims
+            if (*claim.sock.getsockname()[:2], claim.guest) in ends and (protocol is None or claim.protocol == protocol)
+        ]
+        await self._tell_egress(owner, [forward.Remove(claim) for claim in closing])
+        for claim in closing:
+            claim.sock.close()
+        self.claims = [claim for claim in self.claims if claim not in closing]
+
+        def narrowed(rule: forward.Rule) -> forward.Rule | None:
+            left = tuple(one for one in rule.protocols if protocol is not None and one != protocol)
+            return replace(rule, protocols=left) if left else None
+
+        declared: list[forward.Rule] = []
+        bound: list[forward.Rule] = []
+        for index, (asked, rule) in enumerate(zip(self.declared, self.forward, strict=True)):
+            if index not in gone:
+                declared.append(asked)
+                bound.append(rule)
+            elif (still := narrowed(rule)) is not None:
+                declared.append(replace(asked, protocols=still.protocols))
+                bound.append(still)
+        self.declared, self.forward = declared, bound
+        self._inbound_changed()
+
+    def _inbound_changed(self) -> None:
+        for rule in self.forward:
+            self._log(f"forwarding {', '.join(str(port) for port in rule.ports)} on {rule.address}")
+        if self.on_inbound is not None:
+            self.on_inbound(self)
 
     async def start(self) -> None:
         """Boot the guest and connect to its agent."""

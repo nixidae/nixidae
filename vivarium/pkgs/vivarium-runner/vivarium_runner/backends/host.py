@@ -7,7 +7,7 @@ import os
 import socket
 import subprocess
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -175,21 +175,23 @@ EGRESS_ANSWER = 10.0
 """Seconds the egress has to answer one control message."""
 
 
-def _hand_over(control: socket.socket, adds: list[forward.Add]) -> None:
-    """Send the egress each claimed socket and wait for its answer: the
-    next goes only after it, so one read on the far side is one message."""
+def egress_exchange(control: socket.socket, messages: Sequence[forward.Add | forward.Remove]) -> None:
+    """Send the egress each message, and wait for its answer: the next
+    goes only after it, so one read on the far side is one message.
+    Blocking; a caller on the event loop runs it in a thread."""
     control.settimeout(EGRESS_ANSWER)
     try:
-        for add in adds:
-            socket.send_fds(control, [add.line()], [add.claim.sock.fileno()])
+        for message in messages:
+            said = message.line().decode().strip()
+            socket.send_fds(control, [message.line()], message.fds())
             answer = b""
             while not answer.endswith(b"\n"):
                 chunk = control.recv(512)
                 if not chunk:
-                    raise BackendError(f"the egress ended before it answered {add.line().decode().strip()!r}")
+                    raise BackendError(f"the egress ended before it answered {said!r}")
                 answer += chunk
             if answer != b"ok\n":
-                raise BackendError(f"the egress refused {add.line().decode().strip()!r}: {answer.decode().strip()}")
+                raise BackendError(f"the egress refused {said!r}: {answer.decode().strip()}")
     except TimeoutError as error:
         raise BackendError(f"the egress did not answer in {EGRESS_ANSWER:g}s") from error
     finally:
@@ -238,7 +240,7 @@ async def start_egress(
         if waited.cancelled_caught:
             raise BackendError(f"the egress did not listen on {ready}:\n{log_tail(log)}")
         try:
-            await anyio.to_thread.run_sync(functools.partial(_hand_over, control, adds))
+            await anyio.to_thread.run_sync(functools.partial(egress_exchange, control, adds))
         except BackendError as error:
             raise BackendError(f"{error}\n{log_tail(log)}") from error
     except BaseException:
