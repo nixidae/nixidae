@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import AsyncIterator
+import tempfile
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -135,79 +136,87 @@ async def running_daemon(path: Path) -> AsyncIterator[Path]:
     await listener.aclose()
 
 
+@pytest.fixture
+def control() -> Iterator[Path]:
+    """The daemon's socket path, under /tmp: macOS takes at most 104 bytes for one,
+    and a darwin Nix build's `tmp_path` is longer (`AF_UNIX path too long`, 2026-11-19)."""
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="dinit-client-") as directory:
+        yield Path(directory) / "control"
+
+
 @asynccontextmanager
-async def connected_client(tmp_path: Path) -> AsyncIterator[DinitClient]:
+async def connected_client(control: Path) -> AsyncIterator[DinitClient]:
     async with (
-        running_daemon(tmp_path / "control"),
-        DinitClient.connect(str(tmp_path / "control")) as client,
+        running_daemon(control),
+        DinitClient.connect(str(control)) as client,
     ):
         yield client
 
 
-async def test_connect_negotiates_protocol(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_connect_negotiates_protocol(control: Path) -> None:
+    async with connected_client(control) as client:
         assert client.protocol_version == 7
 
 
-async def test_list_services(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_list_services(control: Path) -> None:
+    async with connected_client(control) as client:
         services = await client.list_services()
     assert set(services) == {"alpha", "beta"}
     assert services["alpha"].state is p.ServiceState.STARTED
     assert services["beta"].state is p.ServiceState.STOPPED
 
 
-async def test_find_returns_record(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_find_returns_record(control: Path) -> None:
+    async with connected_client(control) as client:
         record = await client.find("alpha")
     assert record.handle == 5
     assert record.state is p.ServiceState.STARTED
 
 
-async def test_missing_service_raises(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_missing_service_raises(control: Path) -> None:
+    async with connected_client(control) as client:
         with pytest.raises(ServiceNotFound):
             await client.find("missing")
 
 
-async def test_status(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_status(control: Path) -> None:
+    async with connected_client(control) as client:
         status = await client.status("alpha")
     assert status.pid == 321
 
 
-async def test_start_buffers_event_for_subscriber(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_start_buffers_event_for_subscriber(control: Path) -> None:
+    async with connected_client(control) as client:
         await client.start("alpha")
         event = await client.subscribe().receive()
     assert isinstance(event, p.ServiceEventInfo)
     assert event.event is p.ServiceEvent.STARTED
 
 
-async def test_catlog(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_catlog(control: Path) -> None:
+    async with connected_client(control) as client:
         log = await client.catlog("alpha")
     assert log == b"hello log\n"
 
 
-async def test_get_all_env(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_get_all_env(control: Path) -> None:
+    async with connected_client(control) as client:
         env = await client.get_all_env()
     assert env == {"HOME": "/root"}
 
 
-async def test_query_load_mech(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_query_load_mech(control: Path) -> None:
+    async with connected_client(control) as client:
         mech = await client.query_load_mech()
     assert mech.cwd == "/work"
     assert mech.dirs == ("/store/services", "/runtime/services")
 
 
-async def test_setenv(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_setenv(control: Path) -> None:
+    async with connected_client(control) as client:
         await client.setenv({"A": "1", "B": None})
 
 
-async def test_shutdown_is_acknowledged(tmp_path: Path) -> None:
-    async with connected_client(tmp_path) as client:
+async def test_shutdown_is_acknowledged(control: Path) -> None:
+    async with connected_client(control) as client:
         await client.shutdown(p.ShutdownType.POWEROFF)
