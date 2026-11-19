@@ -11,7 +11,12 @@
 { mkTest, ... }:
 mkTest {
   name = "container";
-  nodes.one.vivarium.backend = "container";
+  nodes.one =
+    { config, ... }:
+    {
+      vivarium.backend = "container";
+      vivarium.inbound = [ { guest = config.vivarium.sshPort; } ];
+    };
   phases.check = {
     script = ../phases/container.py;
     after = [ "boot" ];

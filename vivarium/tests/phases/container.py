@@ -115,7 +115,7 @@ async def _uplink(one: Machine) -> None:
     await one.succeed("getent hosts localhost")
 
     # A forward: the host reaches the guest's sshd through pasta.
-    host, _, port = one.reachable(4325)[0].rpartition(":")
+    host, _, port = one.reachable(one.spec.ssh_port)[0].rpartition(":")
     with socket.create_connection((host, int(port)), timeout=10) as conn:
         banner = conn.recv(64)
     if not banner.startswith(b"SSH-"):

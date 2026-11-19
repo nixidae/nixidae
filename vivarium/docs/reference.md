@@ -404,11 +404,12 @@ with passt and 1.7 to 2.5 with gvproxy; guest to host 5.9 to 9.1 with passt
 and 2.8 to 3.7 with gvproxy.
 
 So `vivarium.inbound` lists the guest ports before boot, one entry each.
-Nothing else reaches the guest from the host. The default is the ssh port
-alone:
+Nothing else reaches the guest from the host, ssh included: the default is
+empty.
 
 ```nix
 vivarium.inbound = [
+  { guest = config.vivarium.sshPort; }                  # ssh, for ssh_config
   { guest = 6443; }                                     # any free host port
   { host = 8080; guest = 80; }                          # host port 8080
   { guest = 53; protocols = [ "tcp" "udp" ]; }          # one host port for both

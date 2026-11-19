@@ -569,10 +569,10 @@ in
       type = lib.types.port;
       default = 4325;
       description = ''
-        The port sshd listens on in the guest. The default
-        `vivarium.inbound` forwards it from any free host port, which
-        `<out>/ssh_config` names. Tests drive the guest over the agent
-        instead; this is for looking around by hand.
+        The port sshd listens on in the guest. The host reaches it only
+        with an entry `{ guest = config.vivarium.sshPort; }` in
+        `vivarium.inbound`; `<out>/ssh_config` then names the host port.
+        Tests drive the guest over the agent instead.
       '';
     };
 
@@ -588,8 +588,7 @@ in
 
     inbound = lib.mkOption {
       type = lib.types.listOf inboundEntry;
-      default = [ { guest = config.vivarium.sshPort; } ];
-      defaultText = lib.literalExpression "[ { guest = config.vivarium.sshPort; } ]";
+      default = [ ];
       example = lib.literalExpression ''
         [
           { guest = 80; }                                       # any free host port
