@@ -1,9 +1,24 @@
 """A dinix guest under krun: dinit is PID 1, the root is the disk, the store
-is the host's overlay, and the agent answers for dinit."""
+is the host's overlay, and the agent answers for dinit. Its uplink leases
+an address from the router, and the host reaches a server through it."""
 
 from __future__ import annotations
 
+import anyio
 from vivarium_runner import Machines
+
+WEB = 8080
+"""`web` in tests/dinix: busybox httpd, serving "dinix"."""
+
+
+async def fetch(address: str) -> bytes:
+    host, port = address.rsplit(":", 1)
+    async with await anyio.connect_tcp(host, int(port)) as stream:
+        await stream.send(b"GET / HTTP/1.0\r\n\r\n")
+        body = b""
+        async for chunk in stream:
+            body += chunk
+    return body
 
 
 async def test(vms: Machines) -> None:
@@ -17,6 +32,26 @@ async def test(vms: Machines) -> None:
         if mount not in mounts:
             raise AssertionError(f"no {mount!r} in /proc/mounts:\n{mounts}")
     print("[test] dinit is PID 1 on the root disk, with the store overlay")
+
+    want = box.spec.uplink_address
+    if want is None:
+        raise AssertionError("the guest is not behind the router")
+
+    async def leased() -> str | None:
+        found = (await box.succeed("ip -4 -o addr show dev vec0")).stdout
+        return found if f" {want}/" in found else None
+
+    print(f"[test] vec0 leased {want}: {(await box.until('vec0 to lease', leased, timeout=30, poll=0.2)).strip()}")
+
+    async def served() -> bytes | None:
+        try:
+            body = await fetch(box.reachable(WEB)[0])
+        except OSError:
+            return None
+        return body if body.endswith(b"dinix\n") else None
+
+    await box.until("the host to reach web", served, timeout=30, poll=0.5)
+    print(f"[test] the host reached web through {box.reachable(WEB)[0]}")
 
     # The boot phase returned, so `slow` had started: boot waits for it.
     slow = (await box.succeed("dinitctl is-started slow")).stdout

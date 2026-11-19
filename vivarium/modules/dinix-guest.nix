@@ -31,6 +31,31 @@ let
           --set-default DINIT_SOCKET_PATH ${dinix.config.socketPath}
       '';
 
+  # The uplink: the NIC with vec0's MAC, renamed as NixOS's networkd does,
+  # leased by DHCP from the router. virtio_net and af_packet are modules in
+  # this kernel, and udhcpc needs a packet socket.
+  uplink = pkgs.writeScript "vivarium-dinix-uplink" ''
+    #!${pkgs.busybox}/bin/sh
+    set -eu
+    PATH=${pkgs.busybox}/bin
+    ${pkgs.kmod}/bin/modprobe -d ${kernel.modules} -a virtio_net af_packet
+    for dev in /sys/class/net/*; do
+      if [ "$(cat "$dev/address")" = ${config.vivarium.uplinkMac} ]; then
+        name=''${dev##*/}
+      fi
+    done
+    if [ -z "''${name:-}" ]; then
+      echo "no NIC has the uplink's MAC, ${config.vivarium.uplinkMac}" >&2
+      exit 1
+    fi
+    ip link set lo up
+    if [ "$name" != vec0 ]; then
+      ip link set "$name" name vec0
+    fi
+    ip link set vec0 mtu ${toString config.vivarium.mtu} up
+    exec udhcpc -f -i vec0 -s ${pkgs.busybox}/default.script
+  '';
+
   # What `succeed` finds on PATH.
   guestPath = pkgs.buildEnv {
     name = "vivarium-dinix-path";
@@ -50,6 +75,11 @@ let
           "VIVARIUM_DINIT_SOCKET=${dinix.config.socketPath}"
           (lib.getExe agent)
         ];
+        dinix.critical = false;
+      };
+      vivarium-uplink = {
+        type = "process";
+        command = "${uplink}";
         dinix.critical = false;
       };
       # A reset with no orderly stop before it is a crash. The stop runs in
@@ -197,6 +227,8 @@ in
       }
     ];
     vivarium.kind = "dinix";
+    # The relay does not run here; vec0 leases its address by DHCP.
+    vivarium.uplink.wantsRouter = lib.mkDefault (config.vivarium.uplink.segment == null);
     vivarium.rootImage = rootImage;
     vivarium.closure = pkgs.closureInfo {
       rootPaths = [
