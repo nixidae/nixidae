@@ -37,7 +37,9 @@
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{
+    IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket,
+};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Mutex, RwLock};
@@ -64,7 +66,7 @@ enum Network {
 const UPLINK_PORT: u32 = 5000;
 
 /// The host ports one FORWARD binds.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Ports {
     proto: u8,
     bind: IpAddr,
@@ -306,6 +308,21 @@ struct Add {
     router: String,
 }
 
+/// One control message: `add` brings a socket, `remove` names one by
+/// protocol and host address.
+enum Message {
+    Add(Add),
+    Remove { proto: u8, host: SocketAddr },
+}
+
+fn parse_proto(proto: &str) -> Option<u8> {
+    match proto {
+        "tcp" => Some(TCP),
+        "udp" => Some(UDP),
+        _ => None,
+    }
+}
+
 fn parse_add(line: &str) -> io::Result<Add> {
     let bad = |why: &str| io::Error::other(format!("control {line:?}: {why}"));
     let words: Vec<&str> = line.split(' ').collect();
@@ -313,14 +330,24 @@ fn parse_add(line: &str) -> io::Result<Add> {
         return Err(bad("not `add PROTO GUEST_ADDR:PORT ROUTER`"));
     };
     Ok(Add {
-        proto: match proto {
-            "tcp" => TCP,
-            "udp" => UDP,
-            _ => return Err(bad("not tcp or udp")),
-        },
+        proto: parse_proto(proto).ok_or_else(|| bad("not tcp or udp"))?,
         guest: guest.parse().map_err(|_| bad("not a guest ADDR:PORT"))?,
         router: router.to_owned(),
     })
+}
+
+fn parse_message(line: &str) -> io::Result<Message> {
+    let bad = |why: &str| io::Error::other(format!("control {line:?}: {why}"));
+    match line.split(' ').collect::<Vec<_>>()[..] {
+        ["add", ..] => parse_add(line).map(Message::Add),
+        ["remove", proto, host] => Ok(Message::Remove {
+            proto: parse_proto(proto).ok_or_else(|| bad("not tcp or udp"))?,
+            host: host.parse().map_err(|_| bad("not a host ADDR:PORT"))?,
+        }),
+        _ => Err(bad(
+            "not `add PROTO GUEST_ADDR:PORT ROUTER` or `remove PROTO HOST_ADDR:PORT`",
+        )),
+    }
 }
 
 /// One line from the control socket, and the socket that came with it.
@@ -421,14 +448,7 @@ fn adopt(add: &Add, fd: OwnedFd, router: usize) -> io::Result<(Listener, Ports)>
         first: local.port(),
         last: local.port(),
     };
-    Ok((
-        Listener {
-            socket,
-            guest: add.guest,
-            router,
-        },
-        ports,
-    ))
+    Ok((Listener::new(socket, add.guest, router), ports))
 }
 
 fn parse_spec(text: &str) -> io::Result<Spec> {
@@ -491,18 +511,46 @@ enum Socket {
     Udp(Arc<UdpSocket>),
 }
 
+/// The open TCP flows of one listener, by id: what `remove` shuts down.
+/// A flow takes itself out when it ends.
+type Clients = Arc<Mutex<HashMap<u64, TcpStream>>>;
+
 /// A bound host port and the guest port it reaches.
 struct Listener {
     socket: Socket,
     guest: SocketAddr,
     router: usize,
+    clients: Clients,
 }
 
 impl Listener {
+    fn new(socket: Socket, guest: SocketAddr, router: usize) -> Self {
+        Self {
+            socket,
+            guest,
+            router,
+            clients: Clients::default(),
+        }
+    }
+
     fn fd(&self) -> RawFd {
         match &self.socket {
             Socket::Tcp(socket) => socket.as_raw_fd(),
             Socket::Udp(socket) => socket.as_raw_fd(),
+        }
+    }
+
+    fn proto(&self) -> u8 {
+        match &self.socket {
+            Socket::Tcp(_) => TCP,
+            Socket::Udp(_) => UDP,
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        match &self.socket {
+            Socket::Tcp(socket) => socket.local_addr(),
+            Socket::Udp(socket) => socket.local_addr(),
         }
     }
 }
@@ -540,11 +588,7 @@ fn bind_all(specs: &[Spec]) -> io::Result<Vec<Listener>> {
             }
             let mut guest = spec.guest;
             guest.set_port(spec.guest.port() + (port - first));
-            listeners.push(Listener {
-                socket,
-                guest,
-                router: index,
-            });
+            listeners.push(Listener::new(socket, guest, index));
         }
     }
     Ok(listeners)
@@ -608,6 +652,45 @@ impl Poller {
                 fflags: 0,
                 data: 0,
                 udata: token as *mut libc::c_void,
+            };
+            unsafe {
+                libc::kevent(
+                    self.kqueue.as_raw_fd(),
+                    &raw const change,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            }
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// Stop waiting on `fd`. Before it closes: the runner holds a copy of
+    /// a socket it handed over, so closing ours leaves it registered.
+    fn delete(&mut self, fd: RawFd) -> io::Result<()> {
+        #[cfg(target_os = "linux")]
+        let rc = unsafe {
+            libc::epoll_ctl(
+                self.epoll.as_raw_fd(),
+                libc::EPOLL_CTL_DEL,
+                fd,
+                std::ptr::null_mut(),
+            )
+        };
+        #[cfg(not(target_os = "linux"))]
+        let rc = {
+            let change = libc::kevent {
+                ident: fd as libc::uintptr_t,
+                filter: libc::EVFILT_READ,
+                flags: libc::EV_DELETE,
+                fflags: 0,
+                data: 0,
+                udata: std::ptr::null_mut(),
             };
             unsafe {
                 libc::kevent(
@@ -702,31 +785,78 @@ fn open_udp(router: &Router, guest: SocketAddr) -> io::Result<Stream> {
     Ok(Stream::from(relay))
 }
 
-/// Take the listener a control message brings: answered on the control
-/// socket, so a refused one costs the runner its answer and nothing else.
-fn take(
-    line: &str,
-    fd: Option<OwnedFd>,
-    listeners: &mut Vec<Listener>,
-    routers: &mut Vec<Router>,
-    poller: &mut Poller,
-    outside: &Outside,
-    device: DeviceRef,
-) -> io::Result<()> {
-    let add = parse_add(line)?;
-    let fd = fd.ok_or_else(|| io::Error::other("no socket came with the message"))?;
-    let relay = router(&add.router, device)?;
-    let (listener, ports) = adopt(&add, fd, routers.len())?;
-    poller.add(listener.fd(), listeners.len())?;
-    routers.push(relay);
-    outside.forwards.write().unwrap().push(ports);
-    listeners.push(listener);
-    Ok(())
+/// What `serve` holds: a slot per listener it ever served. A removed
+/// one stays `None`, so an index never names another listener: a ready
+/// batch and a UDP flow's key may still carry it.
+struct Served {
+    listeners: Vec<Option<Listener>>,
+    routers: Vec<Router>,
+    poller: Poller,
+    flows: Flows,
+}
+
+impl Served {
+    /// Act on one control message: answered on the control socket, so a
+    /// refused one costs the runner its answer and nothing else.
+    fn control(
+        &mut self,
+        line: &str,
+        fd: Option<OwnedFd>,
+        outside: &Outside,
+        device: DeviceRef,
+    ) -> io::Result<()> {
+        match parse_message(line)? {
+            Message::Add(add) => {
+                let fd = fd.ok_or_else(|| io::Error::other("no socket came with the message"))?;
+                let relay = router(&add.router, device)?;
+                let (listener, ports) = adopt(&add, fd, self.routers.len())?;
+                self.poller.add(listener.fd(), self.listeners.len())?;
+                self.routers.push(relay);
+                outside.forwards.write().unwrap().push(ports);
+                self.listeners.push(Some(listener));
+                Ok(())
+            }
+            Message::Remove { proto, host } => self.remove(proto, host, outside),
+        }
+    }
+
+    /// Stop serving the listener on `host`, and end each flow it took. The
+    /// runner closes its own copy of the socket after the answer.
+    fn remove(&mut self, proto: u8, host: SocketAddr, outside: &Outside) -> io::Result<()> {
+        let index = self
+            .listeners
+            .iter()
+            .position(|slot| {
+                slot.as_ref().is_some_and(|listener| {
+                    listener.proto() == proto && listener.local_addr().ok() == Some(host)
+                })
+            })
+            .ok_or_else(|| io::Error::other(format!("no listener on {host}")))?;
+        let listener = self.listeners[index].take().expect("found above");
+        self.poller.delete(listener.fd())?;
+        let ports = Ports {
+            proto,
+            bind: host.ip(),
+            first: host.port(),
+            last: host.port(),
+        };
+        outside.forwards.write().unwrap().retain(|held| *held != ports);
+        for client in listener.clients.lock().unwrap().values() {
+            let _ = client.shutdown(Shutdown::Both);
+        }
+        self.flows.lock().unwrap().retain(|(at, _), (_, relay)| {
+            if *at == index {
+                relay.shutdown(Shutdown::Both);
+            }
+            *at != index
+        });
+        Ok(())
+    }
 }
 
 fn serve(
-    mut listeners: Vec<Listener>,
-    mut routers: Vec<Router>,
+    listeners: Vec<Listener>,
+    routers: Vec<Router>,
     control: Option<UnixStream>,
     outside: Arc<Outside>,
     device: Device,
@@ -735,40 +865,40 @@ fn serve(
     for (index, listener) in listeners.iter().enumerate() {
         poller.add(listener.fd(), index)?;
     }
+    let mut served = Served {
+        listeners: listeners.into_iter().map(Some).collect(),
+        routers,
+        poller,
+        flows: Flows::default(),
+    };
     if let Some(control) = &control {
-        poller.add(control.as_raw_fd(), CONTROL)?;
+        served.poller.add(control.as_raw_fd(), CONTROL)?;
     }
-    let flows: Flows = Arc::default();
     let mut next_id = 0u64;
     let mut ready = Vec::new();
     let mut buf = vec![0u8; 65536];
     loop {
-        poller.wait(&mut ready)?;
+        served.poller.wait(&mut ready)?;
         for &index in &ready {
             if let (CONTROL, Some(control)) = (index, &control) {
                 let Some((line, fd)) = recv_line(control)? else {
                     // The runner is gone, and with it every guest this serves.
                     std::process::exit(0);
                 };
-                let taken = take(
-                    &line,
-                    fd,
-                    &mut listeners,
-                    &mut routers,
-                    &mut poller,
-                    &outside,
-                    device.as_ref(),
-                );
-                let answer = match taken {
+                let answer = match served.control(&line, fd, &outside, device.as_ref()) {
                     Ok(()) => "ok\n".to_owned(),
                     Err(err) => format!("error {err}\n"),
                 };
                 (&*control).write_all(answer.as_bytes())?;
                 continue;
             }
-            let listener = &listeners[index];
-            let router = &routers[listener.router];
+            // Removed by a control message earlier in this batch.
+            let Some(listener) = &served.listeners[index] else {
+                continue;
+            };
+            let router = &served.routers[listener.router];
             let guest = listener.guest;
+            let flows = &served.flows;
             match &listener.socket {
                 Socket::Tcp(socket) => loop {
                     let client = match socket.accept() {
@@ -784,11 +914,22 @@ fn serve(
                         eprintln!("egress: forward {guest}: {err}");
                         continue;
                     }
-                    let router = router.clone();
+                    let held = match client.try_clone() {
+                        Ok(held) => held,
+                        Err(err) => {
+                            eprintln!("egress: forward {guest}: {err}");
+                            continue;
+                        }
+                    };
+                    next_id += 1;
+                    let id = next_id;
+                    listener.clients.lock().unwrap().insert(id, held);
+                    let (router, clients) = (router.clone(), listener.clients.clone());
                     thread::spawn(move || {
                         if let Err(err) = forward(client, guest, &router) {
                             eprintln!("egress: forward {guest}: {err}");
                         }
+                        clients.lock().unwrap().remove(&id);
                     });
                 },
                 Socket::Udp(socket) => loop {
@@ -931,8 +1072,12 @@ fn main() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Network, Outside, Ports, Router, parse_add, parse_spec, router};
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+    use super::{
+        Flows, Listener, Message, Network, Outside, Poller, Ports, Router, Served, Socket,
+        parse_add, parse_message, parse_spec, router,
+    };
+    use std::io::Read;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
     use std::sync::RwLock;
     use vivarium_egress::{ICMP, TCP, UDP};
 
@@ -972,6 +1117,66 @@ mod tests {
         ] {
             assert!(parse_add(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_control_remove_parses() {
+        let Message::Remove { proto, host } = parse_message("remove udp 127.0.0.1:4000").unwrap()
+        else {
+            panic!("not a remove");
+        };
+        assert_eq!((proto, host), (UDP, at("127.0.0.1:4000")));
+        assert!(matches!(
+            parse_message("add tcp 10.0.2.16:22 /r").unwrap(),
+            Message::Add(_)
+        ));
+        for bad in [
+            "remove tcp 127.0.0.1",
+            "remove sctp 127.0.0.1:4000",
+            "remove tcp 127.0.0.1:4000 /r",
+            "drop tcp 127.0.0.1:4000",
+        ] {
+            assert!(parse_message(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_removed_listener_ends_its_flows_and_its_forward() {
+        let socket = TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = socket.local_addr().unwrap();
+        let mut client = TcpStream::connect(host).unwrap();
+        let (accepted, _) = socket.accept().unwrap();
+        let listener = Listener::new(Socket::Tcp(socket), at("10.0.2.15:80"), 0);
+        listener.clients.lock().unwrap().insert(1, accepted);
+        let mut served = Served {
+            listeners: vec![Some(listener)],
+            routers: Vec::new(),
+            poller: Poller::new().unwrap(),
+            flows: Flows::default(),
+        };
+        let fd = served.listeners[0].as_ref().unwrap().fd();
+        served.poller.add(fd, 0).unwrap();
+        let ports = Ports {
+            proto: TCP,
+            bind: host.ip(),
+            first: host.port(),
+            last: host.port(),
+        };
+        let outside = Outside {
+            forwards: RwLock::new(vec![ports]),
+            ..Outside::default()
+        };
+        served.remove(TCP, host, &outside).unwrap();
+        assert!(served.listeners[0].is_none());
+        assert!(outside.forwards.read().unwrap().is_empty());
+        // The open flow sees its end, not a hang.
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        assert_eq!(client.read(&mut [0u8; 1]).unwrap(), 0);
+        // Nothing listens there any more.
+        assert!(TcpStream::connect(host).is_err());
+        assert!(served.remove(TCP, host, &outside).is_err());
     }
 
     #[test]
