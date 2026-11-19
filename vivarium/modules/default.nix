@@ -1123,10 +1123,8 @@ in
     warnings =
       let
         proxy = config.vivarium.uplink.proxy;
-        # The router's `passt` names no proxy: it reaches the host over vsock.
-        vsockServes = config.vivarium.kind == "nixos" && !config.vivarium.router.enable;
       in
-      lib.optional (proxy == "gvproxy" || (proxy == "passt" && vsockServes)) ''
+      lib.optional (proxy == "gvproxy" || (proxy == "passt" && config.vivarium.kind == "nixos")) ''
         ${config.networking.hostName}: vivarium.uplink.proxy = "${proxy}" is deprecated, and `vsock` replaces it (nixidae/nixidae#1404).
       '';
 

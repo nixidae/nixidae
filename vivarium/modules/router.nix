@@ -25,6 +25,12 @@
 }:
 let
   cfg = config.vivarium.router;
+
+  # The relay in the guest's own namespace, behind `vec0`. Not the router's:
+  # its relay serves the bridge. An uplink segment takes precedence, and
+  # `MachineSpec.vsock` reads the same.
+  ownRelay =
+    config.vivarium.uplink.proxy == "vsock" && config.vivarium.uplink.segment == null && !cfg.enable;
   inherit (lib) mkOption types;
 
   bridge = "uplink";
@@ -299,7 +305,7 @@ in
       # Not behind itself: the runner gives the router vsock to the host
       # and no vec0 (`router` in its spec). Forced over a run's `defaults`
       # that name the other guests' uplink.
-      vivarium.uplink.proxy = lib.mkForce "passt";
+      vivarium.uplink.proxy = lib.mkForce "vsock";
       # Its egress binds nothing for it: no ssh, and nothing to reach.
       vivarium.inbound = lib.mkForce [ ];
       vivarium.launch.config.egress = "${egress}/bin/egress";
@@ -537,8 +543,7 @@ in
         ) networks
       );
     })
-    # An uplink segment takes precedence: `MachineSpec.vsock` reads the same.
-    (lib.mkIf (config.vivarium.uplink.proxy == "vsock" && config.vivarium.uplink.segment == null) {
+    (lib.mkIf ownRelay {
       vivarium.launch.config.egress = "${egress}/bin/egress";
 
       # passt's addresses, fixed: nothing in the namespace serves DHCP.
