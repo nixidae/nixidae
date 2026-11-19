@@ -9,8 +9,10 @@
   binutils,
   kernel,
 }:
+# The image's file name is the kernel's own `target`: nixpkgs 26.11 took it
+# out of the platform (`linux-kernel`), and reading it there fails.
 if stdenv.hostPlatform.isAarch64 then
-  "${kernel}/${stdenv.hostPlatform.linux-kernel.target}"
+  "${kernel}/${kernel.target}"
 else
   "${runCommand "vmlinux-${kernel.version}" { nativeBuildInputs = [ binutils ]; } ''
     objcopy --strip-all ${lib.getDev kernel}/vmlinux $out
