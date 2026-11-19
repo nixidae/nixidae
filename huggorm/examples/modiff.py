@@ -131,13 +131,34 @@ def frontier(v: Value, path: str, seen: set[int], out: list[str]) -> None:
 def compare(
     state: EvalState, old: Value, new: Value, path: str, seen: set[int], d: Diff
 ) -> None:
+    """`seen` holds the containers on the current path only: enough to stop a
+    cycle. A global set hid changes, because Nix shares one value for every
+    `true`, so `{ p = true; q = true; }` walked `q` as already seen."""
     kind = old.type_name()
     if kind == "thunk":
+        return
+    if kind not in {"attrs", "list"}:
+        _compare(state, old, new, kind, path, seen, d)
         return
     ident = old._identity()
     if ident in seen:
         return
     seen.add(ident)
+    try:
+        _compare(state, old, new, kind, path, seen, d)
+    finally:
+        seen.discard(ident)
+
+
+def _compare(
+    state: EvalState,
+    old: Value,
+    new: Value,
+    kind: str,
+    path: str,
+    seen: set[int],
+    d: Diff,
+) -> None:
     d.visited += 1
     try:
         state.force(new)
