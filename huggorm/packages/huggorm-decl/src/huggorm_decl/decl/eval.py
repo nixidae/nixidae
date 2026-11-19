@@ -39,6 +39,7 @@ from huggorm_dsl.declare import (
     DETERMINATE,
     F64,
     I64,
+    U64,
     Bint,
     Bytes,
     Cxx,
@@ -400,6 +401,47 @@ class Value:
             nix::NixStringContext context;
             return nix::printValueAsJSON(
                 self.state(), true, *self.get(), nix::noPos, context, copy_to_store).dump();
+        """)
+
+    @blocks
+    @needs(Local("nix/expr/print.hh"), Std("sstream"))
+    def print_value(
+        self,
+        force: Bint = False,
+        derivation_paths: Bint = False,
+        max_depth: Opt[U64] = None,
+        max_attrs: Opt[U64] = None,
+        max_list_items: Opt[U64] = None,
+        max_string_length: Opt[U64] = None,
+        pretty_indent: U64 = 0,
+        ansi_colors: Bint = False,
+    ) -> Str:
+        """This value as Nix prints it: `printValue`, what `nix repl`
+        and `nix eval` show. Each argument is a `PrintOptions` field.
+
+        Without `force` a value nothing evaluated prints as `«thunk»`,
+        so the text shows how far evaluation went. With `force` and
+        `derivation_paths`, a derivation prints as
+        `«derivation /nix/store/….drv»` instead of its attributes.
+        `max_attrs` and `max_list_items` count over the whole print, not
+        per set; a limit left out is none. `pretty_indent` 0 prints one
+        line. An error inside prints as `«error: …»`, its first line.
+
+        BLOCKS: with `force` it evaluates what it prints."""
+        Cxx("""
+            huggorm::gc_register_thread();
+            nix::PrintOptions options;
+            options.force = force;
+            options.derivationPaths = derivation_paths;
+            if (max_depth) options.maxDepth = *max_depth;
+            if (max_attrs) options.maxAttrs = *max_attrs;
+            if (max_list_items) options.maxListItems = *max_list_items;
+            if (max_string_length) options.maxStringLength = *max_string_length;
+            options.prettyIndent = pretty_indent;
+            options.ansiColors = ansi_colors;
+            std::ostringstream out;
+            nix::printValue(self.state(), out, *self.get(), options);
+            return out.str();
         """)
 
     @blocks
