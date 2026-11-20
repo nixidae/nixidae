@@ -35,18 +35,17 @@ def test_an_inbound_entry_comes_from_json() -> None:
     assert entry == Rule(address=None, ports=(PortMap(host=None, guest=6443),), protocols=("tcp", "udp"))
 
 
-def test_an_unset_host_port_is_any_free_one_that_binds_again() -> None:
-    """gvproxy binds the pick itself, so the pick lets go of it."""
-    taken: set[str] = set()
-    [rule] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 80),))]), taken=taken, random=False)
-    [picked] = rule.ports
-    assert picked.guest == 80
-    assert picked.host is not None
-    assert picked.host >= 1024
-    assert f"{rule.address}:{picked.host}" in taken
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((rule.address or "", picked.host))
-    assert forward.reachable([rule], 80) == [f"{rule.address}:{picked.host}"]
+def test_an_unset_host_port_is_any_free_one_that_the_claim_holds() -> None:
+    [rule], [held] = forward.claim(forward.resolve([Rule(ports=(PortMap(None, 80),))]), random=False)
+    try:
+        [claimed] = rule.ports
+        assert claimed.guest == 80
+        assert claimed.host is not None
+        assert claimed.host >= 1024
+        assert held.sock.getsockname() == (FIRST, claimed.host)
+        assert forward.reachable([rule], 80) == [f"{FIRST}:{claimed.host}"]
+    finally:
+        held.sock.close()
 
 
 def test_reachable_tells_the_protocols_apart() -> None:
@@ -63,14 +62,16 @@ def test_a_privileged_fixed_host_port_fails_by_name() -> None:
         forward.resolve([Rule(address="127.0.0.3", ports=(PortMap(80, 8080),))], start=1024)
 
 
-def test_random_picks_ignore_a_fixed_port() -> None:
+def test_random_claims_ignore_a_fixed_port() -> None:
     port = free_port_above(FIRST, 20000)
     [rule] = forward.resolve([Rule(ports=(PortMap(port, 22),))], start=1024)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
         holder.bind((FIRST, port))
         holder.listen()
-        [picked] = forward.pick([rule], taken=set(), random=True)
-    assert picked.ports[0].host != port
+        [claimed], held = forward.claim([rule], random=True)
+    for one in held:
+        one.sock.close()
+    assert claimed.ports[0].host != port
 
 
 def test_every_guest_gets_the_one_loopback_address() -> None:
@@ -92,7 +93,7 @@ class _Spec:
 class Forwarding(Machine):
     """A machine with forwards and nothing else."""
 
-    def __init__(self, rules: list[Rule], *, egress: bool = False) -> None:
+    def __init__(self, rules: list[Rule], *, egress: bool = True) -> None:
         self.forward = rules
         self.on_console = None
         self.spec = cast(MachineSpec, _Spec(forwards_through_egress=egress))
@@ -104,21 +105,25 @@ class Forwarding(Machine):
         return "web"
 
 
-@pytest.mark.parametrize("egress", [False, True], ids=["probed", "claimed"])
-def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name(egress: bool) -> None:
+def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name() -> None:
     """`Session.prepare` reports a `MachineError` as a failed boot; a bare
-    `ForwardError` ended the run as a traceback (nixidae/nixidae#1335). A
-    forward through an egress fails at its claim, a gvproxy one at its pick."""
+    `ForwardError` ended the run as a traceback (nixidae/nixidae#1335)."""
     port = free_port_above(FIRST, 22000)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
         holder.bind((FIRST, port))
         holder.listen()
-        vm = Forwarding([Rule(address=FIRST, ports=(PortMap(port, port),))], egress=egress)
+        vm = Forwarding([Rule(address=FIRST, ports=(PortMap(port, port),))])
         escaped = FIRST.replace(".", r"\.")
         with pytest.raises(
             MachineError, match=rf"^\[web\] forward: cannot forward .*{escaped}:{port} is already bound"
         ):
-            vm.resolve_forward(set())
+            vm.resolve_forward()
+
+
+def test_a_forward_with_no_egress_fails_the_guest_by_name() -> None:
+    vm = Forwarding([Rule(address=FIRST, ports=(PortMap(None, 80),))], egress=False)
+    with pytest.raises(MachineError, match=r"^\[web\] forward: no egress serves this guest's uplink"):
+        vm.resolve_forward()
 
 
 def test_a_claim_holds_its_port_until_it_is_closed() -> None:
@@ -174,16 +179,21 @@ def test_the_egress_line_names_the_guest_port() -> None:
 
 def test_two_guests_on_one_loopback_never_share_a_port() -> None:
     """A fixed port a second guest asks for fails; the evaluation refuses
-    that run first. Two unset ports get two numbers."""
+    that run first. Two unset ports get two numbers while both are held."""
     port = free_port_above(FIRST, 24000)
-    taken: set[str] = set()
-    [first] = forward.pick(forward.resolve([Rule(ports=(PortMap(port, port),))]), taken=taken, random=False)
-    assert (first.address, first.ports) == (FIRST, (PortMap(port, port),))
-    with pytest.raises(ForwardError, match="another guest of this run has it"):
-        forward.pick(forward.resolve([Rule(ports=(PortMap(port, port),))]), taken=taken, random=False)
-    [one] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))]), taken=taken, random=False)
-    [two] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))]), taken=taken, random=False)
-    assert len({port, one.ports[0].host, two.ports[0].host}) == 3
+    [first], held = forward.claim(forward.resolve([Rule(ports=(PortMap(port, port),))]), random=False)
+    try:
+        assert (first.address, first.ports) == (FIRST, (PortMap(port, port),))
+        with pytest.raises(ForwardError, match=rf"{re.escape(FIRST)}:{port} is already bound"):
+            forward.claim(forward.resolve([Rule(ports=(PortMap(port, port),))]), random=False)
+        [one], more = forward.claim(forward.resolve([Rule(ports=(PortMap(None, 1),))]), random=False)
+        held += more
+        [two], more = forward.claim(forward.resolve([Rule(ports=(PortMap(None, 1),))]), random=False)
+        held += more
+        assert len({port, one.ports[0].host, two.ports[0].host}) == 3
+    finally:
+        for one_held in held:
+            one_held.sock.close()
 
 
 @dataclass(frozen=True)
@@ -330,9 +340,9 @@ def test_a_switch_keeps_a_staying_port_and_rolls_back_on_failure(
     ]
 
 
-def test_a_guest_behind_gvproxy_refuses_a_runtime_change() -> None:
+def test_a_guest_with_no_egress_refuses_a_runtime_change() -> None:
     vm = Runtime(None, egress=False)
-    with pytest.raises(MachineError, match="gvproxy takes forwards only when it starts"):
+    with pytest.raises(MachineError, match="no egress serves this guest's uplink"):
         anyio.run(functools.partial(vm.open_inbound, 9000))
 
 

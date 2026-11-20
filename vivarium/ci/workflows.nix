@@ -283,10 +283,10 @@ let
       description = "coverage from tests in a guest reaches the host's pytest-cov";
       timeoutMinutes = 30;
     };
-    # What each krun uplink carries, both ways; the numbers are in the log.
+    # What a krun guest's vsock uplink carries, both ways; the numbers are in the log.
     uplink-iperf = {
       backend = "krun";
-      description = "what gvproxy and vsock carry for a libkrun guest";
+      description = "what vsock carries for a libkrun guest";
       timeoutMinutes = 30;
     };
     uplink-iperf-router = {

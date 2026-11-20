@@ -386,12 +386,6 @@ A guest that is not NixOS cannot run the relay, so it sits behind the
 run's router. A run that sets `router.enable = false` and holds such a
 guest with an uplink fails to evaluate.
 
-A krun guest can take gvproxy instead: `vivarium.uplink.proxy = "gvproxy"`
-(nixidae/nixidae#1163), deprecated. gvproxy runs on macOS and needs no
-user namespace. The guest gets the same addresses, from gvproxy's DHCP,
-and gvproxy forwards only listed TCP ports, fixed when it starts.
-`checks.uplink-iperf` measures it against vsock.
-
 So `vivarium.inbound` lists the guest ports before boot, one entry each.
 Nothing else reaches the guest from the host, ssh included: the default is
 empty.
@@ -556,7 +550,6 @@ The uplink is the guest's `vec0` (`vivarium.uplink.proxy`):
 
 | uplink | backends | Linux, by hand | Linux, in a build | macOS, by hand |
 | --- | --- | --- | --- | --- |
-| `gvproxy`, deprecated | `krun` | yes | yes (`uplink-iperf`) | yes |
 | `vsock` | `uml`, `qemu`, `krun`; two unix sockets on `container` | yes | yes (`lan-vsock` on `uml`, `krun` and `container`) | yes (`lan-vsock`, `forward-vsock`) |
 | `router` | guests on any backend; the router on `uml`, `qemu` or `krun` | yes | yes (`router`, `lan-router`, `forward-router`) | yes, a krun router |
 | `uplink.segment` | `uml`, `qemu` | yes | yes (`oob`, `oob-uml`) | not measured |

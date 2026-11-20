@@ -90,8 +90,7 @@ lib.mkMerge [
             config = {
               inherit (tools) krun qemuImg;
               acpi = krunAcpi;
-            }
-            // lib.optionalAttrs (cfg.uplink.proxy == "gvproxy") { inherit (tools) gvproxy; };
+            };
           }
         else
           {

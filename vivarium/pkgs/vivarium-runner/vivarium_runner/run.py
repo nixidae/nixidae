@@ -174,13 +174,8 @@ class Run:
                 lan_fds[machine_name][nic_name] = fd
         self._all = Machines((one.name, self._machine(one, lan_fds.get(one.name))) for one in self._guests)
 
-        # Serially, and before anything spawns: a gvproxy guest's pick
-        # binds a port and lets go of it again, so two guests doing it at
-        # once would both be told the same port is free. **This set is per run**, which is right for one CLI run and
-        # wrong for an MCP server holding several -- see the design, area 0d.
-        taken: set[str] = set()
         for vm in self._all.values():
-            vm.resolve_forward(taken)
+            vm.resolve_forward()
         routed = tuple(vm for vm in self._all.values() if vm.spec.uplink_address is not None)
         for vm in self._all.values():
             if vm.spec.router:

@@ -30,7 +30,6 @@ class Seccomp(StrEnum):
 class UplinkProxy(StrEnum):
     """`vivarium.uplink.proxy`: what serves the guest's uplink."""
 
-    GVPROXY = "gvproxy"
     ROUTER = "router"
     VSOCK = "vsock"
 

@@ -249,7 +249,7 @@ class Machine:
     @property
     def uplink_ip(self) -> str | None:
         """`vec0`'s IPv4 address as vivarium gives it: the router's lease
-        for this guest, else the relay's and gvproxy's fixed one. `None` on a
+        for this guest, else the relay's fixed one. `None` on a
         segment a peer serves, which picks its own."""
         if self.spec.uplink_address is not None:
             return self.spec.uplink_address
@@ -262,24 +262,18 @@ class Machine:
 
     # ── lifecycle ──────────────────────────────────────────────────
 
-    def resolve_forward(self, taken: set[str]) -> None:
-        """Settle this guest's forwards, before anything is spawned.
-
-        Every guest in a run must go through here before any of them
-        starts, or two gvproxy guests pick the same port: the pick is a
-        bind that is released again immediately, so it only means
-        anything while nothing else is racing it.  *taken* carries what
-        earlier guests were given and is added to here.
+    def resolve_forward(self) -> None:
+        """Bind this guest's forwards, before anything is spawned.
 
         A forward that cannot be set up is a `MachineError` naming the
         guest: the run reports it as a failed boot, not as a traceback.
         """
+        if self.forward and not self.spec.forwards_through_egress:
+            raise MachineError(
+                f"[{self.name}] forward: no egress serves this guest's uplink, so nothing binds its forwards"
+            )
         try:
-            rules = forward.resolve(self.forward)
-            if self.spec.forwards_through_egress:
-                self.forward, self.claims = forward.claim(rules, random=self.random_ports)
-            else:
-                self.forward = forward.pick(rules, taken=taken, random=self.random_ports)
+            self.forward, self.claims = forward.claim(forward.resolve(self.forward), random=self.random_ports)
         except forward.ForwardError as error:
             raise MachineError(f"[{self.name}] forward: {error}") from error
         for rule in self.forward:
@@ -287,13 +281,9 @@ class Machine:
 
     def _runtime_inbound(self) -> Machine:
         """The machine whose egress serves this guest's forwards; a
-        `MachineError` for a guest behind gvproxy, which binds its
-        forwards when it starts and takes no new one."""
+        `MachineError` for a guest no egress serves."""
         if not self.spec.forwards_through_egress:
-            raise MachineError(
-                f"[{self.name}] inbound: gvproxy takes forwards only when it starts; "
-                "a runtime change needs the vsock uplink or the router"
-            )
+            raise MachineError(f"[{self.name}] inbound: no egress serves this guest's uplink")
         return self.behind or self
 
     async def _tell_egress(self, owner: Machine, messages: list[forward.Add | forward.Remove]) -> None:

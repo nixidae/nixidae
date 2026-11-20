@@ -1,6 +1,6 @@
 /*
-  The uplink's addresses: what the relay, gvproxy and the router give a
-  guest on `vec0`.
+  The uplink's addresses: what the relay and the router give a guest on
+  `vec0`.
 
   Not the host's own address, netmask and router: the host's LAN is then
   on-link to the guest, and a test depends on where the host is. QEMU's user-mode network has used

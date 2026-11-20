@@ -2,9 +2,7 @@
 
 An inbound entry is a guest port, and a host port or none: none takes
 any free one. The runner binds a forward through an egress itself and
-hands the socket over (nixidae/nixidae#1546). gvproxy binds its own when
-it starts, so for it the runner picks a free port and checks a fixed
-one, both before the guest boots.
+hands the socket over (nixidae/nixidae#1546).
 
 Every guest's forwards share one host address, `LOOPBACK`: the bind is
 the claim, and a taken fixed port fails the boot by name.
@@ -220,40 +218,6 @@ def resolve(rules: list[Rule], *, start: int | None = None) -> list[Rule]:
     return [replace(rule, address=LOOPBACK) if rule.address is None else rule for rule in rules]
 
 
-def pick(rules: list[Rule], *, taken: set[str], random: bool) -> list[Rule]:
-    """The host ports of a forward that gvproxy binds, after
-    :func:`resolve`: a fixed one checked free, an unset one (every one with
-    *random*) any free one.
-
-    The choice is a bind that closes again, so another process can take
-    the port before gvproxy binds it. *taken* holds ``address:port`` for
-    each port this run picked, so two guests never get the same one.
-    """
-    picked: list[Rule] = []
-    for rule in rules:
-        if rule.address is None:
-            raise ForwardError(f"forward of {rule.ports} has no address: pick() runs after resolve()")
-        ports: list[PortMap] = []
-        for port in rule.ports:
-            host = _pick_port(rule.address, rule.protocols, None if random else port.host, taken)
-            taken.add(f"{rule.address}:{host}")
-            ports.append(replace(port, host=host))
-        picked.append(replace(rule, ports=tuple(ports)))
-    return picked
-
-
-def _pick_port(address: str, protocols: tuple[str, ...], port: int | None, taken: set[str]) -> int:
-    for _ in range(_RANDOM_TRIES):
-        if port is not None and f"{address}:{port}" in taken:
-            raise ForwardError(f"cannot forward port {port} on {address}: another guest of this run has it")
-        chosen, claims = _claim_port(address, protocols, port)
-        for held in claims:
-            held.sock.close()
-        if port is not None or f"{address}:{chosen}" not in taken:
-            return chosen
-    raise ForwardError(f"no host port on {address} free for {', '.join(protocols)} after {_RANDOM_TRIES} tries")
-
-
 # ── what the egress takes, for a guest behind it ───────────────────
 
 
@@ -338,7 +302,7 @@ class UplinkNetworkJson(TypedDict):
 class UplinkNetwork:
     """The guest's own address on its uplink, and what answers behind it.
 
-    nix/uplink.nix writes them, for the relay, gvproxy and the router alike.
+    nix/uplink.nix writes them, for the relay and the router alike.
     Every guest gets the same address: each has an uplink of its own, and
     the host reaches a guest through its own 127.0.0.x.
     """

@@ -969,7 +969,6 @@ in
 
     uplink.proxy = lib.mkOption {
       type = lib.types.enum [
-        "gvproxy"
         "router"
         "vsock"
       ];
@@ -984,12 +983,6 @@ in
         holds such a guest with an uplink fails to evaluate.
 
         An `uplink.segment` takes precedence over `vsock`.
-        `gvproxy`, deprecated, is gvisor-tap-vsock's,
-        which runs on macOS too and needs no user namespace
-        (nixidae/nixidae#1163). It gives the guest the uplink's fixed
-        addresses, and forwards TCP ports only. Choosing it is a warning:
-        `vsock` replaces it (nixidae/nixidae#1404).
-        krun only.
 
         `router` is the run's router guest (`router.enable` in `mkTest`,
         which sets this on every guest): `vec0` is a segment to it, and the
@@ -1107,14 +1100,6 @@ in
       lib.attrValues config.system.build.vivariumConfigurations
     );
 
-    warnings =
-      let
-        proxy = config.vivarium.uplink.proxy;
-      in
-      lib.optional (proxy == "gvproxy") ''
-        ${config.networking.hostName}: vivarium.uplink.proxy = "${proxy}" is deprecated, and `vsock` replaces it (nixidae/nixidae#1404).
-      '';
-
     assertions = [
       {
         assertion = config.vivarium.lan.address != null -> config.vivarium.lan.network != null;
@@ -1125,16 +1110,6 @@ in
           config.vivarium.uplink.segment != null
           -> (config.vivarium.segments.${config.vivarium.uplink.segment}.mtu or null) == null;
         message = "segments.${toString config.vivarium.uplink.segment}.mtu: this guest's uplink joins the segment, and an uplink takes vivarium.mtu; leave the segment's mtu null.";
-      }
-      {
-        assertion = config.vivarium.uplink.proxy == "gvproxy" -> config.vivarium.backend == "krun";
-        message = "vivarium.uplink.proxy = \"gvproxy\" needs the krun backend; this guest is ${config.vivarium.backend}.";
-      }
-      {
-        assertion =
-          config.vivarium.uplink.proxy == "gvproxy"
-          -> lib.all (entry: entry.protocols == [ "tcp" ]) config.vivarium.inbound;
-        message = "vivarium.inbound under gvproxy: TCP ports only; gvproxy cannot forward UDP.";
       }
       {
         assertion = lib.all (

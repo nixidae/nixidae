@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import os
-import socket
 import subprocess
 import sys
 from dataclasses import dataclass, replace
@@ -12,11 +10,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import anyio
-
-from .. import forward, unixpath
-from ..lifetime import die_with_parent
-from ..spec import UplinkProxy
+from .. import forward
 from ..store import AllowList
 from .base import BackendError, Launch, Stop, config_maybe_path, config_path, launch_config
 from .host import (
@@ -24,7 +18,6 @@ from .host import (
     abandon,
     egress_adds,
     egress_args,
-    log_tail,
     memory_bytes,
     processes_pss_kib,
     require_ids,
@@ -47,8 +40,6 @@ class KrunConfig:
     krun: Path
     """`vivarium-krun`, the process a krun guest runs as."""
     qemu_img: Path
-    gvproxy: Path | None
-    """For `vivarium.uplink.proxy = "gvproxy"`."""
     acpi: bool
     """libkrun describes the guest's devices in ACPI, and ends on its S5.
     Its ACPI tables are x86 only."""
@@ -57,13 +48,12 @@ class KrunConfig:
 
     @classmethod
     def of(cls, spec: MachineSpec) -> KrunConfig:
-        config = launch_config(spec, "krun", frozenset({"krun", "qemuImg", "acpi"}), frozenset({"gvproxy", "egress"}))
+        config = launch_config(spec, "krun", frozenset({"krun", "qemuImg", "acpi"}), frozenset({"egress"}))
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
             krun=config_path(config, "krun"),
             qemu_img=config_path(config, "qemuImg"),
-            gvproxy=config_maybe_path(config, "gvproxy"),
             acpi=bool(config["acpi"]),
             egress=config_maybe_path(config, "egress"),
         )
@@ -153,86 +143,6 @@ class Krun:
         boot, own, _ = Krun._kernel(spec, spec.boot)
         return replace(spec, boot=replace(boot, kernel=replace(own, vmlinux=kernel)))
 
-    @staticmethod
-    async def _gvproxy(
-        gvproxy: Path | None,
-        rundir: Path,
-        spec: MachineSpec,
-        rules: list[forward.Rule],
-        helpers: list[subprocess.Popen[bytes]],
-        opened: list[int],
-    ) -> int:
-        """Start gvproxy for one guest's uplink; return the guest's end.
-
-        gvproxy goes into *helpers* and the guest's end into *opened* as
-        each one exists, so the launch that owns them cleans up after a
-        failure or a cancel here.
-
-        gvproxy takes no fd: it listens on a socket in *rundir*, and the
-        runner connects. It frames with a 4-byte length prefix, so
-        `vivarium-krun --uplink` takes the fd unchanged. The config is
-        always written: without one gvproxy forwards 127.0.0.1:2222 and
-        two guests collide on it. The addresses are the uplink's fixed
-        ones (nix/uplink.nix), as the relay gives.
-
-        Under `--offline` gvproxy runs in the session's own network
-        namespace and reaches nothing.
-        """
-        if gvproxy is None:
-            raise BackendError(f"{spec.name}: vivarium.launch.config has no gvproxy")
-        sock = rundir / "gvproxy.sock"
-        if not unixpath.fits(sock):
-            raise BackendError(f"{spec.name}: gvproxy's socket path is too long for AF_UNIX: {sock}")
-        network = spec.uplink_network
-        forwards: dict[str, str] = {}
-        for rule in rules:
-            if rule.protocols != ("tcp",):
-                raise BackendError(f"{spec.name}: gvproxy forwards TCP ports only, not {rule}")
-            for port in rule.ports:
-                forwards[f"{rule.address}:{port.host}"] = f"{network.address}:{port.guest}"
-        config = {
-            "stack": {
-                "mtu": spec.mtu,
-                "subnet": network.subnet,
-                "gatewayIP": network.gateway,
-                "dhcpStaticLeases": {network.address: spec.mac(0)},
-                "forwards": forwards,
-            },
-            "interfaces": {"qemu": f"unix://{sock}"},
-        }
-        config_path = rundir / "gvproxy.yaml"
-        # JSON is YAML, and gvproxy reads YAML.
-        config_path.write_text(json.dumps(config))
-        log = rundir / "gvproxy.log"
-        with log.open("wb") as handle:
-            proc = subprocess.Popen(
-                [str(gvproxy), "-config", str(config_path)],
-                stdin=subprocess.DEVNULL,
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                preexec_fn=die_with_parent,
-            )
-        helpers.append(proc)
-        # The connect is the readiness check. gvproxy's ready notification
-        # comes before its qemu listener exists.
-        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        opened.append(client.fileno())
-        try:
-            with anyio.move_on_after(5):
-                while proc.poll() is None:
-                    try:
-                        client.connect(str(sock))
-                    except (FileNotFoundError, ConnectionRefusedError):
-                        await anyio.sleep(0.01)
-                    else:
-                        return client.fileno()
-        finally:
-            # `opened` owns the fd: a close here as well would close
-            # whatever reused its number.
-            client.detach()
-        raise BackendError(f"{spec.name}: gvproxy did not serve {sock} (exit {proc.poll()}):\n{log_tail(log)}")
-
     async def launch(
         self,
         machine: Machine,
@@ -252,7 +162,6 @@ class Krun:
         opened: list[int] = []
         helpers: list[subprocess.Popen[bytes]] = []
         disk_ro: int | None = None
-        uplink_fds: tuple[int, ...] = ()
         cleanup: list[Path] = []
         notes: list[str] = []
         try:
@@ -297,10 +206,6 @@ class Krun:
                 notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
             elif spec.uplink is not None:
                 uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]
-            elif spec.uplink_proxy == UplinkProxy.GVPROXY:
-                gvproxy_fd = await Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward, helpers, opened)
-                uplink_fds = (gvproxy_fd,)
-                uplink = [f"--uplink={gvproxy_fd},{spec.mac(0)}"]
             else:
                 raise BackendError(f"{spec.name}: nothing serves vec0 under krun: uplink.proxy is {spec.uplink_proxy}")
         except BaseException:
@@ -335,7 +240,7 @@ class Krun:
             argv.append("--acpi")
         return Launch(
             argv=argv,
-            pass_fds=(agent_fd, *uplink_fds, disk_rw, *lan_fds.values()),
+            pass_fds=(agent_fd, disk_rw, *lan_fds.values()),
             helpers=helpers,
             disk_fds=(disk_rw,),
             cleanup=cleanup,

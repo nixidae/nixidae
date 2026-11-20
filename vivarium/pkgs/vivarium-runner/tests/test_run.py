@@ -27,7 +27,7 @@ class FakeMachine:
         self.stuck = stuck
         self.release = anyio.Event()
 
-    def resolve_forward(self, taken: set[str]) -> None:
+    def resolve_forward(self) -> None:
         pass
 
     async def start(self) -> None:

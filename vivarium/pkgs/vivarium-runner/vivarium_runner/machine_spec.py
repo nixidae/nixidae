@@ -241,7 +241,7 @@ class MachineSpec:
     uplink: str | None
     """The segment the uplink (`vec0`, NIC 0) joins: the router's port for
     this guest, or an out-of-band management network a peer serves
-    (nixidae/nixidae#958). `None` is the guest's own relay or gvproxy."""
+    (nixidae/nixidae#958). `None` is the guest's own relay."""
     uplink_proxy: UplinkProxy
     uplink_network: UplinkNetwork
     """The addresses on `vec0`, from nix/uplink.nix."""

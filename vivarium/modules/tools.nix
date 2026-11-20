@@ -13,7 +13,6 @@ in
   # A macOS host needs qemu-img alone, for a krun guest's scratch disk.
   qemuImg = "${if pkgs.stdenv.hostPlatform.isDarwin then pkgs.qemu-utils else qemu}/bin/qemu-img";
   virtiofsd = "${pkgs.virtiofsd}/bin/virtiofsd";
-  gvproxy = lib.getExe' pkgs.gvproxy "gvproxy";
   krun = lib.getExe (
     pkgs.callPackage ../pkgs/krun-launch/package.nix {
       libkrun = pkgs.callPackage ../pkgs/libkrun/package.nix { };

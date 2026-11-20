@@ -445,7 +445,7 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 
 ### Network
 
-- The uplink: a NixOS guest's relay over vsock to an egress on the host; a guest that is not NixOS sits behind the run's router (`router.enable = false` with one is an evaluation error). The runner binds each `vivarium.inbound` port and hands it to the egress, which takes new ones at run time. gvproxy (krun, deprecated) binds its forwards when it starts; `forward.pick` checks them first.
+- The uplink: a NixOS guest's relay over vsock to an egress on the host; a guest that is not NixOS sits behind the run's router (`router.enable = false` with one is an evaluation error). The runner binds each `vivarium.inbound` port and hands it to the egress, which takes new ones at run time.
 - `nix build .#iperf` lies under host load (1.9 vs 4.4 Gbit/s) and outside a fresh netns (`net.unix.max_dgram_qlen`); compare back to back, under `unshare -rn`.
 
 ### Kubernetes test
