@@ -13,10 +13,10 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Final
 
-from huggorm import Derivation, EvalState, Store, Value
+from huggorm import Derivation, EvalState, LogStream, Store, Value, subscribe_process_logs
 from huggorm.errors import NixError
 
 from .model import (
@@ -67,6 +67,9 @@ from .walk import (
 # `EVAL_STACK`).
 EVAL_STACK: Final = 60 * 1024 * 1024
 
+# Nix's `lvlWarn`: warnings and errors. `builtins.trace` logs at `lvlError`.
+WARN: Final = 1
+
 # `apply_auto` needs formals. The `extendModules` that NixOS's
 # eval-config.nix hands back declares none, so the call goes through this.
 EXTEND: Final = "{ base, modules }: base.extendModules { inherit modules; }"
@@ -86,6 +89,28 @@ class Source:
     expr: str
     force: tuple[Path, ...]
     base_dir: str = "/"
+
+
+@dataclass(slots=True)
+class NixLog:
+    """What Nix says while modiff evaluates, kept off stderr: Textual
+    draws there, and solid-kubernetes' sg1 warns hundreds of times per
+    evaluation. Drain often: the stream drops records past its bound."""
+
+    stream: LogStream
+    # Each message, and how many times Nix said it.
+    messages: dict[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def subscribe(cls) -> NixLog:
+        return cls(subscribe_process_logs(level=WARN))
+
+    def collect(self) -> int:
+        for record in self.stream.drain():
+            if record.action() == "msg":
+                text = str(record.text())
+                self.messages[text] = self.messages.get(text, 0) + 1
+        return sum(self.messages.values())
 
 
 def nix_path(path: str) -> str:

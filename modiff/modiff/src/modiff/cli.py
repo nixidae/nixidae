@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import huggorm
 
 from .app import ModiffApp
-from .engine import EngineThread, Source, nixos_source
+from .engine import EngineThread, NixLog, Source, nixos_source
 from .model import Edit, parse_option_path
 
 
@@ -63,4 +64,11 @@ def main(argv: list[str] | None = None) -> None:
     # empty and a configuration that calls `builtins.fetchTree` fails.
     huggorm.load_config()
     huggorm.init_plugins()
-    ModiffApp(EngineThread(source_of(args)), edits_of(args)).run()
+    nix_log = NixLog.subscribe()
+    try:
+        ModiffApp(EngineThread(source_of(args)), edits_of(args), nix_log).run()
+    finally:
+        # Once, now that the terminal is back: the TUI kept them off it.
+        nix_log.collect()
+        for text, times in nix_log.messages.items():
+            print(text if times == 1 else f"{text} ({times} times)", file=sys.stderr)

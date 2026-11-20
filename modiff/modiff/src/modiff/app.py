@@ -27,7 +27,7 @@ from textual.suggester import SuggestFromList
 from textual.widgets import Footer, Input, Label, ListItem, ListView, OptionList, Static, Tree
 from textual.widgets.tree import TreeNode
 
-from .engine import Crash, Engine, EngineThread
+from .engine import Crash, Engine, EngineThread, NixLog
 from .model import (
     EDIT_FILE,
     MODULE_ATTR,
@@ -914,10 +914,11 @@ class ModiffApp(App[None]):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, engine: EngineThread, edits: list[Edit]) -> None:
+    def __init__(self, engine: EngineThread, edits: list[Edit], nix_log: NixLog | None = None) -> None:
         super().__init__()
         self.engine = engine
         self.edits = edits
+        self.nix_log = nix_log
         self.options: list[str] = []
         self.paths: frozenset[OptionPath] = frozenset()
         self.freeform = False
@@ -1032,7 +1033,9 @@ class ModiffApp(App[None]):
         if self.loaded is None:
             return ""
         # Short enough that an 80-column status line keeps the derivation counts.
-        return f"base {self.loaded.seconds:.1f}s, {self.loaded.forced} values"
+        base = f"base {self.loaded.seconds:.1f}s, {self.loaded.forced} values"
+        warned = self.nix_log.collect() if self.nix_log is not None else 0
+        return f"{base}, {counted(warned, 'Nix warning', 'Nix warnings')}" if warned else base
 
     def on_cascade(self, cascade: Cascade) -> None:
         self.busy = False

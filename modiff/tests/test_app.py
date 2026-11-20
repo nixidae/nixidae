@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Final
 
 import anyio
+import huggorm
 import pytest
 from rich.console import Console
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
-from toy import FALLBACK, SOURCE
+from toy import FALLBACK, FORCE, SOURCE, TOY
 
 from modiff import app as app_module, walk
 from modiff.app import (
@@ -31,7 +32,7 @@ from modiff.app import (
     find_options,
     target,
 )
-from modiff.engine import EngineThread, Source
+from modiff.engine import EngineThread, NixLog, Source
 from modiff.model import Edit, edits_module
 
 SETTLE = 30
@@ -312,6 +313,22 @@ async def test_a_value_at_many_paths_counts_once(tmp_path: Path) -> None:
         fan = next(n for n in tree.root.children if isinstance(n.data, tuple) and n.data[0].option == ("fan",))
         assert str(fan.label).endswith("~1  =22")
         assert "= b  same as fan.a" in [str(n.label) for n in fan.children]
+
+
+async def test_nix_warnings_stay_off_the_screen(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """Nix prints a warning to stderr, where Textual draws. The status
+    counts it instead, and the CLI prints it on exit."""
+    nix_log = NixLog.subscribe()
+    try:
+        source = Source(f'builtins.warn "modiff-test-warning" ({TOY})', FORCE)
+        app = ModiffApp(EngineThread(source, store=f"local?root={tmp_path}"), [Edit(("a",), "2")], nix_log)
+        async with app.run_test(size=(160, 50)) as pilot:
+            await settled(app, pilot)
+            assert "1 Nix warning" in str(app.query_one("#status", Static).content)
+    finally:
+        huggorm.unsubscribe_process_logs()
+    assert [text for text in nix_log.messages if "modiff-test-warning" in text]
+    assert "modiff-test-warning" not in capfd.readouterr().err
 
 
 async def test_a_failure_shows_in_the_title_and_the_status(tmp_path: Path) -> None:
