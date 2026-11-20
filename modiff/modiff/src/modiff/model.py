@@ -12,6 +12,7 @@ type Path = tuple[Segment, ...]
 type OptionPath = tuple[str, ...]
 
 _BARE: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
+EDIT_FILE: Final = "modiff edit: "
 
 
 class Kind(StrEnum):
@@ -99,7 +100,15 @@ class OptionView:
     new: str = ""
     defs_old: tuple[Definition, ...] = ()
     defs_new: tuple[Definition, ...] = ()
+    # False when the base never evaluated the option: then `defs_old` is
+    # empty, because listing definitions evaluates them.
+    base_read: bool = True
     errors: tuple[str, ...] = field(default=())
+
+
+def edit_file(path: OptionPath) -> str:
+    """The `_file` of an edit's module: how its definitions are named."""
+    return EDIT_FILE + format_path(path)
 
 
 def overlaps(a: Path, b: Path) -> bool:

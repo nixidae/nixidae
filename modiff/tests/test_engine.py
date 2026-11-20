@@ -171,13 +171,25 @@ def test_default_is_evaluated_in_the_extended_configuration(engine: EngineThread
     """A list literal is a thunk until something reads it. With no edit,
     only the base exists, and forcing there would widen later cascades."""
 
-    def job(e: Engine) -> tuple[str, str]:
+    def job(e: Engine) -> tuple[str, str, str]:
         e.apply([])
         lazy = e.explain(("ports",)).default
         e.apply([Edit(("c",), '"x"')])
-        return lazy, e.explain(("ports",)).default
+        forced = e.explain(("ports",)).default
+        e.apply([])
+        return lazy, forced, e.explain(("ports",)).default
 
-    assert run(engine, job) == ("«thunk»", "[ 22 ]")
+    assert run(engine, job) == ("«thunk»", "[ 22 ]", "«thunk»")
+
+
+def test_an_unread_option_lists_only_the_new_definitions(engine: EngineThread) -> None:
+    def job(e: Engine) -> OptionView:
+        e.apply([Edit(("ports",), "[ 2222 ]")])
+        return e.explain(("ports",))
+
+    view = run(engine, job)
+    assert not view.base_read and view.defs_old == ()
+    assert [d.file for d in view.defs_new] == ["modiff edit: ports"]
 
 
 def test_explain_evaluates_nothing(engine: EngineThread) -> None:

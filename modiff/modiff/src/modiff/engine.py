@@ -28,6 +28,7 @@ from .model import (
     OptionView,
     Path,
     Quiet,
+    edit_file,
     format_path,
     nix_string,
     overlaps,
@@ -77,7 +78,7 @@ def edit_module(edit: Edit) -> str:
     other module arguments in scope; `with` never shadows `lib`. `_file`
     names the edit in `definitionsWithLocations`."""
     path = " ".join(nix_string(p) for p in edit.path)
-    file = nix_string(f"modiff edit: {format_path(edit.path)}")
+    file = nix_string(edit_file(edit.path))
     return (
         "{ lib, config, ... }: with config._module.args; "
         f"{{ _file = {file}; config = lib.setAttrByPath [ {path} ] ({edit.expr}); }}"
@@ -239,7 +240,7 @@ class Engine:
         module system drops a definition that a higher priority outranks."""
         if self.ext is None:
             return False
-        file = f"modiff edit: {format_path(edit.path)}"
+        file = edit_file(edit.path)
         try:
             defs = self._sel(self.ext, ("options", *option, "definitionsWithLocations"))
             return any(str(self._sel(defs, (i, "file")).string_value()) == file for i in range(defs.length()))
@@ -325,10 +326,16 @@ class Engine:
             v = self._peek(self._sel(root, ("config",)), option)
             return "«thunk»" if v is None else show_lazy(v)
 
+        # Listing definitions forces each one and its mkIf condition
+        # (`dischargeProperties`). Merging the value did that already, so
+        # the base is safe to read only where its value was evaluated.
+        base_value = None if self.base is None else self._peek(self._sel(self.base, ("config",)), option)
+        base_read = base_value is not None and base_value.type_name() != "thunk"
         defs_old: tuple[Definition, ...] = ()
         defs_new: tuple[Definition, ...] = ()
         try:
-            defs_old = self._definitions(self.base, option)
+            if base_read:
+                defs_old = self._definitions(self.base, option)
             defs_new = self._definitions(self.ext, option)
         except NixError as err:
             errors.append(error_text(err))
@@ -342,6 +349,7 @@ class Engine:
             new=current(self.ext),
             defs_old=defs_old,
             defs_new=defs_new,
+            base_read=base_read,
             errors=tuple(errors),
         )
 

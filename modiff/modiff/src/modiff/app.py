@@ -26,6 +26,7 @@ from textual.widgets.tree import TreeNode
 
 from .engine import Crash, Engine, EngineThread
 from .model import (
+    EDIT_FILE,
     Cascade,
     Change,
     Edit,
@@ -155,6 +156,38 @@ def section(title: str) -> Text:
     return Text(f"\n{title}", style="bold underline")
 
 
+def definition(mark: str, file: str, value: str, style: str) -> list[RenderableType]:
+    return [Text(f"{mark} {short_file(file)}", style=style), Text(_indent(value), style=style or "dim")]
+
+
+def definitions(view: OptionView) -> list[RenderableType]:
+    """Each definition, marked `-` where the edits removed it and `+`
+    where they added it."""
+    if not view.base_read:
+        out: list[RenderableType] = [
+            Text(
+                "The configuration never evaluated this option. These are the definitions with "
+                "the edits: listing the ones before would evaluate them, and change what the "
+                "next cascade compares.",
+                style="dim italic",
+            )
+        ]
+        for d in view.defs_new:
+            edit = d.file.startswith(EDIT_FILE)
+            out += definition("+" if edit else " ", d.file, d.value, "green" if edit else "")
+        return out
+    out = []
+    old = {(d.file, d.value) for d in view.defs_old}
+    new = {(d.file, d.value) for d in view.defs_new}
+    for d in view.defs_old:
+        gone = (d.file, d.value) not in new and bool(view.defs_new or view.new)
+        out += definition("-" if gone else " ", d.file, d.value, "red" if gone else "")
+    for d in view.defs_new:
+        if (d.file, d.value) not in old:
+            out += definition("+", d.file, d.value, "green")
+    return out
+
+
 def option_detail(view: OptionView, changes: tuple[Change, ...], note: Text | None = None) -> RenderableType:
     parts: list[RenderableType] = [Text(format_path(view.path), style="bold reverse")]
     if note is not None:
@@ -175,16 +208,7 @@ def option_detail(view: OptionView, changes: tuple[Change, ...], note: Text | No
             style="dim italic",
         )
     )
-    old_files = {(d.file, d.value) for d in view.defs_old}
-    new_files = {(d.file, d.value) for d in view.defs_new}
-    for d in view.defs_old:
-        gone = (d.file, d.value) not in new_files and bool(view.defs_new or view.new)
-        parts.append(Text(f"{'-' if gone else ' '} {short_file(d.file)}", style="red" if gone else ""))
-        parts.append(Text(_indent(d.value), style="red" if gone else "dim"))
-    for d in view.defs_new:
-        if (d.file, d.value) not in old_files:
-            parts.append(Text(f"+ {short_file(d.file)}", style="green"))
-            parts.append(Text(_indent(d.value), style="green"))
+    parts.extend(definitions(view))
 
     parts.append(section("Value"))
     if "«thunk»" in view.old or "«thunk»" in view.new:
