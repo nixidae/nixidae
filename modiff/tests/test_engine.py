@@ -82,21 +82,23 @@ CA: Final = Source(
       modules = [ ({ config, ... }: {
         options.v = lib.mkOption { type = lib.types.int; default = 1; };
         options.top = lib.mkOption { type = lib.types.package; };
-        config.top = derivation {
+        config.top = let
+          cav = derivation {
+            name = "cav";
+            system = "x86_64-linux";
+            builder = "/bin/sh";
+            outputs = [ "out" "dev" ];
+            v = config.v;
+            __contentAddressed = true;
+            outputHashMode = "recursive";
+            outputHashAlgo = "sha256";
+          };
+        in derivation {
           name = "top";
           system = "x86_64-linux";
           builder = "/bin/sh";
-          inputs = [
-            (derivation {
-              name = "cav";
-              system = "x86_64-linux";
-              builder = "/bin/sh";
-              v = config.v;
-              __contentAddressed = true;
-              outputHashMode = "recursive";
-              outputHashAlgo = "sha256";
-            })
-          ];
+          # Two placeholders, one `.drv`.
+          inputs = [ cav cav.dev ];
         };
       }) ];
     }

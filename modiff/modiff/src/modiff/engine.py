@@ -267,9 +267,10 @@ class Engine:
     def _named(self, keys: set[str], derivers: dict[str, str]) -> tuple[str, ...]:
         """A content-addressed derivation's output is a placeholder until it
         is built, such as `/0z17…`: no store path and no name, so its old
-        and new outputs never pair. Its `.drv` has both."""
+        and new outputs never pair. Its `.drv` has both, and is one name for
+        every output it builds."""
         store = self.store.store_dir() + "/"
-        return tuple(sorted(k if k.startswith(store) else derivers.get(k, k) for k in keys))
+        return tuple(sorted({k if k.startswith(store) else derivers.get(k, k) for k in keys}))
 
     def syntax_error(self, expr: str) -> str | None:
         """Nix's message if `expr` does not parse. Parsed alone, so the
