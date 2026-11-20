@@ -25,6 +25,7 @@ from modiff.app import (
     Target,
     TreeData,
     WriteScreen,
+    cascade_title,
     failure_summary,
     find_options,
     target,
@@ -238,7 +239,7 @@ async def test_a_failure_shows_in_the_title_and_the_status(tmp_path: Path) -> No
     async with app.run_test(size=(160, 50)) as pilot:
         await settled(app, pilot)
         assert options(app)[0] == "z"
-        assert str(app.query_one("#cascade", Tree).border_title).endswith(", 1 failed")
+        assert str(app.query_one("#cascade", Tree).border_title).startswith("Cascade: 1 failed, ")
         assert str(app.query_one("#status", Static).content).endswith("derivations not compared: a value fails")
 
 
@@ -337,6 +338,23 @@ async def test_browse_shows_an_unchanged_option_and_edits_it(tmp_path: Path) -> 
         assert app.edits == [Edit(("a",), "2"), Edit(("ports",), "[ 2222 ]")]
         # The toy never reads `ports`: the browsed row is the quiet one.
         assert options(app) == ["ports", "a", "b", "drv", "top"]
+
+
+async def test_an_edit_that_fails_to_parse_clears_the_title(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [Edit(("a",), "2"), Edit(("c",), "(", enabled=False)])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        tree = app.query_one("#cascade", Tree)
+        assert str(tree.border_title).startswith("Cascade: ")
+        app.query_one("#edits", ListView).focus()
+        await pilot.press("down", "space")
+        await settled(app, pilot)
+        assert str(tree.border_title) == "Cascade"
+
+
+def test_the_cascade_title_counts_failures_first() -> None:
+    assert cascade_title(1, 1, 0) == "Cascade: 1 option, 1 change"
+    assert cascade_title(30, 96, 2) == "Cascade: 2 failed, 30 options, 96 changes"
 
 
 async def test_toggling_an_edit_off_clears_its_cascade(tmp_path: Path) -> None:

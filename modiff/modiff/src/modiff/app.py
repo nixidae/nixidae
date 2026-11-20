@@ -678,6 +678,21 @@ def drv_line(change: DrvChange) -> Text:
     return Text(f"{DRV_MARK[change.kind]} {name}", style=DRV_STYLE[change.kind])
 
 
+CASCADE_TITLE: Final = "Cascade"
+
+
+def counted(count: int, single: str, plural: str) -> str:
+    return f"{count} {single if count == 1 else plural}"
+
+
+def cascade_title(options: int, changes: int, failed: int) -> str:
+    """Failures first: the pane is 34 columns wide at 80, and the border cuts
+    the end of a title."""
+    parts = [f"{failed} failed"] if failed else []
+    parts += [counted(options, "option", "options"), counted(changes, "change", "changes")]
+    return f"{CASCADE_TITLE}: {', '.join(parts)}"
+
+
 def drv_counts(changes: tuple[DrvChange, ...]) -> str:
     counts = Counter(c.kind for c in changes)
     return ", ".join(f"{counts[k]} {k}" for k in Rebuild if counts[k])
@@ -881,7 +896,7 @@ class ModiffApp(App[None]):
                 yield edits
                 tree: Tree[TreeData] = Tree("cascade", id="cascade")
                 tree.show_root = False
-                tree.border_title = "Cascade"
+                tree.border_title = CASCADE_TITLE
                 yield tree
             scroll = VerticalScroll(id="detail-scroll")
             scroll.border_title = "Detail"
@@ -987,6 +1002,7 @@ class ModiffApp(App[None]):
         tree = self.query_one("#cascade", Tree)
         tree.clear()
         if cascade.error is not None:
+            tree.border_title = CASCADE_TITLE
             self.detail(Text(f"The edits do not evaluate:\n\n{short_file(cascade.error)}", style="red"))
             self.status(self.base_status() + " · edits failed")
             return
@@ -1024,8 +1040,7 @@ class ModiffApp(App[None]):
         if failed and not drvs:
             drvs = ", derivations not compared: a value fails"
         changed = sum(1 for g in cascade.groups if g.quiet is None)
-        failures = f", {failed} failed" if failed else ""
-        tree.border_title = f"Cascade: {changed} options, {total} changes{failures}"
+        tree.border_title = cascade_title(changed, total, failed)
         self.status(self.base_status() + f" · edits {cascade.seconds:.1f}s{drvs}")
         if not tree.root.children:
             self.detail(HELP)
