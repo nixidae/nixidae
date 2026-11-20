@@ -238,9 +238,18 @@ def test_a_failing_edit_fails_under_its_own_option(engine: EngineThread, expr: s
     assert cascade(engine, Edit(("a",), "2")).groups == before.groups
 
 
-def test_edited_path_takes_the_first_failure_inside_an_edit() -> None:
+def test_a_failing_edit_beside_a_valid_one_fails_under_its_own_option(engine: EngineThread) -> None:
+    """`checks` is edited too, and the walk meets the failure first inside it."""
+    c = cascade(engine, Edit(("checks",), "lib.mkAfter [ ]"), Edit(("z",), 'lib.mkForce (throw "boom")'))
+    failed = [ch for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
+    assert [(ch.path, ch.via) for ch in failed] == [(("z",), ("checks", 0, "ok"))]
+
+
+def test_edited_path_prefers_an_edited_path_to_one_inside_an_edit() -> None:
     failed: list[tuple[str | int, ...]] = [("checks", 0, "ok"), ("z", "x"), ("z",)]
-    assert edited_path(failed, [("a",), ("z",)]) == ("z", "x")
+    assert edited_path(failed, [("a",), ("z",)]) == ("z",)
+    assert edited_path(failed, [("z", "x"), ("checks",)]) == ("z", "x")
+    assert edited_path(failed[:2], [("z",)]) == ("z", "x")
     assert edited_path(failed, [("a",)]) is None
 
 

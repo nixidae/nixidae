@@ -395,8 +395,10 @@ def blamed_path(message: str) -> OptionPath | None:
 
 
 def edited_path(failed: Iterable[Path], edited: Iterable[Path]) -> Path | None:
-    """The first failed path at or under a path the edits set: a `throw`
-    in an edit names no option, and the walk meets it first wherever a
-    reader of the option sorts."""
-    prefixes = tuple(edited)
-    return next((p for p in failed if any(p[: len(e)] == e for e in prefixes)), None)
+    """The first failed path that is a path the edits set, else the first
+    under one: a `throw` in an edit names no option, and the walk meets it
+    first wherever a reader of the option sorts. That reader may be edited
+    too, so the failed option itself comes first."""
+    paths, prefixes = list(failed), set(edited)
+    exact = next((p for p in paths if p in prefixes), None)
+    return exact or next((p for p in paths if any(p[: len(e)] == e for e in prefixes)), None)
