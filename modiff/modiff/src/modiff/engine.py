@@ -36,6 +36,7 @@ from .model import (
     changed_paths,
     drv_file,
     edit_file,
+    edited_path,
     format_path,
     is_drv_file,
     nix_string,
@@ -213,7 +214,8 @@ class Engine:
             if old_drv and new_drv:
                 self.base_derivers.setdefault(old_key, old_drv)
                 self.ext_derivers[new_key] = new_drv
-        changes = [self._blame(c) for c in walker.result()]
+        edited = [e.path for e in enabled]
+        changes = [self._blame(c, walker.failures.get(c.new, []), edited) for c in walker.result()]
         clean = not walker.failures
         self._walk_failed = not clean
         quiet = self._quiet(enabled, changes) if clean else ()
@@ -323,18 +325,22 @@ class Engine:
                 return prefix
         return ()
 
-    def _blame(self, change: Change) -> Change:
-        """A failure under the option its message names. The walk meets a
-        conflict on `system.stateVersion` first in `assertions`, which
-        sorts first and reads nearly every option."""
+    def _blame(self, change: Change, failed: Iterable[Path], edited: Iterable[Path]) -> Change:
+        """A failure under the option its message names, else under the
+        edit it failed in. The walk meets a conflict on
+        `system.stateVersion` first in `assertions`, which sorts first and
+        reads nearly every option."""
         if change.kind is not Kind.FAILED:
             return change
         blamed = blamed_path(change.new)
         # Inside one option a message names merge positions, such as
         # `checks."[definition 3-entry 1]"`, which are no path.
-        if not blamed or self.option_of(blamed) in {(), self.option_of(change.path)}:
+        if blamed and self.option_of(blamed) not in {(), self.option_of(change.path)}:
+            return replace(change, path=blamed, via=change.path)
+        own = edited_path(failed, edited)
+        if own is None or own == change.path:
             return change
-        return replace(change, path=blamed, via=change.path)
+        return replace(change, path=own, via=change.path)
 
     def _group(self, changes: list[Change]) -> tuple[Group, ...]:
         by_option: dict[OptionPath, list[Change]] = {}

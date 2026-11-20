@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Final
@@ -392,3 +392,11 @@ def blamed_path(message: str) -> OptionPath | None:
     """The option path a module system error is about, if any."""
     found = _BLAMED.match(message.strip())
     return None if found is None else parse_option_path(found.group(1))
+
+
+def edited_path(failed: Iterable[Path], edited: Iterable[Path]) -> Path | None:
+    """The first failed path at or under a path the edits set: a `throw`
+    in an edit names no option, and the walk meets it first wherever a
+    reader of the option sorts."""
+    prefixes = tuple(edited)
+    return next((p for p in failed if any(p[: len(e)] == e for e in prefixes)), None)

@@ -18,6 +18,7 @@ from modiff.model import (
     Quiet,
     Rebuild,
     blamed_path,
+    edited_path,
     edits_module,
     expand_strings,
     format_path,
@@ -212,6 +213,35 @@ def test_a_conflict_fails_under_the_option_it_names(engine: EngineThread) -> Non
     assert change.path == ("z",)
     assert change.via == ("checks", 0, "ok")
     assert "conflicting definition values" in change.new
+
+
+@pytest.mark.parametrize(
+    ("expr", "message"),
+    [
+        ('lib.mkForce (throw "boom")', "boom"),
+        ('lib.mkForce (abort "stop")', "evaluation aborted"),
+        ("lib.mkForce (assert false; 1)", "assertion 'false' failed"),
+        ("lib.mkForce (let x = x + 1; in x)", "infinite recursion"),
+        ("lib.mkForce { }.missing", "attribute 'missing' missing"),
+    ],
+)
+def test_a_failing_edit_fails_under_its_own_option(engine: EngineThread, expr: str, message: str) -> None:
+    """The messages name no option, and the walk meets each first in
+    `checks`, which sorts first and reads `z`."""
+    before = cascade(engine, Edit(("a",), "2"))
+    c = cascade(engine, Edit(("z",), expr))
+    failed = [(g.option, ch) for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
+    assert len(failed) == 1, failed
+    option, change = failed[0]
+    assert (option, change.path, change.via) == (("z",), ("z",), ("checks", 0, "ok"))
+    assert message in change.new
+    assert cascade(engine, Edit(("a",), "2")).groups == before.groups
+
+
+def test_edited_path_takes_the_first_failure_inside_an_edit() -> None:
+    failed: list[tuple[str | int, ...]] = [("checks", 0, "ok"), ("z", "x"), ("z",)]
+    assert edited_path(failed, [("a",), ("z",)]) == ("z", "x")
+    assert edited_path(failed, [("a",)]) is None
 
 
 def test_a_failed_merge_leaves_the_other_definitions_alone(engine: EngineThread) -> None:
