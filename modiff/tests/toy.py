@@ -27,6 +27,9 @@ in lib.evalModules {
         z = lib.mkOption { type = lib.types.int; };
         # `tryEval` leaves `bad` a failed value in the base, not a thunk.
         tried = lib.mkOption { type = lib.types.attrs; };
+        # One item the base never forced: Nix's printer forces it to choose
+        # a layout.
+        solo = lib.mkOption { type = lib.types.attrs; };
         flags = lib.mkOption { type = lib.types.attrs; };
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
@@ -72,6 +75,7 @@ in lib.evalModules {
         ];
         b = config.a * 10;
         z = 3;
+        solo = { only = config.a * 2; };
         tried = { bad = throw "never works"; ok = (builtins.tryEval config.tried.bad).success; };
         flags = { p = true; q = true; };
         lines = [ "one" "two" ];
@@ -138,6 +142,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "checks", 3, "tool", "drvPath"),
     ("config", "many"),
     ("config", "tried", "ok"),
+    ("config", "solo"),
     ("config", "people", 0, "name"),
     ("config", "people", 0, "uid"),
     ("config", "people", 1, "name"),

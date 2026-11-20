@@ -240,8 +240,6 @@ class OptionView:
     # `highestPrio`: the priority every surviving definition shares.
     prio_old: int | None = None
     prio_new: int | None = None
-    # A part of the new value or definitions threw: Nix prints it «thunk».
-    new_failed: bool = False
     errors: tuple[str, ...] = field(default=())
 
 

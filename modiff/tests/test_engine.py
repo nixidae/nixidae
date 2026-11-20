@@ -26,7 +26,7 @@ from modiff.model import (
     priority_text,
     store_name,
 )
-from modiff.walk import other_paths
+from modiff.walk import PRINT_DEPTH, PRINT_STRING, LazyPrinter, other_paths
 
 
 @pytest.fixture(scope="module")
@@ -241,12 +241,61 @@ def test_a_value_the_base_failed_is_no_failure_of_the_edit(engine: EngineThread)
     assert ("tried",) not in {g.option for g in c.groups}
 
 
-def test_a_failed_part_is_flagged(engine: EngineThread) -> None:
+def test_a_failed_part_prints_as_failed(engine: EngineThread) -> None:
     cascade(engine, Edit(("z",), "4"))
     view = run(engine, lambda e: e.explain(("checks",)))
-    assert view.new_failed
-    view = run(engine, lambda e: e.explain(("lines",)))
-    assert not view.new_failed
+    assert "ok = «failed»;" in view.new
+    assert "«failed»" not in view.old
+    assert any("ok = «failed»;" in d.value for d in view.defs_new)
+
+
+PLAIN: Final = r"""{
+  a = 1;
+  b = [ 1 2 { c = "x\ny"; } ];
+  "d e" = { };
+  type = "t";
+  f = [ ];
+  g = { h = [ 3 ]; };
+  i = 1.5;
+  j = null;
+  k = true;
+  l = x: x;
+  deep = { a = { b = { c = { d = { e = { f = 1; }; }; }; }; }; };
+  s = "q \"''\" \${v} \\ \t";
+  "if" = [ [ ] ];
+  m = [ { n = 1; } ];
+  long = builtins.concatStringsSep "" (builtins.genList (i: "x") 5000);
+}"""
+
+
+@pytest.mark.parametrize("items", [2000, 5, 1, 0])
+def test_the_printer_lays_out_values_as_nix_does(engine: EngineThread, items: int) -> None:
+    """On a fully evaluated value with no derivation, Nix's printer forces
+    nothing, so both must print the same."""
+
+    def job(e: Engine) -> tuple[str, str]:
+        v = e.state.eval_expr(f"let v = {PLAIN}; in builtins.deepSeq v v", "/")
+        e.state.force(v)
+        nix = v.print_value(
+            max_depth=PRINT_DEPTH,
+            max_attrs=items,
+            max_list_items=items,
+            max_string_length=PRINT_STRING,
+            pretty_indent=2,
+        )
+        return LazyPrinter(items).show(v), nix
+
+    ours, nix = run(engine, job)
+    assert ours == nix
+
+
+def test_explaining_every_option_widens_no_cascade(engine: EngineThread) -> None:
+    """Printing and listing definitions force nothing in the base."""
+    edits = (Edit(("a",), "2"), Edit(("people",), '[ { name = "dave"; uid = 4; } ]'))
+    before = cascade(engine, *edits)
+    for option in run(engine, Engine.option_paths):
+        run(engine, lambda e, option=option: e.explain(option))
+    assert cascade(engine, *edits).groups == before.groups
 
 
 def test_other_paths_counts_the_rest() -> None:

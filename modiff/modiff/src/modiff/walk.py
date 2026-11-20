@@ -6,6 +6,7 @@ Runs on the engine thread: every `Value` here belongs to it.
 from __future__ import annotations
 
 import bisect
+import re
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -471,44 +472,105 @@ def fully_forced(v: Value, above: set[int] | None = None) -> bool:
         above.discard(ident)
 
 
-def has_failed(v: Value, above: set[int] | None = None) -> bool:
-    """A value under `v` whose evaluation threw. Nix prints one as
-    «thunk» (`print.cc`, `printFailed`), the same as a value nothing read."""
-    above = set() if above is None else above
-    kind = v.type_name()
-    if kind == "failed":
-        return True
-    if kind not in {"attrs", "list"} or is_derivation(v):
-        return False
-    ident = v.identity()
-    if ident in above:
-        return False
-    above.add(ident)
-    try:
+PRINT_DEPTH: Final = 6
+PRINT_STRING: Final = 4000
+PRINT_INDENT: Final = "  "
+# `print.cc`, `ImportantFirstAttrNameCmp`: the order once `maxAttrs` is set.
+IMPORTANT_ATTRS: Final = frozenset({"type", "_type"})
+# `print.cc`, `shouldPrettyPrintAttrs`: one item spans lines if it is one of these.
+NESTED: Final = frozenset({"attrs", "list"}) | UNEVALUATED
+_VAR_NAME: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
+_RESERVED: Final = frozenset({"if", "then", "else", "assert", "with", "let", "in", "rec", "inherit"})
+
+
+def print_literal(s: str) -> str:
+    """`print.cc`, `printLiteralString`, with no length limit."""
+    out = s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return '"' + out.replace("${", "\\${") + '"'
+
+
+def print_attr_name(name: str) -> str:
+    """`print.cc`, `printAttributeName`."""
+    return name if _VAR_NAME.fullmatch(name) and name not in _RESERVED else print_literal(name)
+
+
+def elided(count: int, single: str, plural: str) -> str:
+    return f"«{count} {single if count == 1 else plural} elided»"
+
+
+def derivation_name(v: Value) -> str:
+    """By the attribute the walk keys a derivation on. Not `drvPath` first,
+    as Nix: the engine reads `drvPath` of each coerced derivation, and the
+    name would then change after the first cascade."""
+    for name in DRV_KEYS:
+        child = forced_attr(v, name)
+        if child is not None and child.type_name() == "string":
+            return f"«derivation {child.string_value()}»"
+    return "«derivation»"
+
+
+@dataclass(slots=True)
+class LazyPrinter:
+    """Nix's `printValue` layout, forcing nothing. Nix's printer forces the
+    item of a one-item set or list to choose a layout (`print.cc`,
+    `shouldPrettyPrintAttrs`), which widens what the base evaluated. It
+    prints a nested derivation as all of its attributes: on NixOS these ate
+    the budget before the part that changed (`systemd.services`). It prints
+    a value that threw as «thunk»."""
+
+    max_items: int
+    max_depth: int = PRINT_DEPTH
+    attrs: int = 0
+    items: int = 0
+
+    def show(self, v: Value, depth: int = 0, indent: str = "", above: frozenset[int] = frozenset()) -> str:
+        kind = v.type_name()
+        if kind == "failed":
+            return "«failed»"
+        if kind not in {"attrs", "list"}:
+            # A leaf holds no item, so Nix's printer forces nothing here.
+            return v.print_value(max_string_length=PRINT_STRING)
+        if kind == "attrs" and is_derivation(v):
+            return derivation_name(v)
+        ident = v.identity()
+        if ident in above:
+            return "«repeated»"
+        if depth >= self.max_depth:
+            return "{ ... }" if kind == "attrs" else "[ ... ]"
+        inner = indent + PRINT_INDENT
+        above = above | {ident}
         if kind == "attrs":
-            return any(has_failed(v.value_at(i), above) for i in range(v.size()) if v.name_at(i) not in SKIP)
-        return any(has_failed(v.at(i), above) for i in range(v.length()))
-    finally:
-        above.discard(ident)
+            names = sorted(v.names(), key=lambda n: (n not in IMPORTANT_ATTRS, n))
+            children = [(n, v.get(n)) for n in names]
+        else:
+            children = [("", v.at(i)) for i in range(v.length())]
+        pretty = len(children) > 1 or (len(children) == 1 and children[0][1].type_name() in NESTED)
+        space = f"\n{inner}" if pretty else " "
+        out = "{" if kind == "attrs" else "["
+        for n, (name, child) in enumerate(children):
+            out += space
+            if kind == "attrs":
+                if self.attrs >= self.max_items:
+                    out += elided(len(children) - n, "attribute", "attributes")
+                    break
+                out += f"{print_attr_name(name)} = {self.show(child, depth + 1, inner, above)};"
+                self.attrs += 1
+            else:
+                if self.items >= self.max_items:
+                    out += elided(len(children) - n, "item", "items")
+                    break
+                out += self.show(child, depth + 1, inner, above)
+                self.items += 1
+        close = "}" if kind == "attrs" else "]"
+        return out + (f"\n{indent}" if pretty else " ") + close
 
 
 def show_lazy(v: Value) -> str:
-    """`v` as far as it was evaluated, as Nix prints it: `«thunk»` marks
-    what nothing needed. Forces nothing, so showing a value never widens
-    what the next cascade compares. Nix prints a derivation as its path
-    only when it may force (`print.cc`, `printDerivation`): modiff names a
-    top-level one itself, by the attribute the walk keys it on. Not
-    `drvPath` first, as Nix: the engine reads `drvPath` of each coerced
-    derivation, and the name would then change after the first cascade."""
-    if is_derivation(v):
-        for name in DRV_KEYS:
-            child = forced_attr(v, name)
-            if child is not None and child.type_name() == "string":
-                return f"«derivation {child.string_value()}»"
-        return "«derivation»"
-    return v.print_value(
-        max_depth=6, max_attrs=PRINT_ITEMS, max_list_items=PRINT_ITEMS, max_string_length=4000, pretty_indent=2
-    )
+    """`v` as far as it was evaluated: «thunk» marks what nothing needed,
+    «failed» what threw. Forces nothing, so showing a value never widens
+    what the next cascade compares. `PRINT_ITEMS` is read here, so a test
+    can lower it."""
+    return LazyPrinter(PRINT_ITEMS).show(v)
 
 
 def show_forced(v: Value) -> str:

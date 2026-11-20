@@ -274,9 +274,8 @@ def definitions(view: OptionView, all_shown: bool = False) -> list[RenderableTyp
     return out
 
 
-FAILED_THUNK: Final = Text(
-    "With the edits, «thunk» also marks a part that failed to evaluate: Nix prints a failed value "
-    "that way. The cascade shows the failure.",
+FAILED_NOTE: Final = Text(
+    "«failed» is a part whose evaluation threw an error. The cascade shows the error.",
     style="red italic",
 )
 
@@ -315,15 +314,15 @@ def option_detail(
         new = None if view.prio_new is None else priority_text(view.prio_new)
         shown = f"{old} → {new}" if old and new and old != new else (new or old or "")
         parts.append(Text.assemble(("winning priority: ", "dim"), shown))
-    if view.new_failed:
-        parts.append(FAILED_THUNK)
+    if any("«failed»" in d.value for d in view.defs_new):
+        parts.append(FAILED_NOTE)
     parts.extend(definitions(view, all_definitions))
 
     parts.append(section("Value"))
     if "«thunk»" in view.old or "«thunk»" in view.new:
         parts.append(Text("«thunk» is a part nothing evaluated yet: Nix is lazy.", style="dim italic"))
-    if view.new_failed:
-        parts.append(FAILED_THUNK)
+    if "«failed»" in view.new:
+        parts.append(FAILED_NOTE)
     if view.new and view.new != view.old:
         parts.append(diff_text(expand_strings(view.old), expand_strings(view.new)))
     else:

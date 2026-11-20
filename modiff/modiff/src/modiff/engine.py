@@ -50,7 +50,6 @@ from .walk import (
     drv_string,
     error_text,
     fully_forced,
-    has_failed,
     instantiated,
     show_forced,
     show_lazy,
@@ -501,7 +500,6 @@ class Engine:
         news: list[tuple[str, Value]] = []
         prio_old = prio_new = None
         new = current(self.ext)
-        new_failed = False
         try:
             if base_read:
                 olds = self._definitions(self.base, option)
@@ -515,8 +513,6 @@ class Engine:
             new_value = self._peek(self._sel(self.ext, ("config",)), option)
             if new_value is not None:
                 Walker(self.state).force_like(base_value, new_value)
-                new_failed = has_failed(new_value)
-            new_failed = new_failed or any(has_failed(v) for _, v in news)
             try:
                 new = current(self.ext) if new_value is None else self._shown_new(new_value)
             except NixError as err:
@@ -534,7 +530,6 @@ class Engine:
             base_read=base_read,
             prio_old=prio_old,
             prio_new=prio_new,
-            new_failed=new_failed,
             errors=tuple(errors),
         )
 
