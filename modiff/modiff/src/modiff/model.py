@@ -319,7 +319,9 @@ def edits_module(edits: list[Edit]) -> str:
 
     def define(edit: Edit) -> str:
         # As typed: indenting a `"…"` string that spans lines changes it.
-        return f"{format_path(edit.path)} = {edit.expr};"
+        # A `#` on the last line may start a comment, which would take the `;`.
+        end = "\n;" if "#" in edit.expr.rsplit("\n", 1)[-1] else ";"
+        return f"{format_path(edit.path)} = {edit.expr}{end}"
 
     # `a = lib.mkForce { … }; a.b = 1;` is a Nix error; two modules merge.
     nested = any(a.path != b.path and overlaps(a.path, b.path) for a in on for b in on)

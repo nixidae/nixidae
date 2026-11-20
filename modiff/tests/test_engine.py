@@ -468,6 +468,10 @@ def test_a_nixos_path_may_hold_a_space(engine: EngineThread) -> None:
     assert '"/tmp/my config/configuration.nix"' in source.expr
 
 
+def test_an_edit_may_end_in_a_comment(engine: EngineThread) -> None:
+    assert cascade(engine, Edit(("a",), "2 # two")).groups == cascade(engine, Edit(("a",), "2")).groups
+
+
 def test_a_free_name_is_no_parse_error(engine: EngineThread) -> None:
     assert cascade(engine, Edit(("a",), "lib.mkForce (lib.max 1 2)")).error is None
 
@@ -655,6 +659,8 @@ def test_parse_option_path_round_trips() -> None:
             Edit(("flags", "p"), "false"),
             Edit(("a",), "3", enabled=False),
         ],
+        # A comment to the end of the line, then more definitions.
+        [Edit(("a",), "2 # two"), Edit(("c",), '"x"')],
     ],
 )
 def test_the_written_module_means_what_the_edits_meant(engine: EngineThread, tmp_path: Path, edits: list[Edit]) -> None:

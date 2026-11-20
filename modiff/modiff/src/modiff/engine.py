@@ -111,7 +111,8 @@ def edit_module(edit: Edit) -> str:
     file = nix_string(edit_file(edit.path))
     return (
         "{ lib, config, ... }: with config._module.args; "
-        f"{{ _file = {file}; config = lib.setAttrByPath [ {path} ] ({edit.expr}); }}"
+        # The newline ends a `#` comment the edit may end in.
+        f"{{ _file = {file}; config = lib.setAttrByPath [ {path} ] ({edit.expr}\n); }}"
     )
 
 
