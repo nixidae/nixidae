@@ -1,6 +1,6 @@
 # nixidae
 
-One repository, fourteen sources (`nix/members.nix`): thirteen projects and `dotgithub`, the organisation's `.github` repository. josh exports each source to its own repository on every push to `main`, with the source's original commit hashes. nixidae/nixidae#4.
+One repository, fifteen sources (`nix/members.nix`): fourteen projects and `dotgithub`, the organisation's `.github` repository. josh exports each source to its own repository on every push to `main`, with the source's original commit hashes. nixidae/nixidae#4.
 
 This is the only shared instruction file. Shared rules first, then one section per source under **Sources**. A source with no section has no rules of its own.
 
@@ -199,6 +199,19 @@ Milestone: a second client claims a live `EvalState`, and re-evaluating unchange
 ### How the codegen works
 
 Declarations are in `packages/huggorm-decl/src/huggorm_decl/decl/`, one file per Nix class, named after its header. `read.py` reads each twice: it imports it (Python resolves any `NIX_VERSION` branch) and parses it with `ast.parse` for what the import drops. No body runs, so C++ in a body is dead text the reader lifts out. `ir.py` resolves that into the typed model; the emitters write the nanobind C++, stubs, enum modules and every Python surface from it.
+
+## modiff
+
+A Textual TUI on huggorm: edit a module configuration (NixOS, home-manager, easykubenix, any `evalModules`), see the options each edit changes and the derivations it rebuilds. `README.md` has the keys and the shapes it was measured on.
+
+### Gates and commands
+
+Run from `modiff/`: `nix-shell --run 'pytest; ruff check; ruff format --check; zuban mypy'`; sandboxed, `nix build --file . checks.pytest checks.lint checks.format checks.types` (what CI builds). `nix-shell --argstr lane determinate` evaluates with Determinate Nix.
+
+### Rules
+
+- The walk compares only what the base evaluated. Nothing modiff does may force a base value: `count_forced` of the base stays constant through every action (`tests/test_engine.py`, the widening tests).
+- Textual draws on stderr: never pipe the TUI or send its stderr to `/dev/null`. Drive it in a pymux pane; read it by image.
 
 ## nanopynix
 

@@ -52,6 +52,10 @@ rec {
   # nanopynix's set.
   pynix-review = import sources.pynix-review { inherit pkgs sources system; };
 
+  # A module configuration edited live: the options an edit changes, and
+  # the derivations it rebuilds. On huggorm, through nanopynix's set.
+  modiff = import sources.modiff { inherit pkgs sources system; };
+
   # NixOS integration tests on User-Mode Linux, so a guest is a process and a
   # test is a derivation that passes or fails.
   vivarium = import sources.vivarium { inherit pkgs sources; };
@@ -122,6 +126,7 @@ rec {
         havsorm
         huggorm
         kappy
+        modiff
         nanopynix
         nixkube
         nixvenv
@@ -144,6 +149,7 @@ rec {
       "havsorm"
       "huggorm"
       "kappy"
+      "modiff"
       "nanopynix"
       "nixkube"
       "nixvenv"
@@ -158,6 +164,7 @@ rec {
       "havsorm"
       "huggorm"
       "kappy"
+      "modiff"
       "nanopynix"
       "nixkube"
       "pydd"

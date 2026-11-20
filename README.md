@@ -1,6 +1,6 @@
 # nixidae
 
-One repository that holds thirteen projects, and the organisation's `.github`
+One repository that holds fourteen projects, and the organisation's `.github`
 repository. A change that crosses two of them
 lands in one commit, and one lock pins everything they use from outside.
 
@@ -19,6 +19,7 @@ lands in one commit, and one lock pins everything they use from outside.
 | `dinix` | dinit services from Nix modules: containers, user sessions and VM init |
 | `nixvenv` | A real Python venv from nixpkgs packages, with no PYTHONPATH |
 | `pynix-review` | What a nixpkgs change rebuilds, layered by depth, with build times |
+| `modiff` | Edit a module configuration live, and see what each edit changes and rebuilds |
 | `dotgithub` | `nixidae/.github`: the organisation profile and community files |
 
 ## Each project still has its own repository

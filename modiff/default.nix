@@ -75,6 +75,7 @@ in
     );
   };
   lib = { inherit projectRoot overlay; };
+  ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
   checks = pkgs.callPackages ./nix/checks.nix {
     devEnv = checkEnv;
     nixpkgsPath = pkgs.path;

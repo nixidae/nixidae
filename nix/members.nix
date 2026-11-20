@@ -49,6 +49,13 @@
       root = "kappy.packages.default";
     };
   };
+  modiff = {
+    repo = "nixidae/modiff";
+    package = {
+      flake = "default";
+      root = "modiff.packages.default";
+    };
+  };
   nanopynix = {
     repo = "nixidae/nanopynix";
     package = {
