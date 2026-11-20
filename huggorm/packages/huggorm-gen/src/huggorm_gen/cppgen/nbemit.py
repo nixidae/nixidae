@@ -1281,7 +1281,8 @@ class Emitter:
         Determinate Nix writes a derivation from a worker thread, and
         its own C API waits after every call (`nix_api_expr.cc`). A call
         on an affine class is a call on one state, so it waits the same
-        way. The body runs in a lambda, so each `return` in it stays a
+        way when it can evaluate; `settled` skips the wait otherwise.
+        The body runs in a lambda, so each `return` in it stays a
         return of the method. Not a guard: the wait rethrows a failed
         write, and a destructor must not throw.
 

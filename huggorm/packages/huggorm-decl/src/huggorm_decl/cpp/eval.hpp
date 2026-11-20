@@ -135,6 +135,11 @@ nix::ValueType value_type(const V & v)
  * `Evaluates`: the call can evaluate, so it marks the state as having
  * evaluated before `body` runs. The emitter sets it for a call that
  * releases the GIL; an `@instant` call does not evaluate.
+ *
+ * Only a call that evaluates waits: a read cannot queue a write. The
+ * wait locks the writer's state even when nothing is queued
+ * (`async-path-writer.cc:161`), so eight threads reading one state
+ * spent 17 % of their cycles on that lock (nixidae/nixidae#1557).
  */
 template <bool Evaluates = false, typename Self, typename Body>
 std::invoke_result_t<Body> settled(Self & self, Body && body)
@@ -142,7 +147,7 @@ std::invoke_result_t<Body> settled(Self & self, Body && body)
     static_assert(requires { self.state(); }, "an affine class reaches its state with state()");
     if constexpr (Evaluates)
         self.eval_core().mark_evaluated();
-    if constexpr (requires { self.state().waitForAllPaths(); }) {
+    if constexpr (Evaluates && requires { self.state().waitForAllPaths(); }) {
         if constexpr (std::is_void_v<std::invoke_result_t<Body>>) {
             body();
             self.state().waitForAllPaths();
