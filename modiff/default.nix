@@ -35,7 +35,31 @@ let
   };
 
   # The tests read the working tree through `pythonpath` in pytest.ini.
-  devEnv = pythonSet.mkVirtualEnv "modiff-dev-env" {
+  checkEnv = pythonSet.mkVirtualEnv "modiff-check-env" {
+    modiff = [ "test" ];
+  };
+
+  # The dev shell installs modiff editable, from the checkout: an edit
+  # under src/ is live with no rebuild. Its build reads only the metadata,
+  # so the env does not change when the code does.
+  editableRoot = pkgs.lib.fileset.toSource {
+    root = ./modiff;
+    fileset = pkgs.lib.fileset.unions [
+      ./modiff/pyproject.toml
+      ./modiff/src/modiff/__init__.py
+    ];
+  };
+  editableSet = nanopynix.lib.pythonSetWith {
+    projectRoots = [ editableRoot ];
+    overlay = pySelf: _pyPrev: {
+      modiff = pySelf.callPackage (ps.mkEditableProject {
+        projectRoot = editableRoot;
+        root = toString ./modiff;
+        inherit (pySelf) python;
+      }) { };
+    };
+  };
+  devEnv = editableSet.mkVirtualEnv "modiff-dev-env" {
     modiff = [ "test" ];
   };
 in
@@ -49,7 +73,7 @@ in
   };
   lib = { inherit projectRoot overlay; };
   checks = pkgs.callPackages ./nix/checks.nix {
-    inherit devEnv;
+    devEnv = checkEnv;
     nixpkgsPath = pkgs.path;
   };
   shell = pkgs.mkShell {
