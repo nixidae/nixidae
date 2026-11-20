@@ -255,6 +255,8 @@ def test_a_failed_merge_leaves_the_other_definitions_alone(engine: EngineThread)
     assert set(view.defs_old) <= set(view.defs_new)
     assert [d.file for d in view.defs_new if d not in view.defs_old] == ["modiff edit: checks"]
     assert view.new.startswith("«error: ")
+    # The second visit skips forcing and shows the same.
+    assert run(engine, lambda e: e.explain(("checks",))) == view
 
 
 def test_elements_the_base_never_read_stay_unread(engine: EngineThread) -> None:

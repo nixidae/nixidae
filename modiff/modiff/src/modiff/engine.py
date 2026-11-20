@@ -123,6 +123,8 @@ class Engine:
         # The last walk met a failure, so it left parts of the new side
         # unforced that the base forced.
         self._walk_failed = False
+        # Options `explain` forced as deep as the base since the last apply.
+        self._forced_like: set[OptionPath] = set()
 
     def _sel(self, v: Value, path: Path) -> Value:
         self.state.force(v)
@@ -171,6 +173,7 @@ class Engine:
         enabled = [e for e in edits if e.enabled]
         self.ext = None
         self._options.clear()
+        self._forced_like.clear()
         if not enabled:
             return Cascade()
         modules = self.state.make_list()
@@ -546,11 +549,13 @@ class Engine:
             errors.append(error_text(err))
         if base_read and base_value is not None and self.ext is not None and self._walk_failed:
             # 0.8 s for the 954 definitions of NixOS `assertions`: only
-            # where a failure stopped the walk.
-            self._force_like_base(olds, news)
+            # where a failure stopped the walk, once per apply.
             new_value = self._peek(self._sel(self.ext, ("config",)), option)
-            if new_value is not None:
-                Walker(self.state).force_like(base_value, new_value)
+            if option not in self._forced_like:
+                self._forced_like.add(option)
+                self._force_like_base(olds, news)
+                if new_value is not None:
+                    Walker(self.state).force_like(base_value, new_value)
             try:
                 new = current(self.ext) if new_value is None else self._shown_new(new_value)
             except NixError as err:
