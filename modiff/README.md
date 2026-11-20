@@ -61,3 +61,9 @@ are in scope: `lib.mkForce true` works.
 nix-shell --run pytest
 nix-shell --run 'ruff check && ruff format --check && zuban mypy'
 ```
+
+The same in the Nix sandbox, from the files the package tracks:
+
+```sh
+nix build --file . checks.pytest checks.lint checks.format checks.types
+```
