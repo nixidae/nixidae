@@ -85,20 +85,33 @@ def is_root_change(group: Group) -> bool:
 
 
 QUIET_LABEL: Final = {
-    Quiet.OUTRANKED: "outranked",
+    Quiet.DROPPED: "dropped",
+    Quiet.ELSEWHERE: "no change here",
     Quiet.UNREAD: "nothing reads it",
     Quiet.SAME: "same value",
+    Quiet.PARTIAL: "evaluated parts same",
 }
 
 
 def quiet_note(group: Group) -> Text:
     path = format_path(group.option)
     match group.quiet:
-        case Quiet.OUTRANKED:
+        case Quiet.DROPPED:
             body = (
-                f"The edit changes nothing: another definition of {path} has a higher priority, "
-                "so the module system drops the edit. A lower number wins: a plain definition is "
-                "100, lib.mkDefault 1000, lib.mkForce 50. Try lib.mkForce."
+                f"The edit changes nothing: it is not among the definitions of {path}. The module "
+                "system drops a definition that a higher priority outranks, or whose lib.mkIf "
+                "condition is false. A lower number wins: lib.mkForce is 50, a plain definition "
+                "100, lib.mkDefault 1000."
+            )
+        case Quiet.ELSEWHERE:
+            body = (
+                f"Nothing changed at {path} itself. An edit can act through another path, as a "
+                "renamed option does. Turn edits off one at a time to see what each one changes."
+            )
+        case Quiet.PARTIAL:
+            body = (
+                f"Every part of {path} that the configuration evaluated has the same value. The "
+                "other parts were never read, so their change reaches nothing."
             )
         case Quiet.UNREAD:
             body = (

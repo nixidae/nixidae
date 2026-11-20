@@ -343,6 +343,26 @@ def count_forced(v: Value, above: set[int] | None = None) -> int:
         above.discard(ident)
 
 
+def fully_forced(v: Value, above: set[int] | None = None) -> bool:
+    """No thunk under `v`; a derivation counts as one value."""
+    above = set() if above is None else above
+    kind = v.type_name()
+    if kind == "thunk":
+        return False
+    if kind not in {"attrs", "list"} or is_derivation(v):
+        return True
+    ident = v.identity()
+    if ident in above:
+        return True
+    above.add(ident)
+    try:
+        if kind == "attrs":
+            return all(fully_forced(v.value_at(i), above) for i in range(v.size()) if v.name_at(i) not in SKIP)
+        return all(fully_forced(v.at(i), above) for i in range(v.length()))
+    finally:
+        above.discard(ident)
+
+
 def show_lazy(v: Value) -> str:
     """`v` as far as it was evaluated, as Nix prints it: `«thunk»` marks
     what nothing needed. Forces nothing, so showing a value never widens

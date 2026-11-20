@@ -14,8 +14,11 @@ let
   lib = import /etc/nixpkgs/lib;
 in lib.evalModules {
   modules = [
+    # An edit to `old` reaches `a` and never `config.old`.
+    (lib.mkRenamedOptionModule [ "old" ] [ "a" ])
     ({ lib, config, ... }: {
       options = {
+        warnings = lib.mkOption { type = lib.types.listOf lib.types.str; default = [ ]; };
         a = lib.mkOption { type = lib.types.int; default = 1; description = "The input."; };
         b = lib.mkOption { type = lib.types.int; };
         c = lib.mkOption { type = lib.types.str; default = "untouched"; };

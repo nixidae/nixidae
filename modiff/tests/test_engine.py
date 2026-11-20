@@ -112,14 +112,32 @@ def test_edit_to_the_same_value_is_same(engine: EngineThread) -> None:
     assert quiet(cascade(engine, Edit(("a",), "1"))) == {"a": Quiet.SAME}
 
 
-def test_edit_a_definition_outranks_is_outranked(engine: EngineThread) -> None:
+def test_an_outranked_edit_is_dropped(engine: EngineThread) -> None:
     """`b` has a plain definition, priority 100; mkDefault is 1000."""
-    assert quiet(cascade(engine, Edit(("b",), "lib.mkDefault 3"))) == {"b": Quiet.OUTRANKED}
+    assert quiet(cascade(engine, Edit(("b",), "lib.mkDefault 3"))) == {"b": Quiet.DROPPED}
+
+
+def test_an_edit_through_another_path_is_not_unread(engine: EngineThread) -> None:
+    """A renamed option: the edit defines `a`, and `config.old` stays a
+    thunk. The cascade is not empty, so the row claims nothing more."""
+    c = cascade(engine, Edit(("old",), "2"))
+    assert "b" in changes(c)
+    assert quiet(c) == {"old": Quiet.ELSEWHERE}
+
+
+def test_unforced_children_are_not_the_same_value(engine: EngineThread) -> None:
+    """The base forced each `ok` and no `msg`: equal evaluated parts say
+    nothing about the rest."""
+    edit = Edit(
+        ("checks",),
+        'lib.mkForce (map (n: { name = n; ok = true; msg = "other"; }) [ "first" "second" "third" ])',
+    )
+    assert quiet(cascade(engine, edit)) == {"checks": Quiet.PARTIAL}
 
 
 def test_an_edit_that_changes_something_is_not_quiet(engine: EngineThread) -> None:
     c = cascade(engine, Edit(("a",), "2"), Edit(("c",), '"x"'))
-    assert quiet(c) == {"c": Quiet.UNREAD}
+    assert quiet(c) == {"c": Quiet.ELSEWHERE}
     assert all(g.quiet is None for g in c.groups if g.changes)
 
 

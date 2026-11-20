@@ -37,9 +37,14 @@ class Change:
 class Quiet(StrEnum):
     """Why an edit changed nothing that was evaluated."""
 
-    OUTRANKED = "outranked"
+    DROPPED = "dropped"
+    # The cascade is not empty: the edit may act through another path, as
+    # a renamed option does, so this row claims nothing about it.
+    ELSEWHERE = "elsewhere"
     UNREAD = "unread"
     SAME = "same"
+    # Equal as far as the base evaluated it; the rest was never read.
+    PARTIAL = "partial"
 
 
 @dataclass(frozen=True, slots=True)

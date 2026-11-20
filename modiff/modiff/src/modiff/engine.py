@@ -32,7 +32,7 @@ from .model import (
     nix_string,
     overlaps,
 )
-from .walk import SKIP, Walker, count_forced, error_text, show_forced, show_lazy
+from .walk import SKIP, Walker, count_forced, error_text, fully_forced, show_forced, show_lazy
 
 # Nix's CLI sets this stack in `main()`; an embedder's thread keeps 8 MiB, and
 # the default max-call-depth of 10000 needs about 27 MB (huggorm's runtime,
@@ -222,11 +222,15 @@ class Engine:
             if any(overlaps(edit.path, change.path) for change in changes):
                 continue
             option = self.option_of(edit.path)
+            v = self._peek(config, edit.path)
             if option and not self._defines(edit, option):
-                reason = Quiet.OUTRANKED
+                reason = Quiet.DROPPED
+            elif changes:
+                reason = Quiet.ELSEWHERE
+            elif v is None or v.type_name() == "thunk":
+                reason = Quiet.UNREAD
             else:
-                v = self._peek(config, edit.path)
-                reason = Quiet.UNREAD if v is None or v.type_name() == "thunk" else Quiet.SAME
+                reason = Quiet.SAME if fully_forced(v) else Quiet.PARTIAL
             out.append(Group(option or edit.path, (), reason))
         return tuple(out)
 
