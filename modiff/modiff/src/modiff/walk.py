@@ -288,9 +288,11 @@ class Walker:
         # forced the list and no element. Then no key anchors anything, and
         # forcing the new elements would print values where the base
         # prints «thunk».
-        b_keys: list[Key] = (
-            [self.element_key(v, common_fields(a_keys)) for v in news] if any(a_keys) else [{} for _ in news]
-        )
+        if any(a_keys):
+            fields = common_fields(a_keys)
+            b_keys: list[Key] = [self.element_key(v, fields) for v in news]
+        else:
+            b_keys = [{} for _ in news]
         for i, j in align(a_keys, b_keys):
             if i is not None and j is not None:
                 self.compare(olds[i], news[j], (*path, j), above)
@@ -332,7 +334,8 @@ class Walker:
         a_keys = [{} if v.type_name() in UNEVALUATED else self.element_key(v) for v in olds]
         if not any(a_keys):
             return
-        b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
+        fields = common_fields(a_keys)
+        b_keys = [self.element_key(v, fields) for v in news]
         for i, j in align(a_keys, b_keys):
             if i is not None and j is not None:
                 self.force_like(olds[i], news[j], seen)
