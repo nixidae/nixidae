@@ -238,7 +238,7 @@ class Engine:
         for i in range(defs.length()):
             item = self._sel(defs, (i,))
             file = self._sel(item, ("file",))
-            value = show_forced(item.get("value"))
+            value = show_lazy(item.get("value"))
             out.append(Definition(str(file.string_value()), value))
         return tuple(out)
 
@@ -272,7 +272,8 @@ class Engine:
         if node.has("defaultText"):
             default = text(("defaultText",))
         elif node.has("default"):
-            default = text(("default",))
+            # The default is a definition: forcing it here forces config.
+            default = show_lazy(node.get("default"))
 
         def current(root: Value | None) -> str:
             if root is None:

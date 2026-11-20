@@ -211,13 +211,22 @@ def count_forced(v: Value, above: set[int] | None = None) -> int:
 
 def show_lazy(v: Value) -> str:
     """`v` as far as it was evaluated, as Nix prints it: `«thunk»` marks
-    what nothing needed. Forces nothing."""
+    what nothing needed. Forces nothing, so showing a value never widens
+    what the next cascade compares. Nix prints a derivation as its path
+    only when it may force (`print.cc`, `printDerivation`): modiff names a
+    top-level one itself."""
+    if is_derivation(v):
+        for name in ("drvPath", "outPath", "name"):
+            child = forced_attr(v, name)
+            if child is not None and child.type_name() == "string":
+                return f"«derivation {child.string_value()}»"
+        return "«derivation»"
     return v.print_value(max_depth=6, max_attrs=200, max_list_items=200, max_string_length=4000, pretty_indent=2)
 
 
 def show_forced(v: Value) -> str:
-    """`v` evaluated, a derivation as its `.drv` path. For a definition,
-    which is small: a whole configuration would evaluate nixpkgs."""
+    """`v` evaluated, a derivation as its `.drv` path. For option metadata
+    only: a configuration value it forces is one the next cascade compares."""
     try:
         return v.print_value(
             force=True,

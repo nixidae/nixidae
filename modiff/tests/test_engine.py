@@ -100,13 +100,21 @@ def test_lazy_value_shows_thunks(engine: EngineThread) -> None:
     """`c` was never needed: Nix's printer says so instead of evaluating it."""
     view = run(engine, lambda e: e.explain(("c",)))
     assert view.old == "«thunk»"
-    assert view.default == "untouched"
+    assert view.default == '"untouched"'
 
 
-def test_definitions_print_derivations_as_paths(engine: EngineThread) -> None:
+def test_explain_evaluates_nothing(engine: EngineThread) -> None:
+    """Each `msg` reads another option. Showing `checks` must not evaluate
+    them, or `c` counts as evaluated in every later cascade."""
+    run(engine, lambda e: e.explain(("checks",)))
+    assert run(engine, lambda e: e.explain(("c",))).old == "«thunk»"
+    assert "c" not in changes(cascade(engine, Edit(("c",), '"edited"')))
+
+
+def test_definitions_print_derivations_by_what_was_evaluated(engine: EngineThread) -> None:
+    """The toy forces `drv.name` and no path."""
     view = run(engine, lambda e: e.explain(("drv",)))
-    assert len(view.defs_old) == 1
-    assert view.defs_old[0].value.startswith("«derivation /nix/store/")
+    assert [d.value for d in view.defs_old] == ["«derivation toy-10»"]
 
 
 def test_option_paths(engine: EngineThread) -> None:
