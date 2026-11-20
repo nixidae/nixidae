@@ -8,7 +8,9 @@ Two execution strategies:
 - PoolRunner: a shared thread pool. Any thread may touch the object.
   Use for thread-safe classes.
 
-Both bridge the sync C++ calls into asyncio via run_in_executor.
+Both run each call on a thread they own and name. That thread settles
+the call with one `call_soon_threadsafe`, so the awaiting task wakes
+once per call.
 
 Exception policy:
 - Typed errors (WrapperError subclasses) pass through untouched.
@@ -37,8 +39,6 @@ from collections.abc import Awaitable, Callable, Iterable, Iterator
 from typing import Any, Protocol, runtime_checkable
 
 import anyio
-import anyio.from_thread
-import anyio.lowlevel
 
 from ._callspec import Call, Local, Wire, WireKind
 
@@ -144,15 +144,25 @@ def _with_async_parts(e: Exception) -> None:
             setattr(e, name, served._adopt(part, PoolRunner(None)))
 
 
+def _typed_failure(label: str, e: Exception) -> Exception:
+    """What a failure of a call crosses to its caller as. The caller
+    raises it `from e` when it is not `e`."""
+    failure = typed_or_internal(label, e)
+    if failure is e:
+        _with_async_parts(e)
+    else:
+        failure.__cause__ = e
+    return failure
+
+
 @contextlib.contextmanager
 def _typed(label: str) -> Iterator[None]:
     """Raise what `typed_or_internal` makes of a failure."""
     try:
         yield
     except Exception as e:
-        failure = typed_or_internal(label, e)
+        failure = _typed_failure(label, e)
         if failure is e:
-            _with_async_parts(e)
             raise
         raise failure from e
 
@@ -177,14 +187,20 @@ EVAL_STACK = 60 * 1024 * 1024
 _STACK_LOCK = threading.Lock()
 
 
-def _start_with_eval_stack(pool: concurrent.futures.ThreadPoolExecutor) -> None:
-    """Spawn `pool`'s single thread now, with `EVAL_STACK`."""
+def _start_with_eval_stack(thread: threading.Thread) -> None:
     with _STACK_LOCK:
         previous = threading.stack_size(EVAL_STACK)
         try:
-            pool.submit(lambda: None).result()
+            thread.start()
         finally:
             threading.stack_size(previous)
+
+
+class _Runnable(Protocol):
+    """Work a thread of `_Home` or `_Pool` runs. `run` raises nothing:
+    it hands every outcome to whoever waits for it."""
+
+    def run(self) -> None: ...
 
 
 class _Job:
@@ -223,7 +239,7 @@ class _Pool(concurrent.futures.Executor):
     def __init__(self, size: int, name: str = "huggorm-pool") -> None:
         self._size = size
         self._name = name
-        self._queue: queue.SimpleQueue[_Job | None] = queue.SimpleQueue()
+        self._queue: queue.SimpleQueue[_Runnable | None] = queue.SimpleQueue()
         self._lock = threading.Lock()
         self._threads: set[threading.Thread] = set()
         self._started = 0
@@ -234,12 +250,15 @@ class _Pool(concurrent.futures.Executor):
 
     def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> concurrent.futures.Future[Any]:
         job = _Job(functools.partial(fn, *args, **kwargs))
+        self.post(job)
+        return job.future
+
+    def post(self, job: _Runnable) -> None:
         with self._lock:
             if self._shutdown:
                 raise RuntimeError("cannot schedule new futures after shutdown")
             self._queue.put(job)
             self._grow()
-        return job.future
 
     def _grow(self) -> None:
         """Under the lock: one more thread, when none is idle and fewer
@@ -295,10 +314,10 @@ class _Pool(concurrent.futures.Executor):
                     thread.join()
 
 
-# Every live pool, stopped before the interpreter joins its threads:
-# `concurrent.futures.thread` stops its own the same way, and an
-# `atexit` hook would run after that join.
-_POOLS: weakref.WeakSet[_Pool] = weakref.WeakSet()
+# Every live pool and home, stopped before the interpreter joins their
+# threads: `concurrent.futures.thread` stops its own the same way, and
+# an `atexit` hook would run after that join.
+_POOLS: weakref.WeakSet[_Pool | _Home] = weakref.WeakSet()
 
 
 def _stop_pools() -> None:
@@ -316,24 +335,45 @@ class _Home(concurrent.futures.Executor):
     A worker waits so for a hook that the loop answers.
     Work submitted during the wait runs on the waiting thread, as a C++
     call stack runs a nested call. Work queued before the wait stays
-    queued, so it still runs after the call that waits."""
+    queued, so it still runs after the call that waits.
+
+    Its own thread, not a `ThreadPoolExecutor`: `_hop` posts a `_Call`
+    that settles itself on the loop, and a pool's future would cost a
+    second hop per call."""
 
     def __init__(self, name: str) -> None:
-        self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=name)
-        _start_with_eval_stack(self._pool)
+        self._queue: queue.SimpleQueue[_Runnable | None] = queue.SimpleQueue()
         self._lock = threading.Lock()
-        self._inbox: queue.SimpleQueue[_Job | None] | None = None
+        self._inbox: queue.SimpleQueue[_Runnable | None] | None = None
+        self._shutdown = False
+        # The thread holds the queue, not the home, so a home dropped
+        # without `shutdown` stops its thread, as a ThreadPoolExecutor's does.
+        self._thread = threading.Thread(target=_serve, args=(self._queue,), name=f"{name}_0")
+        _start_with_eval_stack(self._thread)
+        weakref.finalize(self, self._queue.put, None)
+        _POOLS.add(self)
 
     def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> concurrent.futures.Future[Any]:
+        job = _Job(functools.partial(fn, *args, **kwargs))
+        self.post(job)
+        return job.future
+
+    def post(self, job: _Runnable) -> None:
         with self._lock:
-            if self._inbox is None:
-                return self._pool.submit(fn, *args, **kwargs)
-            job = _Job(functools.partial(fn, *args, **kwargs))
-            self._inbox.put(job)
-            return job.future
+            if self._inbox is not None:
+                self._inbox.put(job)
+                return
+            if self._shutdown:
+                raise RuntimeError("cannot schedule new futures after shutdown")
+            self._queue.put(job)
 
     def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
-        self._pool.shutdown(wait=wait, cancel_futures=cancel_futures)
+        with self._lock:
+            if not self._shutdown:
+                self._shutdown = True
+                self._queue.put(None)
+        if wait and self._thread is not threading.current_thread():
+            self._thread.join()
 
     def wait(self, done: concurrent.futures.Future[Any], start: Callable[[], None] = lambda: None) -> None:
         """Run what is submitted here until `done` completes. Only on
@@ -342,7 +382,7 @@ class _Home(concurrent.futures.Executor):
         `start` runs once the inbox takes work. Whatever completes
         `done` begins there, so a submit it causes cannot reach the
         queue behind this job."""
-        inbox: queue.SimpleQueue[_Job | None] = queue.SimpleQueue()
+        inbox: queue.SimpleQueue[_Runnable | None] = queue.SimpleQueue()
         with self._lock:
             outer, self._inbox = self._inbox, inbox
         done.add_done_callback(lambda _: inbox.put(None))
@@ -364,7 +404,14 @@ class _Home(concurrent.futures.Executor):
                     if outer is not None:
                         outer.put(left)
                     else:
-                        self._pool.submit(left.run)
+                        self._queue.put(left)
+
+
+def _serve(work: queue.SimpleQueue[_Runnable | None]) -> None:
+    while (job := work.get()) is not None:
+        job.run()
+        # Before the next `get`, which may block for as long as the home lives.
+        del job
 
 
 _REQUEST_LOCK = threading.Lock()
@@ -415,13 +462,17 @@ class _Hooks:
     The worker and the loop share `_asked` under `_lock`. The worker
     wakes the loop only when `_awake` is off, and the loop turns it off
     only when it finds `_asked` empty, under the same lock. So a run of
-    posted hooks costs one hop to the loop, not one each."""
+    posted hooks costs one hop to the loop, not one each.
 
-    __slots__ = ("_asked", "_awake", "_broken", "_closed", "_lock", "_posted", "_token", "executor", "wake")
+    The worker builds it, at the first hook its call asks, so it holds
+    nothing that only the loop's thread can make: `signal` is
+    thread-safe and wakes the awaiting coroutine."""
 
-    def __init__(self, executor: concurrent.futures.Executor) -> None:
-        self._token = anyio.lowlevel.current_token()
-        self.executor = executor if isinstance(executor, _Home | _Pool) else None
+    __slots__ = ("_asked", "_awake", "_broken", "_closed", "_lock", "_posted", "_signal", "executor")
+
+    def __init__(self, executor: _Home | _Pool, signal: Callable[[], None]) -> None:
+        self._signal = signal
+        self.executor = executor
         self._lock = threading.Lock()
         self._asked: collections.deque[tuple[Callable[[], Awaitable[Any]], concurrent.futures.Future[Any], bool]] = (
             collections.deque()
@@ -433,7 +484,6 @@ class _Hooks:
         self._broken: Exception | None = None
         # Worker side: the answers of posted hooks, oldest first.
         self._posted: collections.deque[concurrent.futures.Future[Any]] = collections.deque()
-        self.wake = anyio.Event()
 
     def ask(self, hook: Callable[[], Awaitable[Any]]) -> Any:
         """From the worker: what `hook` answers on the loop."""
@@ -470,11 +520,7 @@ class _Hooks:
         return failure
 
     def _wait(self, done: concurrent.futures.Future[Any], start: Callable[[], None] = lambda: None) -> None:
-        if self.executor is not None:
-            self.executor.wait(done, start)
-        else:
-            start()
-            concurrent.futures.wait([done])
+        self.executor.wait(done, start)
 
     def _put(self, hook: Callable[[], Awaitable[Any]], answer: concurrent.futures.Future[Any], posted: bool) -> None:
         with self._lock:
@@ -485,11 +531,7 @@ class _Hooks:
             if self._awake:
                 return
             self._awake = True
-        anyio.from_thread.run_sync(self._wake, token=self._token)
-
-    def _wake(self) -> None:
-        # Reads `wake` on the loop: `_until_done` replaces it there.
-        self.wake.set()
+        self._signal()
 
     async def run_asked(self) -> None:
         """Run every hook asked so far, in order."""
@@ -562,7 +604,7 @@ def _stub_class(base: type) -> type:
 
     def hook(name: str, posted: bool) -> Callable[..., Any]:
         def call(self: Any, *args: Any) -> Any:
-            hooks: _Hooks | None = getattr(_CALLING, "hooks", None)
+            hooks: _Call | None = getattr(_CALLING, "hooks", None)
             if hooks is None:
                 raise RuntimeError(f"{name} is an async hook, and no huggorm call runs on this thread to run it from")
             run = functools.partial(getattr(self._target, name), *args)
@@ -586,8 +628,8 @@ class _InRequest:
     chokepoint".
 
     The id is allocated on the LOOP thread and passed in, because
-    `run_in_executor` carries no context - so an explicit argument is
-    the only plumbing that works.
+    the thread that runs the call carries no context of the loop's -
+    so an explicit argument is the only plumbing that works.
 
     The bindings are imported here rather than at module scope,
     exactly as `_release_gc_thread` does it: the runtime otherwise
@@ -595,11 +637,11 @@ class _InRequest:
 
     __slots__ = ("_hooks", "_outer", "_previous", "_request")
 
-    def __init__(self, request: int, hooks: _Hooks | None = None) -> None:
+    def __init__(self, request: int, hooks: _Call | None = None) -> None:
         self._request = request
         self._previous = 0
         self._hooks = hooks
-        self._outer: _Hooks | None = None
+        self._outer: _Call | None = None
 
     def __enter__(self) -> None:
         import huggorm_bindings
@@ -623,16 +665,123 @@ class _InRequest:
             huggorm_bindings.end_request(self._previous)
 
 
-async def _until_done(future: asyncio.Future[Any], request: int, hooks: _Hooks) -> Any:
-    """Await work on an executor thread, and stop it when cancelled.
+class _Call:
+    """One wrapped call, between the loop and the thread that runs it.
+
+    The thread settles it with one `call_soon_threadsafe`. `wake` is
+    only a signal, and a cancel cancels it while the thread still
+    runs, so whether the thread is done is `finished`, which only the
+    loop writes.
+
+    It is what `_CALLING.hooks` holds while it runs, and builds its
+    `_Hooks` only when a hook first asks: most calls ask none."""
+
+    __slots__ = (
+        "_closed",
+        "_error",
+        "_executor",
+        "_fn",
+        "_label",
+        "_lock",
+        "_result",
+        "finished",
+        "hooks",
+        "loop",
+        "request",
+        "wake",
+    )
+
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        executor: _Home | _Pool,
+        label: str,
+        request: int,
+        fn: Callable[[], Any],
+    ) -> None:
+        self.loop = loop
+        self._executor = executor
+        self._label = label
+        self.request = request
+        self._fn = fn
+        self._lock = threading.Lock()
+        self._closed = False
+        self.hooks: _Hooks | None = None
+        self.wake: asyncio.Future[None] = loop.create_future()
+        self.finished = False
+        self._result: Any = None
+        self._error: BaseException | None = None
+
+    def run(self) -> None:
+        """On the worker. `_typed` inline: a generator context costs
+        0.76 µs a call, measured beside a 20 µs hop."""
+        try:
+            with _InRequest(self.request, self):
+                result = self._fn()
+        except Exception as e:
+            outcome: tuple[Any, BaseException | None] = (None, _typed_failure(self._label, e))
+        except BaseException as e:
+            outcome = (None, e)
+        else:
+            outcome = (result, None)
+        # The loop is closed, so nothing awaits this call.
+        with contextlib.suppress(RuntimeError):
+            self.loop.call_soon_threadsafe(self._settle, *outcome)
+
+    def _settle(self, result: Any, error: BaseException | None) -> None:
+        self._result, self._error = result, error
+        self.finished = True
+        self._signal()
+
+    def _signal(self) -> None:
+        if not self.wake.done():
+            self.wake.set_result(None)
+
+    def _signal_soon(self) -> None:
+        self.loop.call_soon_threadsafe(self._signal)
+
+    def _hooks(self) -> _Hooks:
+        with self._lock:
+            if self.hooks is None:
+                self.hooks = _Hooks(self._executor, self._signal_soon)
+                if self._closed:
+                    self.hooks.close()
+            return self.hooks
+
+    def ask(self, hook: Callable[[], Awaitable[Any]]) -> Any:
+        return self._hooks().ask(hook)
+
+    def post(self, hook: Callable[[], Awaitable[Any]]) -> None:
+        self._hooks().post(hook)
+
+    def flush(self) -> BaseException | None:
+        return None if self.hooks is None else self.hooks.flush()
+
+    def close(self) -> None:
+        """On the loop, once cancelled: fail every hook asked and every
+        one asked later."""
+        with self._lock:
+            self._closed = True
+            hooks = self.hooks
+        if hooks is not None:
+            hooks.close()
+
+    def outcome(self) -> Any:
+        error, self._error = self._error, None
+        if error is not None:
+            raise error
+        result, self._result = self._result, None
+        return result
+
+
+async def _until_done(call: _Call) -> Any:
+    """Await `call` on its thread, and stop it when cancelled.
 
     Cancelling the awaiting task does not stop a thread that is
-    already running, and cancelling `future` would only detach it. So
-    this never cancels the future. It waits on an event the future
-    sets, and on cancellation it marks the request cancelled, which
-    Nix sees at its next `checkInterrupt` on that thread; the thread
-    is woken from a blocking read, and woken again each
-    `WAKE_AGAIN_SECONDS` it stays quiet.
+    already running. So on cancellation this marks the request
+    cancelled, which Nix sees at its next `checkInterrupt` on that
+    thread; the thread is woken from a blocking read, and woken again
+    each `WAKE_AGAIN_SECONDS` it stays quiet.
 
     Then it waits again, shielded, until the thread has stopped. A
     caller whose cancellation returned while the evaluator still ran
@@ -643,52 +792,51 @@ async def _until_done(future: asyncio.Future[Any], request: int, hooks: _Hooks) 
     Meanwhile it runs every async hook the worker asks for. A cancel
     fails the hook that runs and refuses the next, so a worker that
     waits for one stops too, and the shielded wait ends."""
-    future.add_done_callback(lambda _: hooks.wake.set())
     try:
-        while not future.done():
-            await hooks.wake.wait()
-            hooks.wake = anyio.Event()
-            await hooks.run_asked()
+        while True:
+            await call.wake
+            if call.finished:
+                break
+            # Before the hooks run: a hook asked after `run_asked` finds
+            # the queue empty signals this one.
+            call.wake = call.loop.create_future()
+            if call.hooks is not None:
+                await call.hooks.run_asked()
     except BaseException:
         import huggorm_bindings
 
-        hooks.close()
-        huggorm_bindings.cancel_request(request)
+        call.close()
+        huggorm_bindings.cancel_request(call.request)
         try:
             with anyio.CancelScope(shield=True):
-                while not future.done():
+                while not call.finished:
+                    # Cancelled with the task, or by the last quiet wait.
+                    if call.wake.done():
+                        call.wake = call.loop.create_future()
                     with anyio.move_on_after(WAKE_AGAIN_SECONDS) as quiet:
-                        await hooks.wake.wait()
+                        await call.wake
                     if quiet.cancelled_caught:
                         # The wake signal can land before the thread blocks: send it again.
-                        huggorm_bindings.cancel_request(request)
-                        continue
-                    hooks.wake = anyio.Event()
-            # Discarded, so read: asyncio logs a failure nothing read.
-            if not future.cancelled():
-                future.exception()
+                        huggorm_bindings.cancel_request(call.request)
         finally:
-            huggorm_bindings.forget_request(request)
+            huggorm_bindings.forget_request(call.request)
         raise
-    return future.result()
+    return call.outcome()
 
 
-async def _hop(executor: concurrent.futures.Executor, label: str, fn: Callable[[], Any]) -> Any:
+async def _hop(executor: _Home | _Pool, label: str, fn: Callable[[], Any]) -> Any:
     """Run `fn` on `executor` as one wrapped call: named, with its
     hooks run on the loop, stopped when cancelled, and failing as
     `typed_or_internal` says.
 
     The request is allocated HERE, on the loop thread, and passed in:
-    run_in_executor carries no context, so a contextvar set on this
-    side would not reach the thread that does the work."""
-    request = _next_request()
-    hooks = _Hooks(executor)
-
-    def invoke() -> Any:
-        with _typed(label), _InRequest(request, hooks):
-            return fn()
-
-    return await _until_done(asyncio.get_running_loop().run_in_executor(executor, invoke), request, hooks)
+    the worker carries no context, so a contextvar set on this side
+    would not reach the thread that does the work."""
+    # Post before the first await: a home thread runs its calls in the
+    # order they arrive (nixidae/nixidae#740).
+    call = _Call(asyncio.get_running_loop(), executor, label, _next_request(), fn)
+    executor.post(call)
+    return await _until_done(call)
 
 
 def _refuse_foreign(callee: Any, arg: Any, x: Any) -> None:
@@ -895,7 +1043,7 @@ class BaseRunner:
             self.last_worker_ident = cur.ident
             self.workers_seen.add(cur.name)
 
-    def _executor(self) -> concurrent.futures.Executor:
+    def _executor(self) -> _Home | _Pool:
         raise NotImplementedError
 
     async def aclose(self) -> None:
@@ -988,7 +1136,7 @@ class AffineRunner(BaseRunner):
         self._pool = _Home(name)
         self._closed = False
 
-    def _executor(self) -> concurrent.futures.Executor:
+    def _executor(self) -> _Home | _Pool:
         return self._pool
 
     @classmethod
@@ -1032,7 +1180,7 @@ class AffineRunner(BaseRunner):
 class PoolRunner(BaseRunner):
     """Operations run on a shared pool. Target must be thread-safe."""
 
-    def _executor(self) -> concurrent.futures.Executor:
+    def _executor(self) -> _Home | _Pool:
         return _shared_pool()
 
     async def aclose(self) -> None:
@@ -1100,7 +1248,7 @@ class AttachedRunner(BaseRunner):
         # Best knowledge: the producer's last worker is where obj was born.
         self.born_thread_name = parent.last_worker_name
 
-    def _executor(self) -> concurrent.futures.Executor:
+    def _executor(self) -> _Home | _Pool:
         return self._parent._executor()
 
     async def aclose(self) -> None:
