@@ -9,7 +9,7 @@ from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
 
-from modiff.app import EditScreen, ModiffApp, Target, TreeData, find_options, target
+from modiff.app import DrvRow, EditScreen, ModiffApp, Target, TreeData, find_options, target
 from modiff.engine import EngineThread
 from modiff.model import Edit
 
@@ -41,14 +41,20 @@ async def drained(app: ModiffApp, pilot: Pilot[None]) -> None:
 
 def options(app: ModiffApp) -> list[str]:
     tree: Tree[TreeData] = app.query_one("#cascade", Tree)
-    return [".".join(node.data[0].option) for node in tree.root.children if node.data is not None]
+    return [".".join(node.data[0].option) for node in tree.root.children if isinstance(node.data, tuple)]
+
+
+def drv_rows(app: ModiffApp) -> list[str]:
+    tree: Tree[TreeData] = app.query_one("#cascade", Tree)
+    return [str(leaf.label) for node in tree.root.children if isinstance(node.data, DrvRow) for leaf in node.children]
 
 
 async def test_start_edit_shows_its_cascade_first(tmp_path: Path) -> None:
     app = app_for(tmp_path, [Edit(("a",), "2")])
     async with app.run_test(size=(160, 50)) as pilot:
         await settled(app, pilot)
-        assert options(app) == ["a", "b", "drv"]
+        assert options(app) == ["a", "b", "drv", "top"]
+        assert drv_rows(app) == ["~ dep-10 → dep-20", "~ top"]
 
 
 async def test_edit_through_the_modal(tmp_path: Path) -> None:
@@ -58,7 +64,7 @@ async def test_edit_through_the_modal(tmp_path: Path) -> None:
         assert options(app) == []
         await pilot.press("a", *"a", "enter", *"3", "enter")
         await settled(app, pilot)
-        assert options(app) == ["a", "b", "drv"]
+        assert options(app) == ["a", "b", "drv", "top"]
 
 
 def test_target_places_a_path_among_the_options() -> None:
@@ -116,15 +122,15 @@ async def test_browse_shows_an_unchanged_option_and_edits_it(tmp_path: Path) -> 
         await settled(app, pilot)
         await pilot.press("slash", *"ports", "enter")
         await pilot.pause()
-        assert options(app) == ["ports", "a", "b", "drv"]
+        assert options(app) == ["ports", "a", "b", "drv", "top"]
         # The cursor was on line 0 already, so no highlight event shows the
         # new row there.
-        assert app.showing is not None and app.showing[0].option == ("ports",)
+        assert isinstance(app.showing, tuple) and app.showing[0].option == ("ports",)
         await pilot.press("e", *"[ 2222 ]", "enter")
         await settled(app, pilot)
         assert app.edits == [Edit(("a",), "2"), Edit(("ports",), "[ 2222 ]")]
         # The toy never reads `ports`: the browsed row is the quiet one.
-        assert options(app) == ["ports", "a", "b", "drv"]
+        assert options(app) == ["ports", "a", "b", "drv", "top"]
 
 
 async def test_toggling_an_edit_off_clears_its_cascade(tmp_path: Path) -> None:
@@ -132,7 +138,7 @@ async def test_toggling_an_edit_off_clears_its_cascade(tmp_path: Path) -> None:
     async with app.run_test(size=(160, 50)) as pilot:
         await settled(app, pilot)
         # `c` changes nothing evaluated: it stays listed, with the reason.
-        assert sorted(options(app)) == ["a", "b", "c", "drv"]
+        assert sorted(options(app)) == ["a", "b", "c", "drv", "top"]
         app.query_one("#edits", ListView).focus()
         await pilot.press("space")
         await settled(app, pilot)

@@ -16,6 +16,7 @@ from modiff.model import (
     format_path,
     parse_option_path,
     priority_text,
+    store_name,
 )
 
 
@@ -54,6 +55,14 @@ def test_edit_cascades_to_dependents(engine: EngineThread) -> None:
     assert got["b"].old == "10" and got["b"].new == "20"
     assert got["drv"].new == "«name toy-20»"
     assert "c" not in got
+
+
+def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> None:
+    """`top` is forced by its drvPath alone, as NixOS forces the toplevel:
+    no coercion records it, only its input `dep`."""
+    c = cascade(engine, Edit(("a",), "2"))
+    assert sorted(store_name(p) for p in c.drvs_added) == ["dep-20", "top"]
+    assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top"]
 
 
 def test_changes_group_under_their_option(engine: EngineThread) -> None:

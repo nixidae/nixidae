@@ -17,6 +17,7 @@ from .model import Change, Kind, Path, nix_string
 SKIP: Final = frozenset({"_module"})
 # A derivation is keyed by the first of these its evaluation forced.
 DRV_KEYS: Final = ("outPath", "drvPath", "name")
+INSTANTIATED: Final = frozenset({"outPath", "drvPath"})
 
 # A list element's key: field name to its value as Nix prints it. `SELF` is
 # the element itself, a scalar or a kind. A field a side lacks is unknown
@@ -82,6 +83,11 @@ class Walker:
     changes: list[Change] = field(default_factory=list)
     failures: dict[str, list[Path]] = field(default_factory=dict)
     visited: int = 0
+    # Derivations instantiated on both sides whose paths differ. Nix
+    # records a derivation only when it coerces one to a string, and the
+    # walk never does: without these, a top level like
+    # `system.build.toplevel` is missing from the rebuilds.
+    rebuilt: list[tuple[Value, Value]] = field(default_factory=list)
 
     def force(self, v: Value, path: Path) -> bool:
         """Force a value of the new evaluation. A failure is a result: it
@@ -141,6 +147,8 @@ class Walker:
             a, b = self.drv_key(old, name, path), self.drv_key(new, name, path)
             if a is not None and b is not None and a != b:
                 self.changes.append(Change(Kind.CHANGED, path, a, b))
+                if name in INSTANTIATED:
+                    self.rebuilt.append((old, new))
         elif kind == "attrs":
             self._attrs(old, new, path, above)
         elif kind == "list":
@@ -190,6 +198,18 @@ class Walker:
                 self.changes.append(Change(Kind.REMOVED, (*path, i), describe(a_keys[i])))
             elif j is not None:
                 self.changes.append(Change(Kind.ADDED, (*path, j), "", describe(b_keys[j])))
+
+
+def out_path(state: EvalState, drv: Value) -> str | None:
+    """The output path of a derivation whose `drvPath` or `outPath` was
+    forced. Both select from one `derivationStrict` result, so this
+    evaluates nothing new."""
+    if not drv.has("outPath"):
+        return None
+    v = drv.get("outPath")
+    if not quiet_force(state, v) or v.type_name() != "string":
+        return None
+    return str(v.string_value())
 
 
 def quiet_force(state: EvalState, v: Value) -> bool:

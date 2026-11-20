@@ -7,6 +7,7 @@ from __future__ import annotations
 import concurrent.futures
 import difflib
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -30,6 +31,7 @@ from .model import (
     EDIT_FILE,
     Cascade,
     Change,
+    DrvChange,
     Edit,
     Group,
     Kind,
@@ -37,9 +39,12 @@ from .model import (
     OptionPath,
     OptionView,
     Quiet,
+    Rebuild,
     format_path,
+    pair_drvs,
     parse_option_path,
     priority_text,
+    store_name,
 )
 
 SHORT: Final = 60
@@ -480,7 +485,57 @@ class BrowseScreen(ModalScreen[OptionPath | None]):
         self.dismiss(None)
 
 
-type TreeData = tuple[Group, Change | None]
+@dataclass(frozen=True, slots=True)
+class DrvRow:
+    """The derivations row, or one derivation under it."""
+
+    changes: tuple[DrvChange, ...]
+    change: DrvChange | None = None
+
+
+type TreeData = tuple[Group, Change | None] | DrvRow
+
+DRV_MARK: Final = {Rebuild.REBUILT: "~", Rebuild.VERSION: "~", Rebuild.ADDED: "+", Rebuild.REMOVED: "-"}
+DRV_STYLE: Final = {Rebuild.REBUILT: "yellow", Rebuild.VERSION: "cyan", Rebuild.ADDED: "green", Rebuild.REMOVED: "red"}
+DRV_HELP: Final = {
+    Rebuild.REBUILT: "Same name, other hash: an input changed, so Nix builds it again.",
+    Rebuild.VERSION: "Another version of the same package.",
+    Rebuild.ADDED: "Only the configuration with the edits needs it.",
+    Rebuild.REMOVED: "Only the configuration without the edits needs it.",
+}
+
+
+def drv_line(change: DrvChange) -> Text:
+    name = change.name
+    if change.kind is Rebuild.VERSION and change.old is not None:
+        name = f"{store_name(change.old)} → {name}"
+    return Text(f"{DRV_MARK[change.kind]} {name}", style=DRV_STYLE[change.kind])
+
+
+def drv_summary(changes: tuple[DrvChange, ...]) -> Text:
+    counts = Counter(c.kind for c in changes)
+    parts = [f"{counts[k]} {k}" for k in Rebuild if counts[k]]
+    return Text(f"Derivations: {', '.join(parts)}", style="bold")
+
+
+def drv_detail(row: DrvRow) -> RenderableType:
+    if row.change is None:
+        return RichGroup(
+            drv_summary(row.changes),
+            Text(
+                "The output paths the edits changed, among those the cascade evaluated. A new hash "
+                "means Nix builds the path again, and every path that depends on it.",
+                style="dim italic",
+            ),
+            *(drv_line(c) for c in row.changes),
+        )
+    change = row.change
+    parts: list[RenderableType] = [drv_line(change), Text(DRV_HELP[change.kind], style="dim italic")]
+    if change.old is not None:
+        parts.append(Text.assemble(("before: ", "dim"), change.old))
+    if change.new is not None:
+        parts.append(Text.assemble(("after:  ", "dim"), change.new))
+    return RichGroup(*parts)
 
 
 class ModiffApp(App[None]):
@@ -638,9 +693,15 @@ class ModiffApp(App[None]):
             if not is_root_change(group):
                 for change in group.changes:
                     node.add_leaf(change_line(change, group.option), data=(group, change))
-        if self.browsed is not None and (first is None or first.data is None or first.data[0].option != self.browsed):
+        if self.browsed is not None and (
+            first is None or not isinstance(first.data, tuple) or first.data[0].option != self.browsed
+        ):
             unchanged = Group(self.browsed, ())
             tree.root.add(group_label(unchanged, False, browsed=True), data=(unchanged, None), before=0)
+        if drv_changes := pair_drvs(cascade.drvs_added, cascade.drvs_removed):
+            drv_node = tree.root.add(drv_summary(drv_changes), data=DrvRow(drv_changes))
+            for drv in drv_changes:
+                drv_node.add_leaf(drv_line(drv), data=DrvRow(drv_changes, drv))
         total = sum(len(g.changes) for g in cascade.groups)
         drvs = (
             f", derivations +{len(cascade.drvs_added)} -{len(cascade.drvs_removed)}"
@@ -672,6 +733,9 @@ class ModiffApp(App[None]):
         if data is None:
             return
         self.showing = data
+        if isinstance(data, DrvRow):
+            self.detail(drv_detail(data))
+            return
         group, change = data
         if not group.option:
             self.detail(RichGroup(*(change_line(c, ()) for c in group.changes)))
@@ -749,7 +813,7 @@ class ModiffApp(App[None]):
                 self.open_editor(EditRequest(format_path(edit.path), edit.expr))
             return
         node = self.query_one("#cascade", Tree).cursor_node
-        if node is None or node.data is None or not node.data[0].option:
+        if node is None or not isinstance(node.data, tuple) or not node.data[0].option:
             self.action_add_edit()
             return
         option = node.data[0].option

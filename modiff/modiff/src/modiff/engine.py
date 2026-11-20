@@ -33,7 +33,7 @@ from .model import (
     nix_string,
     overlaps,
 )
-from .walk import SKIP, Walker, count_forced, error_text, fully_forced, show_forced, show_lazy
+from .walk import SKIP, Walker, count_forced, error_text, fully_forced, out_path, show_forced, show_lazy
 
 # Nix's CLI sets this stack in `main()`; an embedder's thread keeps 8 MiB, and
 # the default max-call-depth of 10000 needs about 27 MB (huggorm's runtime,
@@ -161,8 +161,13 @@ class Engine:
             walker.compare(self._sel(self.base, ("config",)), econfig, (), set())
         finally:
             self.state.set_record_derivations(False)
-        drvs = frozenset(self.state.recorded_out_paths())
+        drvs = set(self.state.recorded_out_paths())
         self.state.clear_recorded_derivations()
+        base_drvs = set(self.base_drvs)
+        for old, new in walker.rebuilt:
+            if (old_out := out_path(self.state, old)) and (new_out := out_path(self.state, new)):
+                base_drvs.add(old_out)
+                drvs.add(new_out)
         changes = walker.result()
         clean = not walker.failures
         quiet = self._quiet(enabled, changes) if clean else ()
@@ -170,8 +175,8 @@ class Engine:
             groups=self._group(changes) + quiet,
             seconds=time.monotonic() - start,
             visited=walker.visited,
-            drvs_added=tuple(sorted(drvs - self.base_drvs)) if clean else (),
-            drvs_removed=tuple(sorted(self.base_drvs - drvs)) if clean else (),
+            drvs_added=tuple(sorted(drvs - base_drvs)) if clean else (),
+            drvs_removed=tuple(sorted(base_drvs - drvs)) if clean else (),
         )
 
     def _options_root(self) -> Value:

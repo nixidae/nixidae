@@ -83,6 +83,73 @@ class Cascade:
     error: str | None = None
 
 
+class Rebuild(StrEnum):
+    REBUILT = "rebuilt"
+    VERSION = "version"
+    ADDED = "added"
+    REMOVED = "removed"
+
+
+@dataclass(frozen=True, slots=True)
+class DrvChange:
+    """One output path the edits changed, paired with the one it replaces."""
+
+    old: str | None
+    new: str | None
+
+    @property
+    def kind(self) -> Rebuild:
+        if self.old is None:
+            return Rebuild.ADDED
+        if self.new is None:
+            return Rebuild.REMOVED
+        return Rebuild.REBUILT if store_name(self.old) == store_name(self.new) else Rebuild.VERSION
+
+    @property
+    def name(self) -> str:
+        return store_name(self.new or self.old or "")
+
+
+def store_name(path: str) -> str:
+    """`/nix/store/<hash>-openssh-9.8p1` -> `openssh-9.8p1`."""
+    return path.rsplit("/", 1)[-1].split("-", 1)[-1]
+
+
+_VERSION_START: Final = re.compile(r"-(?![A-Za-z])")
+
+
+def package_name(name: str) -> str:
+    """Nix's `parseDrvName`: the version starts at the first dash that is
+    not followed by a letter."""
+    found = _VERSION_START.search(name)
+    return name if found is None else name[: found.start()]
+
+
+def pair_drvs(added: tuple[str, ...], removed: tuple[str, ...]) -> tuple[DrvChange, ...]:
+    """Pair each new path with the old one of the same name, then of the
+    same package name: `openssh-9.8p1` replaces `openssh-9.7p1`."""
+    pairs: list[DrvChange] = []
+    new_left = list(added)
+    old_left = list(removed)
+    for key in (store_name, lambda p: package_name(store_name(p))):
+        by_key: dict[str, list[str]] = {}
+        for path in old_left:
+            by_key.setdefault(key(path), []).append(path)
+        unpaired: list[str] = []
+        for path in new_left:
+            olds = by_key.get(key(path))
+            if olds:
+                old = olds.pop(0)
+                old_left.remove(old)
+                pairs.append(DrvChange(old, path))
+            else:
+                unpaired.append(path)
+        new_left = unpaired
+    pairs += [DrvChange(None, p) for p in new_left]
+    pairs += [DrvChange(p, None) for p in old_left]
+    return tuple(sorted(pairs, key=lambda c: (c.name, c.kind)))
+
+
 @dataclass(frozen=True, slots=True)
 class Definition:
     file: str

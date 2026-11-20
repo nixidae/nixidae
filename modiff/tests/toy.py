@@ -25,6 +25,9 @@ in lib.evalModules {
         flags = lib.mkOption { type = lib.types.attrs; };
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
+        # Shaped like `system.build.toplevel`: its inputs are coerced to
+        # their output paths, which records them.
+        top = lib.mkOption { type = lib.types.package; };
         checks = lib.mkOption { type = lib.types.listOf lib.types.attrs; };
         ports = lib.mkOption { type = lib.types.listOf lib.types.port; default = [ 22 ]; };
       };
@@ -46,6 +49,19 @@ in lib.evalModules {
           system = "x86_64-linux";
           builder = "/bin/sh";
         };
+        top = derivation {
+          name = "top";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          # Not `config.drv`: the tests need one derivation with no path read.
+          inputs = [
+            (derivation {
+              name = "dep-${toString config.b}";
+              system = "x86_64-linux";
+              builder = "/bin/sh";
+            })
+          ];
+        };
       };
     })
   ];
@@ -55,6 +71,7 @@ in lib.evalModules {
 FORCE: Final[tuple[Path, ...]] = (
     ("config", "b"),
     ("config", "drv", "name"),
+    ("config", "top", "drvPath"),
     ("config", "flags", "p"),
     ("config", "flags", "q"),
     ("config", "lines", 0),
