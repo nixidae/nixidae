@@ -169,7 +169,7 @@ async def test_shift_d_unfolds_the_definitions(tmp_path: Path, monkeypatch: pyte
         await drained(app, pilot)
         assert "more the edits left alone" not in detail_text(app)
         status = str(app.query_one("#status", Static).content)
-        assert " · edits " in status and status.endswith("showing every definition")
+        assert " · edits " in status and status.startswith("showing every definition · ")
         await pilot.press("D")
         await drained(app, pilot)
         assert "… 1 more the edits left alone" in detail_text(app)

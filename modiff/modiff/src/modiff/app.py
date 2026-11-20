@@ -952,8 +952,10 @@ class ModiffApp(App[None]):
         self.query_one("#status", Static).update(text)
 
     def note(self, text: str) -> None:
-        """The answer to a key, after the status line, until the next status."""
-        self.query_one("#status", Static).update(f"{self.status_line} · {text}")
+        """The answer to a key, until the next status. First: the end of a
+        line wider than the terminal is cut, and the key's answer is what
+        the user waits for."""
+        self.query_one("#status", Static).update(f"{text} · {self.status_line}" if self.status_line else text)
 
     def detail(self, renderable: RenderableType) -> None:
         self.query_one("#detail", Static).update(renderable)
