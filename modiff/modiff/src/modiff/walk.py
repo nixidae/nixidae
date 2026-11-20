@@ -436,24 +436,24 @@ def align(a: list[Key], b: list[Key]) -> list[tuple[int | None, int | None]]:
     return out
 
 
-def count_forced(v: Value, above: set[int] | None = None) -> int:
-    """Forced values under `v`, derivations counted as one."""
-    above = set() if above is None else above
+def count_forced(v: Value, seen: set[int] | None = None) -> int:
+    """Forced values under `v`, derivations counted as one, each set and
+    list once. Not once per path, as the walk compares: a full NixOS system
+    reaches some sets by so many paths that counting per path ran past 25
+    minutes, where Nix evaluates the system in 18 s."""
+    seen = set() if seen is None else seen
     kind = v.type_name()
     if kind in UNEVALUATED:
         return 0
     if kind not in {"attrs", "list"} or is_derivation(v):
         return 1
     ident = v.identity()
-    if ident in above:
+    if ident in seen:
         return 0
-    above.add(ident)
-    try:
-        if kind == "attrs":
-            return 1 + sum(count_forced(v.value_at(i), above) for i in range(v.size()) if v.name_at(i) not in SKIP)
-        return 1 + sum(count_forced(v.at(i), above) for i in range(v.length()))
-    finally:
-        above.discard(ident)
+    seen.add(ident)
+    if kind == "attrs":
+        return 1 + sum(count_forced(v.value_at(i), seen) for i in range(v.size()) if v.name_at(i) not in SKIP)
+    return 1 + sum(count_forced(v.at(i), seen) for i in range(v.length()))
 
 
 def fully_forced(v: Value, above: set[int] | None = None) -> bool:

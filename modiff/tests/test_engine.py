@@ -27,7 +27,7 @@ from modiff.model import (
     priority_text,
     store_name,
 )
-from modiff.walk import PRINT_DEPTH, PRINT_ITEMS, PRINT_STRING, LazyPrinter, other_paths
+from modiff.walk import PRINT_DEPTH, PRINT_ITEMS, PRINT_STRING, LazyPrinter, count_forced, other_paths
 
 
 @pytest.fixture(scope="module")
@@ -379,6 +379,18 @@ def test_a_definition_wrapper_prints_as_its_lib_call(engine: EngineThread) -> No
             "}",
         ]
     )
+
+
+def test_count_forced_counts_a_shared_set_once(engine: EngineThread) -> None:
+    """Each level holds the one below twice: 2^20 paths to the last."""
+    expr = "builtins.foldl' (s: _: builtins.deepSeq s { a = s; b = s; }) { x = 1; } (builtins.genList (i: i) 20)"
+
+    def job(e: Engine) -> int:
+        v = e.state.eval_expr(f"let v = {expr}; in builtins.deepSeq v v", "/")
+        e.state.force(v)
+        return count_forced(v)
+
+    assert run(engine, job) == 22
 
 
 def test_a_shared_value_prints_in_full_each_time(engine: EngineThread) -> None:
