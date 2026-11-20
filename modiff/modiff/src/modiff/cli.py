@@ -32,8 +32,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--set", action="append", default=[], metavar="OPTION=EXPR", help="an edit to start with")
     args = parser.parse_args(argv)
-    if args.nixos is not None and not args.nixos.is_file():
-        parser.error(f"--nixos {args.nixos}: no such file")
+    # A directory is fine: the module system imports its `default.nix`.
+    if args.nixos is not None and not args.nixos.exists():
+        parser.error(f"--nixos {args.nixos}: no such file or directory")
     return args
 
 
