@@ -75,6 +75,11 @@ def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> 
     assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top", "unit", "unit"]
 
 
+def test_a_derivation_the_edit_drops_is_removed(engine: EngineThread) -> None:
+    c = cascade(engine, Edit(("extras",), "[ ]"))
+    assert [(d.kind, d.name) for d in c.drvs if d.name != "top"] == [(Rebuild.REMOVED, "extra")]
+
+
 def test_listing_rebuilds_forces_nothing_in_the_base(engine: EngineThread) -> None:
     """The base forced `top.drvPath` alone. Reading its `outPath` for the
     rebuilds would key `top` by outPath in every later cascade."""

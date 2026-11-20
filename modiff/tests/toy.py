@@ -51,6 +51,11 @@ in lib.evalModules {
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
         steady = lib.mkOption { type = lib.types.package; default = steady; };
+        # An edit to `[ ]` removes a derivation and adds none.
+        extras = lib.mkOption {
+          type = lib.types.listOf lib.types.package;
+          default = [ (derivation { name = "extra"; system = "x86_64-linux"; builder = "/bin/sh"; }) ];
+        };
         # Shaped like `system.build.toplevel`: its inputs are coerced to
         # their output paths, which records them.
         top = lib.mkOption { type = lib.types.package; };
@@ -107,7 +112,7 @@ in lib.evalModules {
           system = "x86_64-linux";
           builder = "/bin/sh";
           # Not `config.drv`: the tests need one derivation with no path read.
-          inputs = [
+          inputs = config.extras ++ [
             shared
             (derivation {
               name = "dep-${toString config.b}";
