@@ -55,9 +55,10 @@ async def test_toggling_an_edit_off_clears_its_cascade(tmp_path: Path) -> None:
     app = app_for(tmp_path, [Edit(("a",), "2"), Edit(("c",), '"x"')])
     async with app.run_test(size=(160, 50)) as pilot:
         await settled(app, pilot)
-        assert sorted(options(app)) == ["a", "b", "drv"]
+        # `c` changes nothing evaluated: it stays listed, with the reason.
+        assert sorted(options(app)) == ["a", "b", "c", "drv"]
         app.query_one("#edits", ListView).focus()
         await pilot.press("space")
         await settled(app, pilot)
-        assert options(app) == []
+        assert options(app) == ["c"]
         assert not app.edits[0].enabled

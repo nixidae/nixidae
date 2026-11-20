@@ -34,13 +34,23 @@ class Change:
     text: bool = False
 
 
+class Quiet(StrEnum):
+    """Why an edit changed nothing that was evaluated."""
+
+    OUTRANKED = "outranked"
+    UNREAD = "unread"
+    SAME = "same"
+
+
 @dataclass(frozen=True, slots=True)
 class Group:
     """The changes under one option. `option` is empty when no option
-    declares the path."""
+    declares the path. A group with `quiet` set stands for an edit that
+    changed nothing, and says why."""
 
     option: OptionPath
     changes: tuple[Change, ...]
+    quiet: Quiet | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +95,12 @@ class OptionView:
     defs_old: tuple[Definition, ...] = ()
     defs_new: tuple[Definition, ...] = ()
     errors: tuple[str, ...] = field(default=())
+
+
+def overlaps(a: Path, b: Path) -> bool:
+    """One path is the other or lies under it."""
+    n = min(len(a), len(b))
+    return a[:n] == b[:n]
 
 
 def nix_string(s: str) -> str:

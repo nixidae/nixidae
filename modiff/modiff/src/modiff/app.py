@@ -34,6 +34,7 @@ from .model import (
     Loaded,
     OptionPath,
     OptionView,
+    Quiet,
     format_path,
     parse_option_path,
 )
@@ -83,6 +84,33 @@ def is_root_change(group: Group) -> bool:
     return len(group.changes) == 1 and len(group.changes[0].path) == len(group.option)
 
 
+QUIET_LABEL: Final = {
+    Quiet.OUTRANKED: "outranked",
+    Quiet.UNREAD: "nothing reads it",
+    Quiet.SAME: "same value",
+}
+
+
+def quiet_note(group: Group) -> Text:
+    path = format_path(group.option)
+    match group.quiet:
+        case Quiet.OUTRANKED:
+            body = (
+                f"The edit changes nothing: another definition of {path} has a higher priority, "
+                "so the module system drops the edit. A lower number wins: a plain definition is "
+                "100, lib.mkDefault 1000, lib.mkForce 50. Try lib.mkForce."
+            )
+        case Quiet.UNREAD:
+            body = (
+                f"The edit changes nothing that was evaluated: nothing the configuration evaluated "
+                f"reads {path}. Nix is lazy, so a value nobody needs is never computed. Something "
+                "must read the option first, such as a module that turns it into a file or a unit."
+            )
+        case Quiet.SAME | None:
+            body = f"The edit changes nothing: {path} already had this value."
+    return Text(body, style="magenta")
+
+
 def group_label(group: Group, edited: bool) -> Text:
     name = format_path(group.option) if group.option else "(no option)"
     # Text(..., style=) styles everything appended later too.
@@ -90,6 +118,9 @@ def group_label(group: Group, edited: bool) -> Text:
     if edited:
         label.append("✎ ", style="bold magenta")
     label.append(name, style="bold")
+    if group.quiet is not None:
+        label.append(f"  {QUIET_LABEL[group.quiet]}", style="dim magenta")
+        return label
     if is_root_change(group):
         only = group.changes[0]
         label.stylize(STYLE[only.kind], 0, len(label))
@@ -111,8 +142,10 @@ def section(title: str) -> Text:
     return Text(f"\n{title}", style="bold underline")
 
 
-def option_detail(view: OptionView, changes: tuple[Change, ...]) -> RenderableType:
+def option_detail(view: OptionView, changes: tuple[Change, ...], note: Text | None = None) -> RenderableType:
     parts: list[RenderableType] = [Text(format_path(view.path), style="bold reverse")]
+    if note is not None:
+        parts.append(note)
     if view.type_description:
         parts.append(Text.assemble(("type: ", "dim"), view.type_description))
     if view.description:
@@ -392,7 +425,8 @@ class ModiffApp(App[None]):
             if cascade.drvs_added or cascade.drvs_removed
             else ""
         )
-        tree.border_title = f"Cascade: {len(cascade.groups)} options, {total} changes"
+        changed = sum(1 for g in cascade.groups if g.quiet is None)
+        tree.border_title = f"Cascade: {changed} options, {total} changes"
         self.status(self.base_status() + f" · edits {cascade.seconds:.1f}s{drvs}")
         if not cascade.groups:
             self.detail(HELP)
@@ -416,8 +450,9 @@ class ModiffApp(App[None]):
             self.detail(RichGroup(*(change_line(c, ()) for c in group.changes)))
             return
         changes = group.changes if change is None else (change,)
+        note = None if group.quiet is None else quiet_note(group)
         if (view := self.views.get(group.option)) is not None:
-            self.detail(option_detail(view, changes))
+            self.detail(option_detail(view, changes, note))
             return
         generation = self.generation
         self.detail(Text(f"reading {format_path(group.option)}…", style="dim"))
@@ -428,7 +463,7 @@ class ModiffApp(App[None]):
             self.views[group.option] = view
             # Jobs finish in any order; only the row still highlighted shows.
             if self.showing is data:
-                self.detail(option_detail(view, changes))
+                self.detail(option_detail(view, changes, note))
 
         option = group.option
         self.run_job(lambda engine: engine.explain(option), shown)

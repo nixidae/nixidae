@@ -27,8 +27,10 @@ from .model import (
     OptionPath,
     OptionView,
     Path,
+    Quiet,
     format_path,
     nix_string,
+    overlaps,
 )
 from .walk import SKIP, Walker, count_forced, error_text, show_forced, show_lazy
 
@@ -162,8 +164,9 @@ class Engine:
         self.state.clear_recorded_derivations()
         changes = walker.result()
         clean = not walker.failures
+        quiet = self._quiet(enabled, changes) if clean else ()
         return Cascade(
-            groups=self._group(changes),
+            groups=self._group(changes) + quiet,
             seconds=time.monotonic() - start,
             visited=walker.visited,
             drvs_added=tuple(sorted(drvs - self.base_drvs)) if clean else (),
@@ -208,6 +211,36 @@ class Engine:
         for change in changes:
             by_option.setdefault(self.option_of(change.path), []).append(change)
         return tuple(Group(option, tuple(group)) for option, group in by_option.items())
+
+    def _quiet(self, edits: list[Edit], changes: list[Change]) -> tuple[Group, ...]:
+        """A group for each edit that changed nothing, with the reason."""
+        if self.base is None:
+            return ()
+        config = self._sel(self.base, ("config",))
+        out: list[Group] = []
+        for edit in edits:
+            if any(overlaps(edit.path, change.path) for change in changes):
+                continue
+            option = self.option_of(edit.path)
+            if option and not self._defines(edit, option):
+                reason = Quiet.OUTRANKED
+            else:
+                v = self._peek(config, edit.path)
+                reason = Quiet.UNREAD if v is None or v.type_name() == "thunk" else Quiet.SAME
+            out.append(Group(option or edit.path, (), reason))
+        return tuple(out)
+
+    def _defines(self, edit: Edit, option: OptionPath) -> bool:
+        """Whether the edit survives among the option's definitions. The
+        module system drops a definition that a higher priority outranks."""
+        if self.ext is None:
+            return False
+        file = f"modiff edit: {format_path(edit.path)}"
+        try:
+            defs = self._sel(self.ext, ("options", *option, "definitionsWithLocations"))
+            return any(str(self._sel(defs, (i, "file")).string_value()) == file for i in range(defs.length()))
+        except NixError:
+            return True
 
     def option_paths(self) -> list[OptionPath]:
         found: list[OptionPath] = []

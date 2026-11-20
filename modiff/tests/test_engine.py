@@ -6,7 +6,7 @@ import pytest
 from toy import SOURCE
 
 from modiff.engine import Crash, Engine, EngineThread
-from modiff.model import Cascade, Change, Edit, Kind, OptionView, format_path, parse_option_path
+from modiff.model import Cascade, Change, Edit, Kind, OptionView, Quiet, format_path, parse_option_path
 
 
 @pytest.fixture(scope="module")
@@ -97,6 +97,30 @@ def test_type_error_is_a_failed_row(engine: EngineThread) -> None:
 def test_parse_error_names_the_edit(engine: EngineThread) -> None:
     c = cascade(engine, Edit(("a",), "1 +"))
     assert c.error is not None and c.error.startswith("a: ")
+
+
+def quiet(c: Cascade) -> dict[str, Quiet | None]:
+    return {format_path(g.option): g.quiet for g in c.groups if not g.changes}
+
+
+def test_edit_nothing_reads_is_unread(engine: EngineThread) -> None:
+    """The toy never forces `c`."""
+    assert quiet(cascade(engine, Edit(("c",), '"x"'))) == {"c": Quiet.UNREAD}
+
+
+def test_edit_to_the_same_value_is_same(engine: EngineThread) -> None:
+    assert quiet(cascade(engine, Edit(("a",), "1"))) == {"a": Quiet.SAME}
+
+
+def test_edit_a_definition_outranks_is_outranked(engine: EngineThread) -> None:
+    """`b` has a plain definition, priority 100; mkDefault is 1000."""
+    assert quiet(cascade(engine, Edit(("b",), "lib.mkDefault 3"))) == {"b": Quiet.OUTRANKED}
+
+
+def test_an_edit_that_changes_something_is_not_quiet(engine: EngineThread) -> None:
+    c = cascade(engine, Edit(("a",), "2"), Edit(("c",), '"x"'))
+    assert quiet(c) == {"c": Quiet.UNREAD}
+    assert all(g.quiet is None for g in c.groups if g.changes)
 
 
 def test_disabled_edit_changes_nothing(engine: EngineThread) -> None:
