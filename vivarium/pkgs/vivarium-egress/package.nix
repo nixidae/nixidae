@@ -30,6 +30,8 @@ rustPlatform.buildRustPackage {
     ];
   };
   cargoLock.lockFile = ./Cargo.lock;
+  # The tests bind 127.0.0.1, which the darwin sandbox refuses.
+  __darwinAllowLocalNetworking = true;
   buildFeatures = lib.optional vhostUser "vhost-user";
   meta = {
     description = "The vivarium router's relay and the host's egress";
