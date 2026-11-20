@@ -9,6 +9,7 @@ import difflib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import ClassVar, Final
 
 import anyio
@@ -278,18 +279,70 @@ class EditRequest:
     expr: str
 
 
+class Target(StrEnum):
+    """Where an edit's path lies among the declared options."""
+
+    OPTION = "option"
+    # Under an option, as `users.users.alice.uid` lies under `users.users`.
+    INSIDE = "inside"
+    # A module may set a group: `services.openssh = { enable = true; }`.
+    ABOVE = "above"
+    UNKNOWN = "unknown"
+
+
+def target(options: frozenset[OptionPath], path: OptionPath) -> tuple[Target, OptionPath | None]:
+    """The option an edit of `path` defines, or the reason it defines none."""
+    if path in options:
+        return Target.OPTION, path
+    for n in range(len(path) - 1, 0, -1):
+        if path[:n] in options:
+            return Target.INSIDE, path[:n]
+    if any(o[: len(path)] == path for o in options):
+        return Target.ABOVE, None
+    return Target.UNKNOWN, None
+
+
+type Explain = Callable[[OptionPath, Callable[[OptionView], None]], None]
+
+SUMMARY_LINES: Final = 3
+
+
+def edit_summary(view: OptionView, inside: bool) -> Text:
+    out = Text()
+    if inside:
+        out.append(f"inside the option {format_path(view.path)}\n", style="dim")
+    if view.type_description:
+        out.append("type: ", style="dim").append(view.type_description + "\n")
+    lines = view.description.strip().splitlines()
+    if lines:
+        more = " …" if len(lines) > SUMMARY_LINES else ""
+        out.append("\n".join(lines[:SUMMARY_LINES]) + more + "\n")
+    now = view.new or view.old
+    out.append("now: ", style="dim").append(short(now, False) if now else "«no value»")
+    if now == "«thunk»":
+        out.append("  nothing evaluated it yet", style="dim italic")
+    return out
+
+
 class EditScreen(ModalScreen[Edit | None]):
     BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "cancel", "Cancel")]
     DEFAULT_CSS = """
     EditScreen { align: center middle; }
     EditScreen > Vertical { width: 90%; height: auto; border: thick $accent; padding: 1 2; background: $surface; }
     EditScreen Input { margin-bottom: 1; }
+    EditScreen #about { margin-bottom: 1; }
     """
 
-    def __init__(self, request: EditRequest, options: list[str]) -> None:
+    def __init__(
+        self, request: EditRequest, options: list[str], paths: frozenset[OptionPath], explain: Explain
+    ) -> None:
         super().__init__()
         self.request = request
         self.options = options
+        # Empty until the engine has listed the options: then nothing is refused.
+        self.paths = paths
+        self.explain = explain
+        self.about_path: OptionPath | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -300,12 +353,41 @@ class EditScreen(ModalScreen[Edit | None]):
                 suggester=SuggestFromList(self.options, case_sensitive=True),
                 id="path",
             )
+            yield Static("", id="about")
             yield Label("Value, a Nix expression (lib, config, pkgs in scope)")
             yield Input(self.request.expr, placeholder="true", id="expr")
             yield Label("enter: apply   escape: cancel", classes="dim")
 
     def on_mount(self) -> None:
         self.query_one("#expr" if self.request.path else "#path", Input).focus()
+        self.describe(self.request.path)
+
+    @on(Input.Changed, "#path")
+    def _path_changed(self, event: Input.Changed) -> None:
+        self.describe(event.value)
+
+    def describe(self, text: str) -> None:
+        about = self.query_one("#about", Static)
+        path = parse_option_path(text.strip())
+        self.about_path = path
+        if not path or not self.paths:
+            about.update("")
+            return
+        kind, option = target(self.paths, path)
+        if option is None:
+            about.update(
+                Text("sets the options under it", style="dim")
+                if kind is Target.ABOVE
+                else Text("no option has this path", style="red")
+            )
+            return
+        about.update(Text(f"reading {format_path(option)}…", style="dim"))
+
+        def shown(view: OptionView) -> None:
+            if self.about_path == path and self.is_attached:
+                about.update(edit_summary(view, kind is Target.INSIDE))
+
+        self.explain(option, shown)
 
     @on(Input.Submitted, "#path")
     def _next(self) -> None:
@@ -313,8 +395,13 @@ class EditScreen(ModalScreen[Edit | None]):
 
     @on(Input.Submitted, "#expr")
     def _done(self) -> None:
-        path = parse_option_path(self.query_one("#path", Input).value.strip())
+        path_input = self.query_one("#path", Input)
+        path = parse_option_path(path_input.value.strip())
         expr = self.query_one("#expr", Input).value.strip()
+        if path and self.paths and target(self.paths, path)[0] is Target.UNKNOWN:
+            # Evaluating would only say "option does not exist", seconds later.
+            path_input.focus()
+            return
         self.dismiss(Edit(path, expr) if path and expr else None)
 
     def action_cancel(self) -> None:
@@ -419,6 +506,7 @@ class ModiffApp(App[None]):
         self.engine = engine
         self.edits = edits
         self.options: list[str] = []
+        self.paths: frozenset[OptionPath] = frozenset()
         self.loaded: Loaded | None = None
         self.cascade = Cascade()
         self.busy = False
@@ -496,6 +584,7 @@ class ModiffApp(App[None]):
 
     def on_options(self, paths: list[OptionPath]) -> None:
         self.options = sorted(format_path(p) for p in paths)
+        self.paths = frozenset(paths)
 
     def recompute(self) -> None:
         if self.busy:
@@ -589,22 +678,15 @@ class ModiffApp(App[None]):
             return
         changes = group.changes if change is None else (change,)
         note = None if group.quiet is None else quiet_note(group)
-        if (view := self.views.get(group.option)) is not None:
-            self.detail(option_detail(view, changes, note))
-            return
         generation = self.generation
         self.detail(Text(f"reading {format_path(group.option)}…", style="dim"))
 
         def shown(view: OptionView) -> None:
-            if generation != self.generation:
-                return
-            self.views[group.option] = view
             # Jobs finish in any order; only the row still highlighted shows.
-            if self.showing is data:
+            if generation == self.generation and self.showing is data:
                 self.detail(option_detail(view, changes, note))
 
-        option = group.option
-        self.run_job(lambda engine: engine.explain(option), shown)
+        self.explain(group.option, shown)
 
     def refresh_edits(self) -> None:
         listing = self.query_one("#edits", ListView)
@@ -630,7 +712,20 @@ class ModiffApp(App[None]):
             self.refresh_edits()
             self.recompute()
 
-        self.push_screen(EditScreen(request, self.options), saved)
+        self.push_screen(EditScreen(request, self.options, self.paths, self.explain), saved)
+
+    def explain(self, option: OptionPath, done: Callable[[OptionView], None]) -> None:
+        if (view := self.views.get(option)) is not None:
+            done(view)
+            return
+        generation = self.generation
+
+        def shown(view: OptionView) -> None:
+            if generation == self.generation:
+                self.views[option] = view
+            done(view)
+
+        self.run_job(lambda engine: engine.explain(option), shown)
 
     def action_browse(self) -> None:
         def found(option: OptionPath | None) -> None:

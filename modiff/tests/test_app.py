@@ -6,10 +6,10 @@ from pathlib import Path
 
 import anyio
 from textual.pilot import Pilot
-from textual.widgets import ListView, Tree
+from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
 
-from modiff.app import ModiffApp, TreeData, find_options
+from modiff.app import EditScreen, ModiffApp, Target, TreeData, find_options, target
 from modiff.engine import EngineThread
 from modiff.model import Edit
 
@@ -26,6 +26,16 @@ async def settled(app: ModiffApp, pilot: Pilot[None]) -> None:
     await pilot.pause()
     with anyio.fail_after(SETTLE):
         await app.settled.wait()
+    await pilot.pause()
+
+
+async def drained(app: ModiffApp, pilot: Pilot[None]) -> None:
+    """Wait for every job queued so far. The engine runs one job at a time,
+    so a job queued last finishes last."""
+    await pilot.pause()
+    future = app.engine.submit(lambda _: None)
+    with anyio.fail_after(SETTLE):
+        await anyio.to_thread.run_sync(lambda: future.result())
     await pilot.pause()
 
 
@@ -49,6 +59,44 @@ async def test_edit_through_the_modal(tmp_path: Path) -> None:
         await pilot.press("a", *"a", "enter", *"3", "enter")
         await settled(app, pilot)
         assert options(app) == ["a", "b", "drv"]
+
+
+def test_target_places_a_path_among_the_options() -> None:
+    paths = frozenset({("users", "users"), ("services", "openssh", "enable")})
+    assert target(paths, ("services", "openssh", "enable")) == (Target.OPTION, ("services", "openssh", "enable"))
+    assert target(paths, ("users", "users", "alice", "uid")) == (Target.INSIDE, ("users", "users"))
+    assert target(paths, ("services", "openssh")) == (Target.ABOVE, None)
+    assert target(paths, ("services", "opnessh", "enable")) == (Target.UNKNOWN, None)
+
+
+def about(app: ModiffApp) -> str:
+    return str(app.screen.query_one("#about", Static).render())
+
+
+async def test_edit_modal_describes_the_option(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        await pilot.press("a", *"a")
+        await drained(app, pilot)
+        assert "type: signed integer" in about(app)
+        assert "The input." in about(app)
+        assert "now: 1" in about(app)
+        await pilot.press(*".x")
+        await drained(app, pilot)
+        assert "inside the option a" in about(app)
+
+
+async def test_edit_modal_refuses_an_unknown_path(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        await pilot.press("a", *"nope", "enter", *"3", "enter")
+        await pilot.pause()
+        assert isinstance(app.screen, EditScreen)
+        assert "no option has this path" in about(app)
+        assert app.edits == []
+        assert app.screen.query_one("#path", Input).has_focus
 
 
 def test_find_options_ranks_the_last_segment_first() -> None:
