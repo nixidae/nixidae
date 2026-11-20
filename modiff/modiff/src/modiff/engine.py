@@ -244,16 +244,11 @@ class Engine:
         a derivation when it instantiates one, and a value the new side
         shares with the base (`pkgs` through `specialArgs`) is instantiated
         once: its inputs are never recorded again. So the new side reaches
-        whatever the closure of its own derivations holds."""
+        whatever the closure of the derivations it rebuilt or kept holds."""
         if not gone:
             return gone
         roots = set(self.ext_derivers.values())
         roots |= {drv for key in kept if (drv := drv_file(key, self.base_derivers))}
-        if self.ext is not None:
-            for path in self.source.force:
-                v = self._peek(self.ext, path)
-                if v is not None and v.type_name() == "string" and is_drv_file(key := str(v.string_value())):
-                    roots.add(key)
         if not roots:
             return gone
         closure = self.store.compute_fs_closure([self.store.parse_store_path(r) for r in roots])

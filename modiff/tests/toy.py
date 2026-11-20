@@ -21,6 +21,14 @@ let
     builder = "/bin/sh";
     deep = derivation { name = "deep"; system = "x86_64-linux"; builder = "/bin/sh"; };
   };
+  # Shared too, and no edit changes it or anything that reads it: only the
+  # walk, which finds it unchanged, says the new side still reaches `still`.
+  steady = derivation {
+    name = "steady";
+    system = "x86_64-linux";
+    builder = "/bin/sh";
+    still = derivation { name = "still"; system = "x86_64-linux"; builder = "/bin/sh"; };
+  };
 in lib.evalModules {
   modules = [
     # An edit to `old` reaches `a` and never `config.old`.
@@ -42,6 +50,7 @@ in lib.evalModules {
         flags = lib.mkOption { type = lib.types.attrs; };
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
+        steady = lib.mkOption { type = lib.types.package; default = steady; };
         # Shaped like `system.build.toplevel`: its inputs are coerced to
         # their output paths, which records them.
         top = lib.mkOption { type = lib.types.package; };
@@ -141,6 +150,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "b"),
     ("config", "drv", "name"),
     ("config", "top", "drvPath"),
+    ("config", "steady", "drvPath"),
     ("config", "flags", "p"),
     ("config", "flags", "q"),
     ("config", "lines", 0),
