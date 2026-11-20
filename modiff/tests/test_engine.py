@@ -407,6 +407,7 @@ def test_parse_error_names_the_edit(engine: EngineThread) -> None:
     # Nix's frame shows the edit, not the module modiff wraps it in.
     assert "lib.mkForce (" in c.error
     assert "setAttrByPath" not in c.error
+    assert "with" not in c.error
 
 
 def test_a_failing_force_path_is_named(tmp_path: Path) -> None:

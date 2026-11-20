@@ -180,8 +180,9 @@ class Engine:
         for edit in enabled:
             try:
                 # Alone, so a syntax error points into the edit and not into
-                # the module around it. `with` defers each free name.
-                self.state.parse_expr(f"with {{ }};\n{edit.expr}", "/")
+                # the module around it. `with` defers each free name; Nix's
+                # frame shows the line above the error, so that one is blank.
+                self.state.parse_expr(f"with {{ }};\n\n{edit.expr}", "/")
                 self.state.list_append(modules, self.state.eval_expr(edit_module(edit), "/"))
             except NixError as err:
                 return Cascade(error=f"{format_path(edit.path)}: {error_text(err)}")
