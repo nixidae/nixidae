@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import re
 from pathlib import Path
+from typing import Final
 
 import anyio
 import pytest
@@ -134,6 +135,37 @@ async def test_enter_on_a_changed_input_goes_to_its_row(tmp_path: Path) -> None:
         assert node is not None and node.parent is drvs
         assert isinstance(node.data, DrvRow) and node.data.change is not None
         assert node.data.change.name == "dep-20"
+
+
+NEW_EXTRAS: Final = """let src = derivation { name = "new-src"; system = "x86_64-linux"; builder = "/bin/sh"; };
+in [ (derivation { name = "new"; system = "x86_64-linux"; builder = "/bin/sh"; inherit src; }) src ]"""
+
+
+async def test_enter_on_a_changed_input_opens_its_folded_row(tmp_path: Path) -> None:
+    """`new-src` is an input of `top` and folds under `new`, which needs it."""
+    app = app_for(tmp_path, [Edit(("extras",), NEW_EXTRAS)])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        tree: Tree[TreeData] = app.query_one("#cascade", Tree)
+        drvs = next(n for n in tree.root.children if isinstance(n.data, DrvRow))
+        drvs.expand()
+        await pilot.pause()
+        top = next(
+            n for n in drvs.children if isinstance(n.data, DrvRow) and n.data.change and n.data.change.name == "top"
+        )
+        tree.move_cursor(top)
+        await drained(app, pilot)
+        top.expand()
+        await pilot.pause()
+        src = next(n for n in top.children if str(n.label).startswith("+ new-src"))
+        tree.move_cursor(src)
+        await pilot.press("enter")
+        await pilot.pause()
+        node = tree.cursor_node
+        assert node is not None and isinstance(node.data, DrvRow) and node.data.change is not None
+        assert node.data.change.name == "new-src"
+        assert node.parent is not None and node.parent.parent is drvs
+        assert node.parent.is_expanded
 
 
 async def test_question_mark_opens_the_help(tmp_path: Path) -> None:
