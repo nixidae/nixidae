@@ -92,6 +92,53 @@ def unpack(data: bytes) -> Any:
     return _unpackb(data, raw=False, strict_map_key=True, use_list=True)
 
 
+def leaf(node: tree.Leaf) -> Any:
+    """A walked or built scalar as its builtin type, on either side of
+    the wire."""
+    return None if node.value is None else _SCALARS[node.wire][0](node.value)
+
+
+def encode_data(value: Any, handle_id: Callable[[Any], str]) -> list[Any]:
+    """Python data as tree nodes, for a value a state builds:
+    `[LEAF, scalar]`, `[STAYS, handle id]`, `[ITEMS, [...]]` and
+    `[ENTRIES, {...}]`. Tagged, because a str and a handle id are both
+    a msgpack str. `handle_id` names each value object the data holds.
+
+    Refuses what Nix has no value for, before anything is sent or
+    built. A scalar matches its EXACT type: `True` is an `int` to
+    isinstance, and an IntEnum is not data."""
+    return _data(value, handle_id, set())
+
+
+def _data(value: Any, handle_id: Callable[[Any], str], open_: set[int]) -> list[Any]:
+    if value is None or type(value) in (bool, float, str):
+        return [Node.LEAF, value]
+    if type(value) is int:
+        if not _I64_MIN <= value <= _I64_MAX:
+            raise OverflowError(f"{value} does not fit a Nix integer, which is 64 bits and signed")
+        return [Node.LEAF, value]
+    if hasattr(value, "_backend"):
+        return [Node.STAYS, handle_id(value)]
+    if not isinstance(value, Mapping | list | tuple):
+        raise TypeError(
+            f"{type(value).__name__} has no Nix value. Data is None, "
+            f"bool, int, float, str, a list or tuple, a mapping with "
+            f"str keys, or a value handle"
+            + (". A function cannot cross: make one on the state with make_primop" if callable(value) else "")
+        )
+    if id(value) in open_:
+        raise ValueError("the data holds itself, and a Nix value built from data cannot")
+    open_.add(id(value))
+    try:
+        if not isinstance(value, Mapping):
+            return [Node.ITEMS, [_data(v, handle_id, open_) for v in value]]
+        if bad := [k for k in value if type(k) is not str]:
+            raise TypeError(f"an attribute name is a str, not {type(bad[0]).__name__}: {bad[0]!r}")
+        return [Node.ENTRIES, {k: _data(v, handle_id, open_) for k, v in value.items()}]
+    finally:
+        open_.discard(id(value))
+
+
 def _no_proxy(owner: str, part: str) -> Callable[[Any], Any]:
     """The arm a part of a wire value can never take: a wire value is
     rebuilt from its parts on the far side, and a proxy has no object
@@ -311,10 +358,8 @@ class Codec:
         """One walked or built node. A leaf is msgpack-native already:
         str, int, bool, float, or a built null."""
         match node:
-            case tree.Leaf(value=None):
-                return [Node.LEAF, None]
-            case tree.Leaf(wire=wire, value=value):
-                return [Node.LEAF, _SCALARS[wire][0](value)]
+            case tree.Leaf():
+                return [Node.LEAF, leaf(node)]
             case tree.Stays(cls=cls, obj=obj):
                 # A handle does not say what it is, and no layer above
                 # the bindings may name a class. The walk knows.
@@ -330,46 +375,6 @@ class Codec:
                 ]
             case _:
                 assert_never(node)
-
-    def encode_data(self, value: Any, handle_id: Callable[[Any], str]) -> list[Any]:
-        """Python data as tree nodes, for a value the far side builds:
-        `[LEAF, scalar]`, `[STAYS, handle id]`, `[ITEMS, [...]]` and
-        `[ENTRIES, {...}]`. Tagged, because a str and a handle id are
-        both a msgpack str.
-
-        Refuses what Nix has no value for, here and before anything is
-        sent. A scalar matches its EXACT type: `True` is an `int` to
-        isinstance, and an IntEnum is not data."""
-        return self._data(value, handle_id, set())
-
-    def _data(self, value: Any, handle_id: Callable[[Any], str], open_: set[int]) -> list[Any]:
-        if value is None or type(value) in (bool, float, str):
-            return [Node.LEAF, value]
-        if type(value) is int:
-            if not _I64_MIN <= value <= _I64_MAX:
-                raise OverflowError(f"{value} does not fit a Nix integer, which is 64 bits and signed")
-            return [Node.LEAF, value]
-        if hasattr(value, "_backend"):
-            # `handle_id` refuses an object in this process by name.
-            return [Node.STAYS, handle_id(value)]
-        if not isinstance(value, Mapping | list | tuple):
-            raise TypeError(
-                f"{type(value).__name__} has no Nix value. Data is None, "
-                f"bool, int, float, str, a list or tuple, a mapping with "
-                f"str keys, or a value handle"
-                + (". A function cannot cross: make one on the state with make_primop" if callable(value) else "")
-            )
-        if id(value) in open_:
-            raise ValueError("the data holds itself, and a Nix value built from data cannot")
-        open_.add(id(value))
-        try:
-            if not isinstance(value, Mapping):
-                return [Node.ITEMS, [self._data(v, handle_id, open_) for v in value]]
-            if bad := [k for k in value if type(k) is not str]:
-                raise TypeError(f"an attribute name is a str, not {type(bad[0]).__name__}: {bad[0]!r}")
-            return [Node.ENTRIES, {k: self._data(v, handle_id, open_) for k, v in value.items()}]
-        finally:
-            open_.discard(id(value))
 
     def decode_tree(
         self, raw: Any, proxy_obj: Callable[[str, str], Any], holder: Callable[[str, str, Any], Any]

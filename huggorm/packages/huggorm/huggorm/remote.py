@@ -39,7 +39,7 @@ from huggorm_generated._policy import ACQUIRE, CALLBACKS, FREE, NO_RPC
 from huggorm_generated._runtime import Remote, typed_or_internal
 
 from . import transport, views
-from .codec import Codec
+from .codec import Codec, encode_data
 from .lifecycle import ShareMode
 from .logbus import LOG_CAPACITY, LOG_LEVEL
 from .protocol import (
@@ -601,7 +601,7 @@ class NixClient:
             passed[hid] = obj
             return hid
 
-        raw = await self._ask(Op.CONTROL, Control.BUILD, [hid_state, self.codec.encode_data(data, handle_id)])
+        raw = await self._ask(Op.CONTROL, Control.BUILD, [hid_state, encode_data(data, handle_id)])
         return self.codec.decode_tree(
             # Not `passed.get(hid) or`: an empty view is falsy.
             raw,

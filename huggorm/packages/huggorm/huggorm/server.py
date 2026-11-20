@@ -31,8 +31,7 @@ from typing import Any
 import anyio
 from anyio.abc import ByteStream, TaskGroup
 
-from huggorm_bindings.errors import NixError
-from huggorm_generated._callspec import Accessor, Acquire, Call
+from huggorm_generated._callspec import Acquire, Call
 from huggorm_generated._classes import CLASSES, DECLARED
 from huggorm_generated._policy import (
     ACQUIRE,
@@ -43,21 +42,12 @@ from huggorm_generated._policy import (
     TREES,
 )
 from huggorm_generated._runtime import BaseRunner, typed_or_internal
-from huggorm_generated._shapes import (
-    Builds,
-    Entries,
-    Items,
-    Leaf,
-    Null,
-    Scalar,
-    Subscription,
-    Tree,
-)
+from huggorm_generated._shapes import Subscription
 from huggorm_generated.free_functions import FUNCTIONS
 
 from . import namespace, transport, tree
 from .callbacks import Callbacks
-from .codec import Codec, Node
+from .codec import Codec
 from .lifecycle import HandleTable, ShareMode
 from .logbus import Fanout, Reader
 from .protocol import (
@@ -74,6 +64,7 @@ from .protocol import (
     peer_uid,
 )
 from .server_options import DEFAULT_TTL, ServerOptions
+from .walk import Build, TreeWalk
 
 logger = logging.getLogger(__name__)
 
@@ -106,189 +97,12 @@ class CallHandler:
     label: str
 
 
-# A realize with no bounds asked for. Small on purpose: every node the
-# walk stops at costs the caller a lease, and a caller that wants more
-# can say so.
-DEFAULT_DEPTH = 8
-DEFAULT_BUDGET = 1000
-
-
 def _runner(obj: Any) -> BaseRunner:
     """The runner of an object the server holds, which is always in
     this process."""
     backend = obj._backend
     assert isinstance(backend, BaseRunner), backend
     return backend
-
-
-class TreeWalk:
-    """One pass over a value that holds values, on that value's OWN
-    thread.
-
-    Everything it knows about the type comes from `spec`, which the
-    binding declares and the build emits: which accessor says what
-    a node is, which accessor reads each scalar kind, and how to reach
-    the elements of a list or an attribute set. Each accessor is
-    generated code that calls the method, so this class names no type
-    and no method.
-
-    It runs in ONE hop for the whole tree. A node per round trip would
-    put a thread handover between every attribute, which is the cost
-    the affine model exists to avoid paying repeatedly.
-
-    Three things stop it, and all three produce the same answer - a
-    proxy:
-
-    - a kind the declaration does not name. That is a thunk, and a
-      thunk is exactly what cannot be serialized;
-    - a node already visited. Values are immutable and shared freely,
-      so without this a diamond is copied twice and a cycle never
-      ends. The repeated position carries a handle to the value
-      instead of a copy. Two such positions get two handles: each
-      stop is a fresh wrapper, and the table keys on the wrapper;
-    - a node past the depth, or one the budget ran out on.
-
-    A FORCING walk forces each node first, with the declared `force`.
-    A throw keeps that node a proxy: Nix keeps the error in the value,
-    so the caller's first read of it raises the same error, and the
-    rest of the tree still arrives. An `Entries` node the declared
-    `stop` answers true for stays a proxy too: a derivation, which
-    forcing would instantiate.
-    """
-
-    def __init__(self, spec: Tree[Accessor], depth: int, budget: int, force: bool = False) -> None:
-        self.spec = spec
-        self.forcing = force and spec.force is not None
-        self.depth = depth
-        self.left = budget
-        self.seen: set[Any] = set()
-        self.truncated = False
-
-    def _key(self, obj: Any) -> Any:
-        """What makes two nodes the same node.
-
-        Declared, because Python identity is not it wherever a binding
-        builds a fresh wrapper per access: two wrappers over one object
-        differ, and a wrapper that dies hands its id() to the next one -
-        which reads as "already seen" and truncates a tree that was
-        never visited."""
-        how = self.spec.identity
-        return how(obj) if how is not None else id(obj)
-
-    def _stops(self, obj: Any) -> bool:
-        """Whether a forcing walk keeps this node a proxy. A throw
-        while asking means the same: the read raises it later."""
-        stop = self.spec.stop
-        if stop is None:
-            return False
-        try:
-            return bool(stop(obj))
-        except NixError:
-            return True
-
-    def node(self, obj: Any, depth: int) -> tree.Node:
-        key = self._key(obj)
-        # `depth` counts levels EXPANDED, so 1 is the root alone. Zero
-        # asks for the server's default.
-        if self.left <= 0 or depth >= self.depth or key in self.seen:
-            self.truncated = True
-            return tree.Stays(type(obj).__name__, obj)
-        self.left -= 1
-        self.seen.add(key)
-        if self.forcing and (force := self.spec.force) is not None:
-            try:
-                force(obj)
-            except NixError:
-                return tree.Stays(type(obj).__name__, obj)
-        match self.spec.kinds.get(self.spec.kind(obj)):
-            case Leaf(wire=wire, read=read):
-                return tree.Leaf(wire, read(obj))
-            case Null():
-                return tree.Leaf("null", None)
-            case Items(size=size, item=item):
-                return tree.Items(
-                    type(obj).__name__, obj, [self.node(item(obj, i), depth + 1) for i in range(size(obj))]
-                )
-            case Entries(size=size, name=name, value=value):
-                if self.forcing and self._stops(obj):
-                    return tree.Stays(type(obj).__name__, obj)
-                return tree.Entries(
-                    type(obj).__name__,
-                    obj,
-                    {name(obj, i): self.node(value(obj, i), depth + 1) for i in range(size(obj))},
-                )
-            case None:
-                # A kind nothing describes: it stays where it is.
-                self.truncated = True
-                return tree.Stays(type(obj).__name__, obj)
-
-
-class Build:
-    """Python data made into one value, on the state's OWN thread.
-
-    Every method it calls is in `spec`, which the binding declares and
-    the build emits, so this class names no type.
-
-    Bottom-up: a Nix list or attribute set is sized when it is made, so
-    a child is complete before its parent takes it. `given` holds the
-    objects behind the handles the data named, resolved before the hop.
-
-    It answers the tree it built, so a caller reads it with no further
-    round trip. The root is always a handle: the caller asked for a
-    value, and a bare scalar is not one."""
-
-    def __init__(self, spec: Builds[Accessor], given: dict[str, Any]) -> None:
-        self.spec = spec
-        self.given = given
-
-    @staticmethod
-    def handles(raw: Any) -> list[str]:
-        """Every handle id the data names."""
-        match raw:
-            case [Node.STAYS, str(hid)]:
-                return [hid]
-            case [Node.ITEMS, list(items)]:
-                return [h for i in items for h in Build.handles(i)]
-            case [Node.ENTRIES, dict(entries)]:
-                return [h for v in entries.values() for h in Build.handles(v)]
-        return []
-
-    def root(self, state: Any, raw: Any) -> tree.Node:
-        node, made = self.node(state, raw)
-        if isinstance(node, tree.Leaf):
-            return tree.Stays(type(made).__name__, made)
-        return node
-
-    def node(self, state: Any, raw: Any) -> tuple[tree.Node, Any]:
-        """One data node, and the value made for it."""
-        match raw:
-            case [Node.LEAF, None]:
-                made = self.spec.null(state)
-                return tree.Leaf("null", None), made
-            case [Node.LEAF, bool() | int() | float() | str() as v]:
-                wire = Scalar(type(v).__name__)
-                made = self.spec.leaves[wire](state, v)
-                return tree.Leaf(wire, v), made
-            case [Node.STAYS, str(hid)]:
-                obj = self.given[hid]
-                return tree.Stays(type(obj).__name__, obj), obj
-            case [Node.ITEMS, list(items)]:
-                made = self.spec.items(state)
-                nodes = []
-                for i in items:
-                    n, m = self.node(state, i)
-                    self.spec.add_item(state, made, m)
-                    nodes.append(n)
-                return tree.Items(type(made).__name__, made, nodes), made
-            case [Node.ENTRIES, dict(entries)]:
-                made = self.spec.entries(state)
-                named = {}
-                for k, v in entries.items():
-                    n, m = self.node(state, v)
-                    self.spec.add_entry(state, made, k, m)
-                    named[k] = n
-                return tree.Entries(type(made).__name__, made, named), made
-        raise ProtocolError(f"a data node arrived as {raw!r:.80}")
 
 
 def _roles(specs: Iterable[Call]) -> dict[Subscription, Call]:
@@ -656,7 +470,7 @@ class Dispatcher:
         spec = TREES.get(DECLARED.get(type(target), ""))
         if spec is None:
             raise TypeError(f"{hid[:8]} is not a value tree: its type declares no walk")
-        walk = TreeWalk(spec, depth if depth > 0 else DEFAULT_DEPTH, budget if budget > 0 else DEFAULT_BUDGET, force)
+        walk = TreeWalk(spec, depth, budget, force)
         # ONE hop for the whole tree, on the value's own thread.
         root = await _runner(target).run(lambda obj: walk.node(obj, 0))
         return target, root, walk
