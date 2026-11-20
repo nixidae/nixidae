@@ -8,6 +8,7 @@ from pathlib import Path
 import anyio
 import pytest
 from rich.console import Console
+from textual.containers import VerticalScroll
 from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
@@ -154,6 +155,19 @@ async def test_shift_d_unfolds_the_definitions(tmp_path: Path, monkeypatch: pyte
         await pilot.press("D")
         await drained(app, pilot)
         assert "… 1 more the edits left alone" in detail_text(app)
+
+
+async def test_tab_reaches_the_detail_pane_and_page_down_scrolls_it(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [Edit(("many",), "lib.mkAfter [ 999 ]")])
+    async with app.run_test(size=(160, 30)) as pilot:
+        await settled(app, pilot)
+        await drained(app, pilot)
+        scroll = app.query_one("#detail-scroll", VerticalScroll)
+        await pilot.press("tab")
+        assert app.focused is scroll
+        await pilot.press("pagedown")
+        await pilot.pause()
+        assert scroll.scroll_y > 0
 
 
 async def test_w_writes_the_edits_as_a_module(tmp_path: Path) -> None:

@@ -39,7 +39,8 @@ With no arguments modiff loads a minimal NixOS configuration. Other sources:
 | `x` | delete the selected edit |
 | `w` | write the edits that are on to a file, as a module to import |
 | `D` | show every definition of an option; by default the ones the edits left alone fold after three |
-| `tab` | move between the edits and the cascade |
+| `tab` | move between the edits, the cascade and the detail pane |
+| `pgup` `pgdn` | scroll the detail pane, once `tab` has moved to it |
 | `enter` | open or close a row; on a changed input of a derivation, go to its row |
 | `?` | show the keys and what each mark in the cascade means |
 | `q` | quit |
