@@ -65,6 +65,11 @@ def forced_attr(v: Value, name: str) -> Value | None:
     return None if child.type_name() in UNEVALUATED else child
 
 
+def children(v: Value) -> dict[str, int]:
+    """Each attribute's value by identity, `_module` aside."""
+    return {v.name_at(i): v.value_at(i).identity() for i in range(v.size()) if v.name_at(i) not in SKIP}
+
+
 def drv_attr(v: Value) -> str | None:
     for name in DRV_KEYS:
         if forced_attr(v, name) is not None:
@@ -106,6 +111,8 @@ class Walker:
     # comparing each again ran for minutes.
     clean: set[tuple[int, int]] = field(default_factory=set)
     failed: int = 0
+    # The children of the walk's two roots, by name.
+    root: tuple[dict[str, int], dict[str, int]] | None = None
 
     def force(self, v: Value, path: Path) -> bool:
         """Force a value of the new evaluation. A failure is a result: it
@@ -118,6 +125,21 @@ class Walker:
             self.failed += 1
             return False
         return True
+
+    def is_root(self, old: Value, new: Value) -> bool:
+        """`config` again, as home-manager's `nixosConfig`: each change
+        already shows at its own path, not once more under the alias. Not
+        the same set: `evalModules` returns `config` without `_module`, and
+        a module receives it with. The same children, on both sides."""
+        if self.root is None:
+            return False
+        old_root, new_root = self.root
+        if old.size() < len(old_root) or new.size() < len(new_root):
+            return False
+        old_kids, new_kids = children(old), children(new)
+        return all(old_kids.get(n) == i for n, i in old_root.items()) and all(
+            new_kids.get(n) == i for n, i in new_root.items()
+        )
 
     def reported(self) -> tuple[int, int, int]:
         return len(self.changes), self.failed, len(self.rebuilt)
@@ -152,6 +174,8 @@ class Walker:
         if ident in above or ident == new.identity():
             return
         pair = (ident, new.identity())
+        if not path and kind == "attrs":
+            self.root = (children(old), children(new))
         if pair in self.clean:
             return
         before = self.reported()
@@ -170,6 +194,8 @@ class Walker:
         new_kind = new.type_name()
         if kind != new_kind:
             self.changes.append(Change(Kind.CHANGED, path, f"«{kind}»", f"«{new_kind}»"))
+            return
+        if path and kind == "attrs" and self.is_root(old, new):
             return
         if kind == "attrs" and is_derivation(old):
             name = drv_attr(old)

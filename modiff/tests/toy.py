@@ -51,6 +51,8 @@ in lib.evalModules {
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
         steady = lib.mkOption { type = lib.types.package; default = steady; };
+        # The whole configuration again, as home-manager's `nixosConfig`.
+        alias = lib.mkOption { type = lib.types.raw; default = { cfg = config; }; };
         # Each level holds the one below twice: 2^22 paths to the last. The
         # edited evaluation builds it again, so no value is shared.
         wide = lib.mkOption {
@@ -174,6 +176,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "top", "drvPath"),
     ("config", "steady", "drvPath"),
     ("config", "wide"),
+    ("config", "alias", "cfg", "b"),
     ("config", "flags", "p"),
     ("config", "flags", "q"),
     ("config", "lines", 0),

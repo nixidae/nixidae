@@ -381,6 +381,13 @@ def test_a_definition_wrapper_prints_as_its_lib_call(engine: EngineThread) -> No
     )
 
 
+def test_a_change_shows_once_when_an_option_holds_config(engine: EngineThread) -> None:
+    """`alias.cfg` is `config`: `b` changes at `b`, not again under it."""
+    c = cascade(engine, Edit(("a",), "2"))
+    assert "b" in changes(c)
+    assert not any(g.option == ("alias",) for g in c.groups)
+
+
 def test_the_walk_compares_a_set_reached_by_many_paths_once(engine: EngineThread) -> None:
     """The toy's `wide` has 2^22 paths and 23 sets."""
     c = cascade(engine, Edit(("a",), "2"))
@@ -689,10 +696,11 @@ def test_the_written_module_means_what_the_edits_meant(engine: EngineThread, tmp
 
     def job(e: Engine) -> tuple[str, str]:
         def config(modules: str) -> str:
-            # `tried.bad` throws by design; `wide` is 2^22 values as JSON.
+            # `tried.bad` throws by design; `wide` is 2^22 values as JSON;
+            # `alias` holds the configuration itself.
             expr = (
                 f"builtins.toJSON (removeAttrs (({TOY}).extendModules {{ modules = [ {modules} ]; }}).config"
-                ' [ "tried" "wide" ])'
+                ' [ "tried" "wide" "alias" ])'
             )
             return str(e.state.eval_expr(expr, "/").string_value())
 
