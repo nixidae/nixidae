@@ -26,7 +26,7 @@ from modiff.model import (
     priority_text,
     store_name,
 )
-from modiff.walk import PRINT_DEPTH, PRINT_STRING, LazyPrinter, other_paths
+from modiff.walk import PRINT_DEPTH, PRINT_ITEMS, PRINT_STRING, LazyPrinter, other_paths
 
 
 @pytest.fixture(scope="module")
@@ -250,6 +250,15 @@ def test_a_failed_part_prints_as_failed(engine: EngineThread) -> None:
 
 
 PLAIN: Final = r"""{
+  "0x" = 1;
+  "a.b" = 2;
+  "" = 3;
+  "or" = 4;
+  "x'" = 5;
+  neg = -3;
+  path = /tmp/modiff;
+  primop = builtins.map;
+  dollars = "$${x} $$ $";
   a = 1;
   b = [ 1 2 { c = "x\ny"; } ];
   "d e" = { };
@@ -287,6 +296,21 @@ def test_the_printer_lays_out_values_as_nix_does(engine: EngineThread, items: in
 
     ours, nix = run(engine, job)
     assert ours == nix
+
+
+def test_a_shared_value_prints_in_full_each_time(engine: EngineThread) -> None:
+    """Nix prints a set it printed before as «repeated», so which side of a
+    diff says «repeated» depends on attribute order."""
+
+    def job(e: Engine) -> tuple[str, str]:
+        v = e.state.eval_expr("let s = { z = 1; }; in builtins.deepSeq s { a = s; b = [ s ]; }", "/")
+        e.state.force(v)
+        e.state.force(v.get("b"))
+        return LazyPrinter(PRINT_ITEMS).show(v), v.print_value(pretty_indent=2)
+
+    ours, nix = run(engine, job)
+    assert "«repeated»" in nix
+    assert ours.count("{ z = 1; }") == 2
 
 
 def test_explaining_every_option_widens_no_cascade(engine: EngineThread) -> None:

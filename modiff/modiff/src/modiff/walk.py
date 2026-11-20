@@ -516,7 +516,9 @@ class LazyPrinter:
     `shouldPrettyPrintAttrs`), which widens what the base evaluated. It
     prints a nested derivation as all of its attributes: on NixOS these ate
     the budget before the part that changed (`systemd.services`). It prints
-    a value that threw as «thunk»."""
+    a value that threw as «thunk». It prints any set it printed before as
+    «repeated», so the side of a diff that says so depends on attribute
+    order: here only a cycle does."""
 
     max_items: int
     max_depth: int = PRINT_DEPTH
