@@ -88,8 +88,25 @@ def test_drv_diff_names_the_input_that_changed(engine: EngineThread) -> None:
 
     diff = run(engine, job)
     assert diff.error is None, diff.error
-    assert [(d.kind, d.name) for d in diff.inputs] == [(Rebuild.VERSION, "dep-20")]
-    assert [a.name for a in diff.attrs] == ["env.inputs"]
+    assert [(d.kind, d.name) for d in diff.inputs] == [(Rebuild.VERSION, "dep-20"), (Rebuild.VERSION, "hidden-20")]
+    assert [a.name for a in diff.attrs] == ["env.hidden", "env.inputs"]
+
+
+def test_drv_diff_reads_an_input_by_its_drv_file(engine: EngineThread) -> None:
+    """An input that has no row is known only by its `.drv` path."""
+
+    def job(e: Engine) -> DrvDiff:
+        c = e.apply([Edit(("a",), "2")])
+        top = next(d for d in pair_drvs(c.drvs_added, c.drvs_removed) if d.name == "top")
+        assert top.old is not None and top.new is not None
+        hidden = next(i for i in e.drv_diff(top.old, top.new).inputs if i.name == "hidden-20")
+        assert hidden.old is not None and hidden.new is not None
+        assert hidden.new.startswith("/")
+        return e.drv_diff(hidden.old, hidden.new)
+
+    diff = run(engine, job)
+    assert diff.error is None, diff.error
+    assert [a.name for a in diff.attrs] == ["env.name"]
 
 
 def test_changes_group_under_their_option(engine: EngineThread) -> None:

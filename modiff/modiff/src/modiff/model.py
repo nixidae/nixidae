@@ -82,6 +82,8 @@ class Cascade:
     visited: int = 0
     drvs_added: tuple[str, ...] = ()
     drvs_removed: tuple[str, ...] = ()
+    # Output path -> `.drv` path, both sides: output paths never collide.
+    derivers: dict[str, str] = field(default_factory=dict)
     error: str | None = None
 
 
@@ -117,6 +119,11 @@ DRV_SUFFIX: Final = ".drv"
 
 def is_drv_file(path: str) -> bool:
     return path.endswith(DRV_SUFFIX)
+
+
+def drv_file(path: str, derivers: dict[str, str]) -> str | None:
+    """The `.drv` of a listed derivation, keyed by its output or its `.drv`."""
+    return path if is_drv_file(path) else derivers.get(path)
 
 
 def store_name(path: str) -> str:

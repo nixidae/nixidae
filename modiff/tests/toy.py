@@ -61,6 +61,13 @@ in lib.evalModules {
               builder = "/bin/sh";
             })
           ];
+          # A path read off a derivation coerces no derivation, so nothing
+          # records `hidden`: an input with no row of its own.
+          hidden = (derivation {
+            name = "hidden-${toString config.b}";
+            system = "x86_64-linux";
+            builder = "/bin/sh";
+          }).outPath;
         };
       };
     })

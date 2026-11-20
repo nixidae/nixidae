@@ -32,6 +32,7 @@ from .model import (
     Quiet,
     changed_attrs,
     changed_paths,
+    drv_file,
     edit_file,
     format_path,
     is_drv_file,
@@ -214,6 +215,7 @@ class Engine:
             visited=walker.visited,
             drvs_added=tuple(sorted(drvs - base_drvs)) if clean else (),
             drvs_removed=tuple(sorted(base_drvs - drvs)) if clean else (),
+            derivers=self.base_derivers | self.ext_derivers,
         )
 
     def _derivers(self, outs: Iterable[str]) -> dict[str, str]:
@@ -225,6 +227,10 @@ class Engine:
             if drv is not None and (path := drv_string(self.state, drv, "drvPath")):
                 found[out] = path
         return found
+
+    def _full(self, names: Iterable[str]) -> set[str]:
+        """`input_drvs` names each `.drv` without the store directory."""
+        return {f"{self.store.store_dir()}/{name}" for name in names}
 
     def _drv_attrs(self, drv: Derivation) -> dict[str, str]:
         attrs = {"builder": drv.builder(), "args": " ".join(drv.args()), "system": drv.system()}
@@ -238,9 +244,10 @@ class Engine:
                 attrs[f"attrs.{key}"] = value if isinstance(value, str) else json.dumps(value, indent=2)
         return attrs
 
-    def drv_diff(self, old_out: str, new_out: str) -> DrvDiff:
-        old_path = self.base_derivers.get(old_out)
-        new_path = self.ext_derivers.get(new_out)
+    def drv_diff(self, old_key: str, new_key: str) -> DrvDiff:
+        """Each side is a listed output path, or a `.drv` path."""
+        old_path = drv_file(old_key, self.base_derivers)
+        new_path = drv_file(new_key, self.ext_derivers)
         if old_path is None or new_path is None:
             return DrvDiff(error="modiff did not see this derivation instantiated on both sides")
         try:
@@ -251,7 +258,7 @@ class Engine:
         return DrvDiff(
             old_path,
             new_path,
-            inputs=changed_paths(set(old.input_drvs()), set(new.input_drvs())),
+            inputs=changed_paths(self._full(old.input_drvs()), self._full(new.input_drvs())),
             sources=changed_paths(
                 {str(p.to_string()) for p in old.input_srcs()}, {str(p.to_string()) for p in new.input_srcs()}
             ),

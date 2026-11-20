@@ -42,6 +42,7 @@ from .model import (
     OptionView,
     Quiet,
     Rebuild,
+    drv_file,
     format_path,
     pair_drvs,
     parse_option_path,
@@ -271,7 +272,8 @@ HELP: Final = Text.assemble(
     "The cascade on the left lists every option whose value changed, as far as the "
     "configuration was evaluated. Move onto one to see its type, every module that "
     "defines it, and its value before and after. The last row lists the derivations "
-    "the edit rebuilds, and why each one rebuilds.\n\n",
+    "the edit rebuilds, and why each one rebuilds. Under a rebuilt derivation are the "
+    "inputs that changed: press enter on one to go to its row.\n\n",
     "Inside an edit, ",
     ("lib", "bold"),
     ", ",
@@ -510,7 +512,15 @@ class DrvRow:
     change: DrvChange | None = None
 
 
-type TreeData = tuple[Group, Change | None] | DrvRow
+@dataclass(frozen=True, slots=True)
+class InputRow:
+    """A changed input of a derivation, under that derivation's row.
+    Both paths are `.drv` files."""
+
+    change: DrvChange
+
+
+type TreeData = tuple[Group, Change | None] | DrvRow | InputRow
 
 DRV_MARK: Final = {Rebuild.REBUILT: "~", Rebuild.VERSION: "~", Rebuild.ADDED: "+", Rebuild.REMOVED: "-"}
 DRV_STYLE: Final = {Rebuild.REBUILT: "yellow", Rebuild.VERSION: "cyan", Rebuild.ADDED: "green", Rebuild.REMOVED: "red"}
@@ -546,8 +556,30 @@ def drv_detail(row: DrvRow, diff: DrvDiff | None = None) -> RenderableType:
             ),
             *(drv_line(c) for c in row.changes),
         )
-    change = row.change
+    return drv_change_detail(row.change, diff)
+
+
+def input_line(change: DrvChange, listed: bool) -> Text:
+    line = drv_line(change)
+    if listed:
+        line.append("  ⏎ its row", style="dim")
+    return line
+
+
+def input_note(listed: bool) -> Text:
+    if listed:
+        return Text("An input of the derivation above it. Press enter to go to its row.", style="dim italic")
+    return Text(
+        "An input of the derivation above it. It has no row of its own: nothing the cascade "
+        "evaluated names it, only the derivation that builds on it.",
+        style="dim italic",
+    )
+
+
+def drv_change_detail(change: DrvChange, diff: DrvDiff | None = None, note: Text | None = None) -> RenderableType:
     parts: list[RenderableType] = [drv_line(change), Text(DRV_HELP[change.kind], style="dim italic")]
+    if note is not None:
+        parts.append(note)
     if change.old is not None:
         parts.append(Text.assemble(("before: ", "dim"), change.old))
     if change.new is not None:
@@ -621,6 +653,8 @@ class ModiffApp(App[None]):
         self.generation = 0
         self.views: dict[OptionPath, OptionView] = {}
         self.drv_diffs: dict[tuple[str, str], DrvDiff] = {}
+        # Each listed derivation's row, by the `.drv` of either side.
+        self.drv_nodes: dict[str, TreeNode[TreeData]] = {}
         self.showing: TreeData | None = None
         # An option found with `/`: listed first, changed or not.
         self.browsed: OptionPath | None = None
@@ -730,6 +764,7 @@ class ModiffApp(App[None]):
         self.generation += 1
         self.views.clear()
         self.drv_diffs.clear()
+        self.drv_nodes.clear()
         tree = self.query_one("#cascade", Tree)
         tree.clear()
         if cascade.error is not None:
@@ -759,7 +794,11 @@ class ModiffApp(App[None]):
         if drv_changes := pair_drvs(cascade.drvs_added, cascade.drvs_removed):
             drv_node = tree.root.add(drv_summary(drv_changes), data=DrvRow(drv_changes))
             for drv in drv_changes:
-                drv_node.add_leaf(drv_line(drv), data=DrvRow(drv_changes, drv))
+                # Expandable once its diff names changed inputs.
+                leaf = drv_node.add(drv_line(drv), data=DrvRow(drv_changes, drv), allow_expand=False)
+                for path in (drv.new, drv.old):
+                    if path is not None and (file := drv_file(path, cascade.derivers)) is not None:
+                        self.drv_nodes.setdefault(file, leaf)
         total = sum(len(g.changes) for g in cascade.groups)
         drvs = (
             f", derivations +{len(cascade.drvs_added)} -{len(cascade.drvs_removed)}"
@@ -792,7 +831,15 @@ class ModiffApp(App[None]):
             return
         self.showing = data
         if isinstance(data, DrvRow):
-            self.show_drv(data)
+            if data.change is None:
+                self.detail(drv_detail(data))
+            else:
+                self.show_drv(data.change, node)
+            return
+        if isinstance(data, InputRow):
+            listed = self.input_row(data) is not None
+            # An input with no row of its own lists its inputs under it.
+            self.show_drv(data.change, None if listed else node, input_note(listed))
             return
         group, change = data
         if not group.option:
@@ -810,16 +857,18 @@ class ModiffApp(App[None]):
 
         self.explain(group.option, shown)
 
-    def show_drv(self, row: DrvRow) -> None:
-        change = row.change
-        if change is None or change.old is None or change.new is None:
-            self.detail(drv_detail(row))
+    def show_drv(self, change: DrvChange, node: TreeNode[TreeData] | None, note: Text | None = None) -> None:
+        """Show one derivation, and list its changed inputs under `node`."""
+        data = self.showing
+        if change.old is None or change.new is None:
+            self.detail(drv_change_detail(change, note=note))
             return
         key = (change.old, change.new)
         if (diff := self.drv_diffs.get(key)) is not None:
-            self.detail(drv_detail(row, diff))
+            self.detail(drv_change_detail(change, diff, note))
+            self.add_inputs(node, diff)
             return
-        self.detail(drv_detail(row))
+        self.detail(drv_change_detail(change, note=note))
         generation = self.generation
         old, new = key
 
@@ -827,10 +876,36 @@ class ModiffApp(App[None]):
             if generation != self.generation:
                 return
             self.drv_diffs[key] = diff
-            if self.showing is row:
-                self.detail(drv_detail(row, diff))
+            self.add_inputs(node, diff)
+            if self.showing is data:
+                self.detail(drv_change_detail(change, diff, note))
 
         self.run_job(lambda engine: engine.drv_diff(old, new), shown)
+
+    def add_inputs(self, node: TreeNode[TreeData] | None, diff: DrvDiff) -> None:
+        if node is None or node.children or not diff.inputs:
+            return
+        for change in diff.inputs:
+            row = InputRow(change)
+            node.add_leaf(input_line(change, self.input_row(row) is not None), data=row)
+        node.allow_expand = True
+
+    def input_row(self, row: InputRow) -> TreeNode[TreeData] | None:
+        change = row.change
+        for path in (change.new, change.old):
+            if path is not None and (node := self.drv_nodes.get(path)) is not None:
+                return node
+        return None
+
+    @on(Tree.NodeSelected)
+    def _selected(self, event: Tree.NodeSelected[TreeData]) -> None:
+        if not isinstance(event.node.data, InputRow) or (target := self.input_row(event.node.data)) is None:
+            return
+        tree = self.query_one("#cascade", Tree)
+        if target.parent is not None:
+            target.parent.expand()
+        # The expanded rows get their lines on the next refresh.
+        self.call_after_refresh(tree.move_cursor, target)
 
     def refresh_edits(self) -> None:
         listing = self.query_one("#edits", ListView)
