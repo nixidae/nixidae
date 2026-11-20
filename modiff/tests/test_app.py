@@ -99,6 +99,7 @@ def test_target_places_a_path_among_the_options() -> None:
     assert target(paths, ("users", "users", "alice", "uid")) == (Target.INSIDE, ("users", "users"))
     assert target(paths, ("services", "openssh")) == (Target.ABOVE, None)
     assert target(paths, ("services", "opnessh", "enable")) == (Target.UNKNOWN, None)
+    assert target(paths, ("_module", "args", "foo")) == (Target.MODULE, None)
 
 
 def about(app: ModiffApp) -> str:

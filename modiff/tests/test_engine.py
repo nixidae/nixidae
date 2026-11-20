@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import Final
 
 import pytest
 from toy import SOURCE
 
-from modiff.engine import Crash, Engine, EngineThread
+from modiff.engine import Crash, Engine, EngineThread, Source
 from modiff.model import (
     Cascade,
     Change,
@@ -264,6 +266,34 @@ def test_definitions_print_derivations_by_what_was_evaluated(engine: EngineThrea
     """The toy forces `drv.name` and no path."""
     view = run(engine, lambda e: e.explain(("drv",)))
     assert [d.value for d in view.defs_old] == ["«derivation toy-10»"]
+
+
+FREEFORM: Final = Source(
+    """
+    let lib = import /etc/nixpkgs/lib; in lib.evalModules {
+      modules = [ {
+        freeformType = lib.types.attrsOf lib.types.anything;
+        options.x = lib.mkOption { type = lib.types.int; default = 1; };
+      } ];
+    }
+    """,
+    (("config", "x"),),
+)
+
+
+def test_a_freeform_top_level_takes_any_path(tmp_path: Path) -> None:
+    thread = EngineThread(FREEFORM, store=f"local?root={tmp_path}")
+    try:
+        assert not isinstance(run(thread, Engine.load), Crash)
+        assert run(thread, Engine.freeform)
+        c = run(thread, lambda e: e.apply([Edit(("undeclared",), "2")]))
+        assert c.error is None
+    finally:
+        thread.shutdown()
+
+
+def test_the_toy_is_not_freeform(engine: EngineThread) -> None:
+    assert not run(engine, Engine.freeform)
 
 
 def test_option_paths(engine: EngineThread) -> None:

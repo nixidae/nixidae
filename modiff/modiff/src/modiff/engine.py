@@ -331,6 +331,18 @@ class Engine:
         except NixError:
             return True
 
+    def freeform(self) -> bool:
+        """The top level takes paths no option declares. The walk skips
+        `_module`, so reading it here widens no cascade."""
+        if self.base is None:
+            return False
+        try:
+            # `evalModules` returns `_module` beside `config`, not in it.
+            kind = self._sel(self.base, ("_module", "freeformType")).type_name()
+        except NixError:
+            return False
+        return kind != "null"
+
     def option_paths(self) -> list[OptionPath]:
         found: list[OptionPath] = []
 

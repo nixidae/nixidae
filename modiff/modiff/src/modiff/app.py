@@ -29,6 +29,7 @@ from textual.widgets.tree import TreeNode
 from .engine import Crash, Engine, EngineThread
 from .model import (
     EDIT_FILE,
+    MODULE_ATTR,
     Cascade,
     Change,
     DrvChange,
@@ -294,11 +295,15 @@ class Target(StrEnum):
     INSIDE = "inside"
     # A module may set a group: `services.openssh = { enable = true; }`.
     ABOVE = "above"
+    # `_module.args` and the rest: modiff does not list or describe them.
+    MODULE = "module"
     UNKNOWN = "unknown"
 
 
 def target(options: frozenset[OptionPath], path: OptionPath) -> tuple[Target, OptionPath | None]:
     """The option an edit of `path` defines, or the reason it defines none."""
+    if path[0] == MODULE_ATTR:
+        return Target.MODULE, None
     if path in options:
         return Target.OPTION, path
     for n in range(len(path) - 1, 0, -1):
@@ -308,6 +313,13 @@ def target(options: frozenset[OptionPath], path: OptionPath) -> tuple[Target, Op
         return Target.ABOVE, None
     return Target.UNKNOWN, None
 
+
+TARGET_NOTE: Final = {
+    Target.ABOVE: Text("sets the options under it", style="dim"),
+    Target.MODULE: Text("the module system's own settings", style="dim"),
+    Target.UNKNOWN: Text("no option has this path", style="red"),
+}
+FREEFORM_NOTE: Final = Text("no option has this path; the freeform type takes it", style="dim")
 
 type Explain = Callable[[OptionPath, Callable[[OptionView], None]], None]
 
@@ -341,7 +353,12 @@ class EditScreen(ModalScreen[Edit | None]):
     """
 
     def __init__(
-        self, request: EditRequest, options: list[str], paths: frozenset[OptionPath], explain: Explain
+        self,
+        request: EditRequest,
+        options: list[str],
+        paths: frozenset[OptionPath],
+        explain: Explain,
+        freeform: bool = False,
     ) -> None:
         super().__init__()
         self.request = request
@@ -349,6 +366,7 @@ class EditScreen(ModalScreen[Edit | None]):
         # Empty until the engine has listed the options: then nothing is refused.
         self.paths = paths
         self.explain = explain
+        self.freeform = freeform
         self.about_path: OptionPath | None = None
 
     def compose(self) -> ComposeResult:
@@ -382,11 +400,7 @@ class EditScreen(ModalScreen[Edit | None]):
             return
         kind, option = target(self.paths, path)
         if option is None:
-            about.update(
-                Text("sets the options under it", style="dim")
-                if kind is Target.ABOVE
-                else Text("no option has this path", style="red")
-            )
+            about.update(TARGET_NOTE[kind] if kind is not Target.UNKNOWN or not self.freeform else FREEFORM_NOTE)
             return
         about.update(Text(f"reading {format_path(option)}…", style="dim"))
 
@@ -405,7 +419,7 @@ class EditScreen(ModalScreen[Edit | None]):
         path_input = self.query_one("#path", Input)
         path = parse_option_path(path_input.value.strip())
         expr = self.query_one("#expr", Input).value.strip()
-        if path and self.paths and target(self.paths, path)[0] is Target.UNKNOWN:
+        if path and self.paths and not self.freeform and target(self.paths, path)[0] is Target.UNKNOWN:
             # Evaluating would only say "option does not exist", seconds later.
             path_input.focus()
             return
@@ -598,6 +612,7 @@ class ModiffApp(App[None]):
         self.edits = edits
         self.options: list[str] = []
         self.paths: frozenset[OptionPath] = frozenset()
+        self.freeform = False
         self.loaded: Loaded | None = None
         self.cascade = Cascade()
         self.busy = False
@@ -671,12 +686,16 @@ class ModiffApp(App[None]):
             self.settled.set()
             return
         self.run_job(Engine.option_paths, self.on_options)
+        self.run_job(Engine.freeform, self.on_freeform)
         self.refresh_edits()
         self.recompute()
 
     def on_options(self, paths: list[OptionPath]) -> None:
         self.options = sorted(format_path(p) for p in paths)
         self.paths = frozenset(paths)
+
+    def on_freeform(self, freeform: bool) -> None:
+        self.freeform = freeform
 
     def recompute(self) -> None:
         if self.busy:
@@ -836,7 +855,7 @@ class ModiffApp(App[None]):
             self.refresh_edits()
             self.recompute()
 
-        self.push_screen(EditScreen(request, self.options, self.paths, self.explain), saved)
+        self.push_screen(EditScreen(request, self.options, self.paths, self.explain, self.freeform), saved)
 
     def explain(self, option: OptionPath, done: Callable[[OptionView], None]) -> None:
         if (view := self.views.get(option)) is not None:

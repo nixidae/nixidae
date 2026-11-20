@@ -12,9 +12,9 @@ from typing import Final
 from huggorm import EvalState, Value
 from huggorm.errors import NixError
 
-from .model import Change, Kind, Path, nix_string
+from .model import MODULE_ATTR, Change, Kind, Path, nix_string
 
-SKIP: Final = frozenset({"_module"})
+SKIP: Final = frozenset({MODULE_ATTR})
 # A derivation is keyed by the first of these its evaluation forced.
 DRV_KEYS: Final = ("outPath", "drvPath", "name")
 INSTANTIATED_ORDER: Final = ("outPath", "drvPath")

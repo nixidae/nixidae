@@ -13,6 +13,8 @@ type OptionPath = tuple[str, ...]
 
 _BARE: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
 EDIT_FILE: Final = "modiff edit: "
+# The module system's own attribute: `_module.args`, `_module.check`.
+MODULE_ATTR: Final = "_module"
 
 
 class Kind(StrEnum):
