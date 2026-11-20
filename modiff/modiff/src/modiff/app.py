@@ -281,6 +281,12 @@ FAILED_THUNK: Final = Text(
 )
 
 
+SAME_PRINT: Final = Text(
+    "Before and after print the same: the print stops before the parts that changed. What changed under it lists them.",
+    style="yellow italic",
+)
+
+
 def option_detail(
     view: OptionView, changes: tuple[Change, ...], note: Text | None = None, all_definitions: bool = False
 ) -> RenderableType:
@@ -321,6 +327,8 @@ def option_detail(
     if view.new and view.new != view.old:
         parts.append(diff_text(expand_strings(view.old), expand_strings(view.new)))
     else:
+        if view.new and changes:
+            parts.append(SAME_PRINT)
         parts.append(Text(expand_strings(view.old)))
 
     if changes:

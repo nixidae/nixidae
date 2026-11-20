@@ -13,7 +13,7 @@ from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
 
-from modiff import app as app_module
+from modiff import app as app_module, walk
 from modiff.app import (
     DrvRow,
     EditScreen,
@@ -216,6 +216,17 @@ async def test_edit_through_the_modal(tmp_path: Path) -> None:
         await pilot.press("a", *"a", "enter", *"3", "enter")
         await settled(app, pilot)
         assert options(app) == ["a", "b", "drv", "top"]
+
+
+async def test_a_change_past_the_print_says_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Both sides print `p` and elide `q`, the one that changed.
+    monkeypatch.setattr(walk, "PRINT_ITEMS", 1)
+    app = app_for(tmp_path, [Edit(("flags",), "lib.mkForce { p = true; q = false; }")])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        await drained(app, pilot)
+        assert options(app)[0] == "flags"
+        assert "Before and after print the same" in detail_text(app)
 
 
 async def test_a_failure_shows_in_the_title_and_the_status(tmp_path: Path) -> None:
