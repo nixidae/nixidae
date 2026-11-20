@@ -29,6 +29,9 @@ let
     builder = "/bin/sh";
     still = derivation { name = "still"; system = "x86_64-linux"; builder = "/bin/sh"; };
   };
+  # Shared, and the base forces only `p`. An edit to `pick` forces `q`
+  # in the one value both sides hold.
+  half = { p = 1; q = 1 + 1; };
 in lib.evalModules {
   modules = [
     # An edit to `old` reaches `a` and never `config.old`.
@@ -66,6 +69,9 @@ in lib.evalModules {
         # `wide` with a leaf that reads `seed`: an edit to `seed` changes
         # every level, so no pair compares clean.
         seed = lib.mkOption { type = lib.types.int; default = 0; };
+        half = lib.mkOption { type = lib.types.raw; default = half; };
+        pick = lib.mkOption { type = lib.types.str; default = "p"; };
+        picked = lib.mkOption { type = lib.types.int; default = half.${config.pick}; };
         fan = lib.mkOption {
           type = lib.types.raw;
           default =
@@ -188,6 +194,8 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "steady", "drvPath"),
     ("config", "wide"),
     ("config", "fan"),
+    ("config", "half", "p"),
+    ("config", "picked"),
     ("config", "alias", "cfg", "b"),
     ("config", "flags", "p"),
     ("config", "flags", "q"),

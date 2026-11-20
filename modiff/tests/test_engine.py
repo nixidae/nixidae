@@ -509,6 +509,20 @@ def test_no_action_widens_the_next_cascade(engine: EngineThread) -> None:
     assert after.drvs == before.drvs
 
 
+def test_an_edit_that_forces_a_shared_value_further_changes_no_later_cascade(engine: EngineThread) -> None:
+    """`half` comes from outside the modules, so both sides hold the one
+    value, and forcing `half.q` for the edited side forces it in the base
+    too. The walk skips a value both sides share: no cascade shows it."""
+    edit = Edit(("a",), "2")
+    before = cascade(engine, edit)
+    picked = cascade(engine, Edit(("pick",), '"q"'))
+    assert changes(picked)["picked"] == Change(Kind.CHANGED, ("picked",), "1", "2")
+    assert "half" not in changes(picked)
+    after = cascade(engine, edit)
+    assert after.groups == before.groups
+    assert after.drvs == before.drvs
+
+
 def test_other_paths_counts_the_rest() -> None:
     assert other_paths(0) == ""
     assert other_paths(1) == "1 other path"
