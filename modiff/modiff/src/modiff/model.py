@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -204,16 +205,17 @@ def fold_inputs(changes: tuple[DrvChange, ...], inputs: Callable[[str], Iterable
         needed = {i for found in below.values() for i in found}
         taken: set[str] = set()
         for top in sorted(p for p in single if p not in needed):
+            # Breadth first: what the top needs directly comes first.
             folded: list[str] = []
-            stack = list(below[top])
-            while stack:
-                p = stack.pop()
+            queue = deque(sorted(below[top], key=store_name))
+            while queue:
+                p = queue.popleft()
                 if p in taken:
                     continue
                 taken.add(p)
                 folded.append(p)
-                stack.extend(below[p])
-            out.append(replace(single[top], only=tuple(sorted(folded, key=store_name))))
+                queue.extend(sorted(below[p], key=store_name))
+            out.append(replace(single[top], only=tuple(folded)))
     out += [c for c in changes if c.kind not in FOLDED]
     return tuple(sorted(out, key=lambda c: (c.name, c.kind)))
 

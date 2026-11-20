@@ -23,6 +23,13 @@ def test_fold_inputs_folds_what_a_removed_path_needs() -> None:
     )
 
 
+def test_fold_inputs_lists_direct_inputs_first() -> None:
+    top, b, c, z = (S + f"a-{n}" for n in "tbcz")
+    inputs: dict[str, list[str]] = {top: [z, b], b: [c], c: [], z: []}
+    changes = tuple(DrvChange(p, None) for p in (top, b, c, z))
+    assert fold_inputs(changes, lambda p: inputs[p]) == (DrvChange(top, None, only=(b, z, c)),)
+
+
 def test_store_name_drops_the_hash() -> None:
     assert store_name(S + "abc-openssh-9.8p1-man") == "openssh-9.8p1-man"
     assert store_name(S + "abc-openssh-9.8p1.drv") == "openssh-9.8p1"
