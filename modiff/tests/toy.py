@@ -63,6 +63,17 @@ in lib.evalModules {
             in
             builtins.deepSeq chain chain;
         };
+        # `wide` with a leaf that reads `seed`: an edit to `seed` changes
+        # every level, so no pair compares clean.
+        seed = lib.mkOption { type = lib.types.int; default = 0; };
+        fan = lib.mkOption {
+          type = lib.types.raw;
+          default =
+            let
+              chain = builtins.foldl' (s: _: { a = s; b = s; }) { x = config.seed; } (builtins.genList (i: i) 22);
+            in
+            builtins.deepSeq chain chain;
+        };
         # An edit to `[ ]` removes a derivation and adds none.
         extras = lib.mkOption {
           type = lib.types.listOf lib.types.package;
@@ -176,6 +187,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "top", "drvPath"),
     ("config", "steady", "drvPath"),
     ("config", "wide"),
+    ("config", "fan"),
     ("config", "alias", "cfg", "b"),
     ("config", "flags", "p"),
     ("config", "flags", "q"),

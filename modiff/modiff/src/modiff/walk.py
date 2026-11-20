@@ -110,6 +110,9 @@ class Walker:
     # report. A full NixOS system reaches some sets by so many paths that
     # comparing each again ran for minutes.
     clean: set[tuple[int, int]] = field(default_factory=set)
+    # Pairs that did report, and the path where they did. A changed set
+    # reached by 2^22 paths reported 4 million rows.
+    dirty: dict[tuple[int, int], Path] = field(default_factory=dict)
     failed: int = 0
     # The children of the walk's two roots, by name.
     root: tuple[dict[str, int], dict[str, int]] | None = None
@@ -178,6 +181,9 @@ class Walker:
             self.root = (children(old), children(new))
         if pair in self.clean:
             return
+        if (first := self.dirty.get(pair)) is not None:
+            self.changes.append(Change(Kind.SAME, path, via=first))
+            return
         before = self.reported()
         above.add(ident)
         try:
@@ -186,6 +192,8 @@ class Walker:
             above.discard(ident)
         if self.reported() == before:
             self.clean.add(pair)
+        else:
+            self.dirty[pair] = path
 
     def _compare(self, old: Value, new: Value, kind: str, path: Path, above: set[int]) -> None:
         self.visited += 1

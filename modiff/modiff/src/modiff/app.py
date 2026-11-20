@@ -57,8 +57,14 @@ SHORT: Final = 60
 ATTR_LIMIT: Final = 2000
 # NixOS `assertions` has a definition from every module that sets one.
 UNCHANGED_SHOWN: Final = 3
-MARK: Final = {Kind.CHANGED: "~", Kind.ADDED: "+", Kind.REMOVED: "-", Kind.FAILED: "!"}
-STYLE: Final = {Kind.CHANGED: "yellow", Kind.ADDED: "green", Kind.REMOVED: "red", Kind.FAILED: "bold red"}
+MARK: Final = {Kind.CHANGED: "~", Kind.ADDED: "+", Kind.REMOVED: "-", Kind.FAILED: "!", Kind.SAME: "="}
+STYLE: Final = {
+    Kind.CHANGED: "yellow",
+    Kind.ADDED: "green",
+    Kind.REMOVED: "red",
+    Kind.FAILED: "bold red",
+    Kind.SAME: "cyan",
+}
 
 
 def short(value: str, text: bool) -> str:
@@ -85,6 +91,8 @@ def change_value(change: Change) -> str:
             return short(change.old, change.text) if change.old else "removed"
         case Kind.FAILED:
             return short_file(failure_summary(change.new))
+        case Kind.SAME:
+            return f"same as {format_path(change.via)}"
 
 
 def failure_summary(message: str) -> str:
@@ -159,6 +167,7 @@ KIND_HELP: Final = {
     Kind.ADDED: "only the configuration with the edits has it",
     Kind.REMOVED: "only the configuration without the edits has it",
     Kind.FAILED: "the configuration with the edits fails to evaluate it",
+    Kind.SAME: "the value at another path: its changes show there",
 }
 
 

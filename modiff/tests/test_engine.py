@@ -438,6 +438,19 @@ def test_the_walk_compares_a_set_reached_by_many_paths_once(engine: EngineThread
     assert c.visited < 1000
 
 
+def test_a_changed_set_reached_by_many_paths_shows_once(engine: EngineThread) -> None:
+    """The toy's `fan` changes at all 2^22 paths. Its set at `fan.b` is the
+    one at `fan.a`: the walk reports it once and points there from `b`."""
+    c = cascade(engine, Edit(("seed",), "1"))
+    fan = [ch for g in c.groups if g.option == ("fan",) for ch in g.changes]
+    assert c.visited < 1000
+    assert [ch for ch in fan if ch.kind is not Kind.SAME] == [
+        Change(Kind.CHANGED, ("fan", *("a",) * 22, "x"), "0", "1")
+    ]
+    assert len(fan) == 23
+    assert Change(Kind.SAME, ("fan", "b"), via=("fan", "a")) in fan
+
+
 def test_count_forced_counts_a_shared_set_once(engine: EngineThread) -> None:
     """Each level holds the one below twice: 2^20 paths to the last."""
     expr = "builtins.foldl' (s: _: builtins.deepSeq s { a = s; b = s; }) { x = 1; } (builtins.genList (i: i) 20)"
@@ -740,11 +753,11 @@ def test_the_written_module_means_what_the_edits_meant(engine: EngineThread, tmp
 
     def job(e: Engine) -> tuple[str, str]:
         def config(modules: str) -> str:
-            # `tried.bad` throws by design; `wide` is 2^22 values as JSON;
-            # `alias` holds the configuration itself.
+            # `tried.bad` throws by design; `wide` and `fan` are 2^22 values
+            # as JSON; `alias` holds the configuration itself.
             expr = (
                 f"builtins.toJSON (removeAttrs (({TOY}).extendModules {{ modules = [ {modules} ]; }}).config"
-                ' [ "tried" "wide" "alias" ])'
+                ' [ "tried" "wide" "fan" "alias" ])'
             )
             return str(e.state.eval_expr(expr, "/").string_value())
 

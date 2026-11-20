@@ -24,14 +24,17 @@ class Kind(StrEnum):
     ADDED = "added"
     REMOVED = "removed"
     FAILED = "failed"
+    # A changed set or list the walk compared at another path, `via`.
+    SAME = "same"
 
 
 @dataclass(frozen=True, slots=True)
 class Change:
     """One difference under `config`. `old` and `new` are Nix-like text,
     except when `text` is set: then both are the raw strings, for a line
-    diff. `via` is where the walk met a failure that the message blames
-    on another path."""
+    diff. `via` is the other path a row refers to: where the walk met a
+    failure that the message blames elsewhere, or where a SAME row's
+    changes show."""
 
     kind: Kind
     path: Path

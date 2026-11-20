@@ -14,6 +14,9 @@ the error names, or else under the option the edit sets. The detail pane
 says where the evaluation met the error first: often `assertions`, which
 reads nearly every option.
 
+One value can sit at many paths. Its changes show at the first path, and
+each other path shows one row `=  same as <first path>`.
+
 The last row of the cascade lists the derivations the edit rebuilds. Select
 one to see why: the inputs that changed and the attributes of its `.drv`
 that differ. A derivation added or removed with its own inputs, such as a
