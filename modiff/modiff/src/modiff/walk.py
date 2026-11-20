@@ -112,7 +112,7 @@ class Walker:
 
     def result(self) -> list[Change]:
         failed = [
-            Change(Kind.FAILED, paths[0], f"{len(paths)} paths" if len(paths) > 1 else "", message)
+            Change(Kind.FAILED, paths[0], other_paths(len(paths) - 1), message)
             for message, paths in self.failures.items()
         ]
         return failed + self.changes
@@ -248,6 +248,11 @@ class Walker:
                     self.force_like(olds[i], news[j], above)
         finally:
             above.discard(ident)
+
+
+def other_paths(count: int) -> str:
+    """How many more paths failed with one message."""
+    return "" if count == 0 else f"{count} other path{'' if count == 1 else 's'}"
 
 
 def drv_string(state: EvalState, drv: Value, name: str) -> str | None:

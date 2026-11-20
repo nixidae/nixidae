@@ -332,7 +332,7 @@ def option_detail(
                 if change.via:
                     parts.append(Text(f"  The walk met it first at {format_path(change.via)}.", style="dim"))
                 if change.old:
-                    parts.append(Text(f"  (and {change.old} more)", style="dim"))
+                    parts.append(Text(f"  It fails at {change.old} too.", style="dim"))
             elif change.text and ("\n" in change.old or "\n" in change.new):
                 parts.append(diff_text(change.old, change.new))
     for error in view.errors:

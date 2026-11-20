@@ -26,6 +26,7 @@ from modiff.model import (
     priority_text,
     store_name,
 )
+from modiff.walk import other_paths
 
 
 @pytest.fixture(scope="module")
@@ -238,6 +239,12 @@ def test_a_failed_part_is_flagged(engine: EngineThread) -> None:
     assert view.new_failed
     view = run(engine, lambda e: e.explain(("lines",)))
     assert not view.new_failed
+
+
+def test_other_paths_counts_the_rest() -> None:
+    assert other_paths(0) == ""
+    assert other_paths(1) == "1 other path"
+    assert other_paths(80) == "80 other paths"
 
 
 def test_blamed_path_reads_the_module_system_messages() -> None:
