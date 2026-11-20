@@ -136,14 +136,24 @@ def quiet_note(group: Group) -> Text:
     return Text(body, style="magenta")
 
 
+BROWSED_MARK: Final = "» "
+EDITED_MARK: Final = "✎ "
+KIND_HELP: Final = {
+    Kind.CHANGED: "the value changed",
+    Kind.ADDED: "only the configuration with the edits has it",
+    Kind.REMOVED: "only the configuration without the edits has it",
+    Kind.FAILED: "the configuration with the edits fails to evaluate it",
+}
+
+
 def group_label(group: Group, edited: bool, browsed: bool = False) -> Text:
     name = format_path(group.option) if group.option else "(no option)"
     # Text(..., style=) styles everything appended later too.
     label = Text()
     if browsed:
-        label.append("» ", style="bold cyan")
+        label.append(BROWSED_MARK, style="bold cyan")
     if edited:
-        label.append("✎ ", style="bold magenta")
+        label.append(EDITED_MARK, style="bold magenta")
     label.append(name, style="bold")
     if not group.changes and group.quiet is None:
         # Not in the cascade, which says nothing of a value the base never read.
@@ -621,6 +631,68 @@ def drv_diff_parts(diff: DrvDiff) -> list[RenderableType]:
     return parts
 
 
+NAVIGATION: Final = (
+    ("tab", "move between the edits and the cascade"),
+    ("↑ ↓", "move the cursor; the detail pane follows it"),
+    ("enter", "open or close a row; on a changed input, go to its row"),
+    ("escape", "close a dialog"),
+)
+
+
+def help_text(keys: list[tuple[str, str]]) -> RenderableType:
+    """`keys` are the app's bindings as (key, description)."""
+    rows = Text()
+    for key, does in [*keys, *NAVIGATION]:
+        rows.append(f"  {key:<8}", style="bold")
+        rows.append(f"{does}\n")
+    cascade = Text()
+    cascade.append(f"  {EDITED_MARK}", style="bold magenta")
+    cascade.append("an option an edit sets\n")
+    cascade.append(f"  {BROWSED_MARK}", style="bold cyan")
+    cascade.append("the option found with /\n")
+    for kind, mark in MARK.items():
+        cascade.append(f"  {mark} ", style=STYLE[kind])
+        cascade.append(f"{KIND_HELP[kind]}\n")
+    cascade.append("  «thunk» ", style="bold")
+    cascade.append("a value nothing evaluated: Nix is lazy\n")
+    drvs = Text()
+    for rebuild, mark in DRV_MARK.items():
+        drvs.append(f"  {mark} {rebuild:<8}", style=DRV_STYLE[rebuild])
+        drvs.append(f"{DRV_HELP[rebuild]}\n")
+    for block in (rows, cascade, drvs):
+        block.rstrip()
+    return RichGroup(
+        HELP,
+        section("Keys"),
+        rows,
+        section("Cascade"),
+        cascade,
+        section("Derivations"),
+        drvs,
+        Text("Press escape or ? to close.", style="dim"),
+    )
+
+
+class HelpScreen(ModalScreen[None]):
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("question_mark", "dismiss", "Close"),
+    ]
+    DEFAULT_CSS = """
+    HelpScreen { align: center middle; }
+    HelpScreen > VerticalScroll { width: 90%; height: 90%; border: thick $accent; padding: 1 2; background: $surface; }
+    """
+
+    def __init__(self, keys: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self.keys = keys
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll() as scroll:
+            scroll.border_title = "Help"
+            yield Static(help_text(self.keys), id="help")
+
+
 class ModiffApp(App[None]):
     TITLE = "modiff"
     CSS = """
@@ -636,6 +708,7 @@ class ModiffApp(App[None]):
         Binding("e", "edit_here", "Edit this option"),
         Binding("space", "toggle_edit", "Toggle edit"),
         Binding("x", "delete_edit", "Delete edit"),
+        Binding("question_mark", "help", "Help"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -956,6 +1029,10 @@ class ModiffApp(App[None]):
             self.query_one("#cascade", Tree).focus()
 
         self.push_screen(BrowseScreen(self.options), found)
+
+    def action_help(self) -> None:
+        keys = [(self.get_key_display(b), b.description) for b in self.BINDINGS if isinstance(b, Binding)]
+        self.push_screen(HelpScreen(keys))
 
     def action_add_edit(self) -> None:
         self.open_editor(EditRequest("", ""))

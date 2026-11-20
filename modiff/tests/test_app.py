@@ -11,7 +11,7 @@ from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
 
-from modiff.app import DrvRow, EditScreen, ModiffApp, Target, TreeData, find_options, target
+from modiff.app import DrvRow, EditScreen, HelpScreen, ModiffApp, Target, TreeData, find_options, target
 from modiff.engine import EngineThread
 from modiff.model import Edit
 
@@ -111,6 +111,24 @@ async def test_enter_on_a_changed_input_goes_to_its_row(tmp_path: Path) -> None:
         assert node is not None and node.parent is drvs
         assert isinstance(node.data, DrvRow) and node.data.change is not None
         assert node.data.change.name == "dep-20"
+
+
+async def test_question_mark_opens_the_help(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        await pilot.press("question_mark")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
+        console = Console(width=200, record=True, file=io.StringIO())
+        console.print(app.screen.query_one("#help", Static).content)
+        text = console.export_text()
+        assert "/       Find option" in text
+        assert "~ rebuilt" in text
+        assert "«thunk»" in text
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, HelpScreen)
 
 
 async def test_edit_through_the_modal(tmp_path: Path) -> None:
