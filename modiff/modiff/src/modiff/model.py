@@ -262,6 +262,33 @@ def edit_file(path: OptionPath) -> str:
     return EDIT_FILE + format_path(path)
 
 
+MODULE_HEAD: Final = """\
+# The edits modiff had on, as a module.
+{ lib, config, ... }:
+# modiff puts the module arguments, such as `pkgs`, in scope this way.
+with config._module.args;
+"""
+
+
+def edits_module(edits: list[Edit]) -> str:
+    """The enabled edits as one module, with the meaning modiff gave them:
+    each edit is its own definition. Under `config`, a path never meets
+    a module key such as `imports`."""
+    on = [e for e in edits if e.enabled]
+
+    def define(edit: Edit) -> str:
+        # As typed: indenting a `"…"` string that spans lines changes it.
+        return f"{format_path(edit.path)} = {edit.expr};"
+
+    # `a = lib.mkForce { … }; a.b = 1;` is a Nix error; two modules merge.
+    nested = any(a.path != b.path and overlaps(a.path, b.path) for a in on for b in on)
+    if not nested:
+        body = "".join(f"    {define(e)}\n" for e in on)
+        return f"{MODULE_HEAD}{{\n  config = {{\n{body}  }};\n}}\n"
+    items = "".join(f"    {{ {define(e)} }}\n" for e in on)
+    return f"{MODULE_HEAD}{{\n  config = lib.mkMerge [\n{items}  ];\n}}\n"
+
+
 def overlaps(a: Path, b: Path) -> bool:
     """One path is the other or lies under it."""
     n = min(len(a), len(b))

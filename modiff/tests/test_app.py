@@ -11,9 +11,9 @@ from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
 
-from modiff.app import DrvRow, EditScreen, HelpScreen, ModiffApp, Target, TreeData, find_options, target
+from modiff.app import DrvRow, EditScreen, HelpScreen, ModiffApp, Target, TreeData, WriteScreen, find_options, target
 from modiff.engine import EngineThread
-from modiff.model import Edit
+from modiff.model import Edit, edits_module
 
 SETTLE = 30
 
@@ -134,6 +134,31 @@ async def test_question_mark_opens_the_help(tmp_path: Path) -> None:
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, HelpScreen)
+
+
+async def test_w_writes_the_edits_as_a_module(tmp_path: Path) -> None:
+    edits = [Edit(("a",), "2"), Edit(("c",), '"x"', enabled=False)]
+    app = app_for(tmp_path, list(edits))
+    target = tmp_path / "out.nix"
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        for expected in ("first write", "replaced"):
+            await pilot.press("w")
+            await pilot.pause()
+            assert isinstance(app.screen, WriteScreen)
+            app.screen.query_one("#file", Input).value = str(target)
+            await pilot.press("enter")
+            await pilot.pause()
+            if expected == "replaced":
+                # The file exists: the first enter only warns.
+                assert isinstance(app.screen, WriteScreen)
+                target.write_text("")
+                await pilot.press("enter")
+                await pilot.pause()
+            assert not isinstance(app.screen, WriteScreen)
+            assert target.read_text() == edits_module(edits)
+            assert "a = 2;" in target.read_text()
+            assert "c = " not in target.read_text()
 
 
 async def test_edit_through_the_modal(tmp_path: Path) -> None:

@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Final
 
 import pytest
-from toy import SOURCE
+from toy import SOURCE, TOY
 
-from modiff.engine import Crash, Engine, EngineThread, Source
+from modiff.engine import Crash, Engine, EngineThread, Source, edit_module
 from modiff.model import (
     Cascade,
     Change,
@@ -17,6 +17,7 @@ from modiff.model import (
     OptionView,
     Quiet,
     Rebuild,
+    edits_module,
     format_path,
     pair_drvs,
     parse_option_path,
@@ -342,3 +343,32 @@ def test_option_paths(engine: EngineThread) -> None:
 def test_parse_option_path_round_trips() -> None:
     path = ("environment", "etc", "pam.d/sshd", "text")
     assert parse_option_path(format_path(path)) == path
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        [Edit(("a",), "2"), Edit(("c",), '"x"'), Edit(("lines",), "lib.mkAfter [ config.c ]")],
+        # One path under another: in one attribute set, Nix refuses
+        # `flags = lib.mkForce { … }; flags.p = …;`.
+        [
+            Edit(("flags",), "lib.mkForce { r = true; }"),
+            Edit(("flags", "p"), "false"),
+            Edit(("a",), "3", enabled=False),
+        ],
+    ],
+)
+def test_the_written_module_means_what_the_edits_meant(engine: EngineThread, tmp_path: Path, edits: list[Edit]) -> None:
+    module = tmp_path / "edits.nix"
+    module.write_text(edits_module(edits))
+    on = " ".join(f"({edit_module(e)})" for e in edits if e.enabled)
+
+    def job(e: Engine) -> tuple[str, str]:
+        def config(modules: str) -> str:
+            expr = f"builtins.toJSON (({TOY}).extendModules {{ modules = [ {modules} ]; }}).config"
+            return str(e.state.eval_expr(expr, "/").string_value())
+
+        return config(str(module)), config(on)
+
+    written, applied = run(engine, job)
+    assert written == applied

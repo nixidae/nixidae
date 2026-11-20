@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import difflib
+import pathlib
 import re
 from collections import Counter
 from collections.abc import Callable
@@ -43,6 +44,7 @@ from .model import (
     Quiet,
     Rebuild,
     drv_file,
+    edits_module,
     format_path,
     parse_option_path,
     priority_text,
@@ -441,6 +443,54 @@ class EditScreen(ModalScreen[Edit | None]):
         self.dismiss(None)
 
 
+MODULE_FILE: Final = "modiff-edits.nix"
+
+
+class WriteScreen(ModalScreen[pathlib.Path | None]):
+    """Ask where to write the edits as a module, and show the module."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "cancel", "Cancel")]
+    DEFAULT_CSS = """
+    WriteScreen { align: center middle; }
+    WriteScreen > Vertical { width: 90%; height: auto; max-height: 90%; border: thick $accent; padding: 1 2; background: $surface; }
+    WriteScreen #module { margin: 1 0; }
+    """
+
+    def __init__(self, module: str) -> None:
+        super().__init__()
+        self.module = module
+        # A path that exists is written on the second enter.
+        self.confirmed: pathlib.Path | None = None
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Write the edits that are on as a module, to the file")
+            yield Input(MODULE_FILE, id="file")
+            yield Static("", id="note")
+            yield Static(Syntax(self.module, "nix", theme="ansi_dark", background_color="default"), id="module")
+            yield Label("enter: write   escape: cancel", classes="dim")
+
+    @on(Input.Changed, "#file")
+    def _changed(self) -> None:
+        self.confirmed = None
+        self.query_one("#note", Static).update("")
+
+    @on(Input.Submitted, "#file")
+    def _write(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        if not text:
+            return
+        path = pathlib.Path(text).expanduser()
+        if path.exists() and self.confirmed != path:
+            self.confirmed = path
+            self.query_one("#note", Static).update(Text("The file exists. Press enter again to replace it.", "yellow"))
+            return
+        self.dismiss(path)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 BROWSE_LIMIT: Final = 200
 
 
@@ -707,6 +757,7 @@ class ModiffApp(App[None]):
         Binding("e", "edit_here", "Edit this option"),
         Binding("space", "toggle_edit", "Toggle edit"),
         Binding("x", "delete_edit", "Delete edit"),
+        Binding("w", "write_module", "Write module"),
         Binding("question_mark", "help", "Help"),
         Binding("q", "quit", "Quit"),
     ]
@@ -1028,6 +1079,24 @@ class ModiffApp(App[None]):
             self.query_one("#cascade", Tree).focus()
 
         self.push_screen(BrowseScreen(self.options), found)
+
+    def action_write_module(self) -> None:
+        if not any(e.enabled for e in self.edits):
+            self.status(self.base_status() + " · no edit is on: nothing to write")
+            return
+        module = edits_module(self.edits)
+
+        def chosen(path: pathlib.Path | None) -> None:
+            if path is None:
+                return
+            try:
+                path.write_text(module)
+            except OSError as err:
+                self.status(self.base_status() + f" · cannot write {path}: {err.strerror}")
+                return
+            self.status(self.base_status() + f" · wrote {path}")
+
+        self.push_screen(WriteScreen(module), chosen)
 
     def action_help(self) -> None:
         keys = [(self.get_key_display(b), b.description) for b in self.BINDINGS if isinstance(b, Binding)]
