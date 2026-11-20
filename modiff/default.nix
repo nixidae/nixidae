@@ -7,10 +7,13 @@
     config = { };
     overlays = [ ];
   },
+  # The Nix that modiff evaluates with: a nanopynix lane, such as
+  # `determinate`.
+  lane ? "stable",
 }:
 let
   # nanopynix's set carries huggorm, so modiff links the Nix it does.
-  nanopynix = import sources.nanopynix { inherit pkgs sources system; };
+  nanopynix = (import sources.nanopynix { inherit pkgs sources system; }).lanes.${lane};
   inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) ps;
 
   # What the wheel build reads, and nothing else.
@@ -29,7 +32,7 @@ let
     }) { };
   };
 
-  pythonSet = nanopynix.lib.pythonSetWith {
+  pythonSet = nanopynix.pythonSetWith {
     projectRoots = [ projectRoot ];
     inherit overlay;
   };
@@ -49,7 +52,7 @@ let
       ./modiff/src/modiff/__init__.py
     ];
   };
-  editableSet = nanopynix.lib.pythonSetWith {
+  editableSet = nanopynix.pythonSetWith {
     projectRoots = [ editableRoot ];
     overlay = pySelf: _pyPrev: {
       modiff = pySelf.callPackage (ps.mkEditableProject {

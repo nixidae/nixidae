@@ -37,6 +37,10 @@ reach the firewall, the systemd units and `/etc`.
 nix run --file . packages.default -- --set services.openssh.enable=true
 ```
 
+`--argstr lane determinate` builds modiff on Determinate Nix, which
+evaluates large configurations faster. `nix-shell --argstr lane
+determinate` gives that shell.
+
 With no arguments modiff loads a minimal NixOS configuration. Other sources:
 
 - `--nixos FILE`: a NixOS configuration module.
