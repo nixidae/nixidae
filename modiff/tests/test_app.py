@@ -14,7 +14,7 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
-from toy import SOURCE
+from toy import FALLBACK, SOURCE
 
 from modiff import app as app_module, walk
 from modiff.app import (
@@ -31,14 +31,14 @@ from modiff.app import (
     find_options,
     target,
 )
-from modiff.engine import EngineThread
+from modiff.engine import EngineThread, Source
 from modiff.model import Edit, edits_module
 
 SETTLE = 30
 
 
-def app_for(tmp_path: Path, edits: list[Edit]) -> ModiffApp:
-    return ModiffApp(EngineThread(SOURCE, store=f"local?root={tmp_path}"), edits)
+def app_for(tmp_path: Path, edits: list[Edit], source: Source = SOURCE) -> ModiffApp:
+    return ModiffApp(EngineThread(source, store=f"local?root={tmp_path}"), edits)
 
 
 async def settled(app: ModiffApp, pilot: Pilot[None]) -> None:
@@ -81,7 +81,7 @@ async def test_start_edit_shows_its_cascade_first(tmp_path: Path) -> None:
     async with app.run_test(size=(160, 50)) as pilot:
         await settled(app, pilot)
         assert options(app) == ["a", "b", "drv", "top"]
-        assert drv_rows(app) == ["~ dep-10 → dep-20", "~ top", "~ unit", "~ unit"]
+        assert drv_rows(app) == ["~ dep-10 → dep-20", "~ hidden-10 → hidden-20", "~ top", "~ unit", "~ unit"]
 
 
 async def test_a_rebuilt_derivation_names_its_changed_input(tmp_path: Path) -> None:
@@ -103,7 +103,8 @@ async def test_a_rebuilt_derivation_names_its_changed_input(tmp_path: Path) -> N
 
 
 async def test_enter_on_a_changed_input_goes_to_its_row(tmp_path: Path) -> None:
-    app = app_for(tmp_path, [Edit(("a",), "2")])
+    """Without a build root nothing finds `hidden`: it has no row."""
+    app = app_for(tmp_path, [Edit(("a",), "2")], FALLBACK)
     async with app.run_test(size=(160, 50)) as pilot:
         await settled(app, pilot)
         tree: Tree[TreeData] = app.query_one("#cascade", Tree)

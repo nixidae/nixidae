@@ -54,8 +54,10 @@ from .walk import (
     count_forced,
     drv_string,
     error_text,
+    forced_attr,
     fully_forced,
     instantiated,
+    is_derivation,
     show_forced,
     show_lazy,
 )
@@ -129,6 +131,10 @@ class Engine:
         self.base_derivers: dict[str, str] = {}
         self.ext_derivers: dict[str, str] = {}
         self.base_recorded_drvs: frozenset[str] = frozenset()
+        # The `.drv` of each forced path that is a derivation, and every
+        # `.drv` they need: what the base builds.
+        self.base_roots: tuple[str, ...] = ()
+        self.base_closure: frozenset[str] = frozenset()
         self._options: dict[OptionPath, bool] = {}
         # The last walk met a failure, so it left parts of the new side
         # unforced that the base forced.
@@ -173,6 +179,8 @@ class Engine:
         self.base_derivers = self._derivers(self.base_drvs)
         self.base_recorded_drvs = frozenset(self.base_derivers.values())
         self.state.clear_recorded_derivations()
+        self.base_roots = self._roots(base)
+        self.base_closure = self._drv_closure(self.base_roots)
         self.base = base
         return Loaded(time.monotonic() - start, count_forced(self._sel(base, ("config",))))
 
@@ -236,8 +244,13 @@ class Engine:
         clean = not walker.failures
         self._walk_failed = not clean
         quiet = self._quiet(enabled, changes) if clean else ()
-        added = self._named(drvs - base_drvs, self.ext_derivers) if clean else ()
-        removed = self._named(self._unreached(base_drvs - drvs, walker.kept), self.base_derivers) if clean else ()
+        added: tuple[str, ...] = ()
+        removed: tuple[str, ...] = ()
+        if clean and self.base_roots:
+            added, removed = self._closure_diff(walker.rebuilt)
+        elif clean:
+            added = self._named(drvs - base_drvs, self.ext_derivers)
+            removed = self._named(self._unreached(base_drvs - drvs, walker.kept), self.base_derivers)
         return Cascade(
             groups=self._group(changes) + quiet,
             seconds=time.monotonic() - start,
@@ -247,6 +260,55 @@ class Engine:
             drvs=self._fold(pair_drvs(added, removed, self._likeness)),
             derivers=self.base_derivers | self.ext_derivers,
         )
+
+    def _roots(self, base: Value) -> tuple[str, ...]:
+        """The `.drv` of each forced path that names a derivation. Reads
+        only what the load forced."""
+        roots: list[str] = []
+        for path in self.source.force:
+            v = self._peek(base, path)
+            if v is not None and is_derivation(v):
+                v = forced_attr(v, "drvPath")
+            if v is not None and v.type_name() == "string" and (drv := self._deriver(str(v.string_value()))):
+                roots.append(drv)
+        return tuple(roots)
+
+    def _deriver(self, path: str) -> str | None:
+        """The `.drv` of a path, if it is a derivation or its output. An
+        `outPath` that nothing coerced was never recorded; the store knows
+        it from the `.drv` instantiation wrote."""
+        if (drv := drv_file(path, self.base_derivers)) is not None:
+            return drv
+        if not path.startswith(self.store.store_dir() + "/"):
+            return None
+        try:
+            derivers = self.store.query_valid_derivers(self.store.parse_store_path(path))
+        except NixError:
+            return None
+        return min((self.store.print_store_path(d) for d in derivers), default=None)
+
+    def _drv_closure(self, roots: Iterable[str]) -> frozenset[str]:
+        paths = [self.store.parse_store_path(r) for r in roots]
+        if not paths:
+            return frozenset()
+        closure = (self.store.print_store_path(p) for p in self.store.compute_fs_closure(paths))
+        return frozenset(p for p in closure if is_drv_file(p))
+
+    def _closure_diff(self, rebuilt: list[tuple[Value, Value]]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """What the edited build needs that the base build does not, and
+        the reverse. Recording cannot tell this: Nix records a derivation
+        when an evaluation instantiates it, and `pkgs.xonsh == x` in an
+        assertion instantiates one no build holds. The edited side shares
+        it, so it records nothing, and the base's recording made its inputs
+        look removed. A root the walk found unchanged builds the same."""
+        renamed: dict[str, str] = {}
+        for old, new in rebuilt:
+            key = instantiated(old)
+            old_drv = drv_file(key, self.base_derivers) if key else None
+            if old_drv in self.base_roots and (new_drv := drv_string(self.state, new, "drvPath")):
+                renamed[old_drv] = new_drv
+        ext_closure = self._drv_closure(renamed.get(r, r) for r in self.base_roots)
+        return tuple(sorted(ext_closure - self.base_closure)), tuple(sorted(self.base_closure - ext_closure))
 
     def _unreached(self, gone: set[str], kept: list[str]) -> set[str]:
         """The base derivations the new side no longer reaches. Nix records

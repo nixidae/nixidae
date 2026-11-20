@@ -32,6 +32,15 @@ let
   # Shared, and the base forces only `p`. An edit to `pick` forces `q`
   # in the one value both sides hold.
   half = { p = 1; q = 1 + 1; };
+  # Shared, outside every build. Comparing its `outPath` instantiates it
+  # and records `lone-dep`, but not `lone`: nothing coerces it. The edited
+  # side compares the forced string again and records nothing.
+  lone = derivation {
+    name = "lone";
+    system = "x86_64-linux";
+    builder = "/bin/sh";
+    dep = derivation { name = "lone-dep"; system = "x86_64-linux"; builder = "/bin/sh"; };
+  };
 in lib.evalModules {
   modules = [
     # An edit to `old` reaches `a` and never `config.old`.
@@ -72,6 +81,10 @@ in lib.evalModules {
         half = lib.mkOption { type = lib.types.raw; default = half; };
         pick = lib.mkOption { type = lib.types.str; default = "p"; };
         picked = lib.mkOption { type = lib.types.int; default = half.${config.pick}; };
+        # Coerces `top`, and is no store path itself: `FALLBACK` forces it.
+        label = lib.mkOption { type = lib.types.str; default = "built: ${config.top}"; };
+        # As NixOS asks whether a user's shell is `pkgs.xonsh`.
+        isLone = lib.mkOption { type = lib.types.bool; default = lone.outPath == "x${toString config.b}"; };
         fan = lib.mkOption {
           type = lib.types.raw;
           default =
@@ -109,6 +122,8 @@ in lib.evalModules {
         };
       };
       config = {
+        # An edit names it as one names `pkgs`.
+        _module.args.lone = lone;
         # Shaped like NixOS `assertions`: the base forces `ok` and never
         # `msg`; `name` is a literal, so a value with no forcing.
         checks = lib.mkMerge [
@@ -174,7 +189,7 @@ in lib.evalModules {
             })
           ];
           # A path read off a derivation coerces no derivation, so nothing
-          # records `hidden`: an input with no row of its own.
+          # records `hidden`. Under `FALLBACK` it is an input with no row.
           hidden = (derivation {
             name = "hidden-${toString config.b}";
             system = "x86_64-linux";
@@ -196,6 +211,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "fan"),
     ("config", "half", "p"),
     ("config", "picked"),
+    ("config", "isLone"),
     ("config", "alias", "cfg", "b"),
     ("config", "flags", "p"),
     ("config", "flags", "q"),
@@ -218,3 +234,6 @@ FORCE: Final[tuple[Path, ...]] = (
 )
 
 SOURCE: Final = Source(TOY, FORCE)
+# No forced path is a derivation or its output, so no build closure:
+# rebuilds come from what the evaluations record.
+FALLBACK: Final = Source(TOY, (("config", "b"), ("config", "label")))

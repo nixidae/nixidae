@@ -21,7 +21,9 @@ The last row of the cascade lists the derivations the edit rebuilds. Select
 one to see why: the inputs that changed and the attributes of its `.drv`
 that differ. A derivation added or removed with its own inputs, such as a
 service's package with its sources and build tools, shows as one row with
-`+N inputs`: the inputs are rows under it.
+`+N inputs`: the inputs are rows under it. The list compares what the
+forced derivations need to build before and after the edit. A package that
+an assertion only compares is no rebuild.
 
 It is a tool to learn the module system with: set one option and watch it
 reach the firewall, the systemd units and `/etc`.

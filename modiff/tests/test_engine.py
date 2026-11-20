@@ -6,7 +6,7 @@ from typing import Final
 
 import huggorm
 import pytest
-from toy import SOURCE, TOY
+from toy import FALLBACK, FORCE, SOURCE, TOY
 
 from modiff.engine import Crash, Engine, EngineThread, Source, edit_module, nixos_source
 from modiff.model import (
@@ -72,6 +72,32 @@ def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> 
     """`top` is forced by its drvPath alone, as NixOS forces the toplevel:
     no coercion records it, only its input `dep`."""
     c = cascade(engine, Edit(("a",), "2"))
+    assert sorted(store_name(p) for p in c.drvs_added) == ["dep-20", "hidden-20", "top", "unit", "unit"]
+    assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "hidden-10", "top", "unit", "unit"]
+
+
+def test_a_forced_out_path_is_a_build_root(tmp_path: Path, engine: EngineThread) -> None:
+    """Forcing `outPath` records nothing; the store names its `.drv`."""
+    out_paths = Source(TOY, tuple((*p[:-1], "outPath") if p[-1] == "drvPath" else p for p in FORCE))
+    thread = EngineThread(out_paths, store=f"local?root={tmp_path}")
+    try:
+        assert run(thread, Engine.load).error is None
+        c = run(thread, lambda e: e.apply([Edit(("a",), "2")]))
+    finally:
+        thread.shutdown()
+    want = cascade(engine, Edit(("a",), "2"))
+    assert sorted(store_name(p) for p in c.drvs_added) == sorted(store_name(p) for p in want.drvs_added)
+    assert sorted(store_name(p) for p in c.drvs_removed) == sorted(store_name(p) for p in want.drvs_removed)
+
+
+def test_without_a_build_root_rebuilds_come_from_recording(tmp_path: Path) -> None:
+    """Nothing records `hidden`, so only the build closure finds it."""
+    thread = EngineThread(FALLBACK, store=f"local?root={tmp_path}")
+    try:
+        assert run(thread, Engine.load).error is None
+        c = run(thread, lambda e: e.apply([Edit(("a",), "2")]))
+    finally:
+        thread.shutdown()
     assert sorted(store_name(p) for p in c.drvs_added) == ["dep-20", "top", "unit", "unit"]
     assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top", "unit", "unit"]
 
@@ -127,6 +153,24 @@ def test_a_derivation_the_edit_drops_is_removed(engine: EngineThread) -> None:
     gone = [d for d in c.drvs if d.name != "top"]
     assert [(d.kind, d.name, [store_name(p) for p in d.only]) for d in gone] == [
         (Rebuild.REMOVED, "extra", ["extra-src"])
+    ]
+
+
+def test_a_derivation_only_evaluated_is_no_rebuild(engine: EngineThread) -> None:
+    """The base instantiates `lone` to compare its `outPath`, which records
+    its input `lone-dep`. No build holds either, before or after."""
+    c = cascade(engine, Edit(("a",), "2"))
+    assert "lone-dep" not in [store_name(p) for p in (*c.drvs_added, *c.drvs_removed)]
+
+
+def test_an_edit_that_builds_an_evaluated_derivation_adds_its_inputs(engine: EngineThread) -> None:
+    """The base instantiated `lone` already, so putting it in `top` records
+    `lone` again and never `lone-dep`. Both are new to the build."""
+    c = cascade(engine, Edit(("extras",), "[ lone ]"))
+    rows = [(d.kind, d.name, [store_name(p) for p in d.only]) for d in c.drvs if d.name != "top"]
+    assert rows == [
+        (Rebuild.REMOVED, "extra", ["extra-src"]),
+        (Rebuild.ADDED, "lone", ["lone-dep"]),
     ]
 
 
