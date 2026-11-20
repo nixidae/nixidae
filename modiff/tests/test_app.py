@@ -241,6 +241,16 @@ async def test_a_failure_shows_in_the_title_and_the_status(tmp_path: Path) -> No
         assert str(app.query_one("#status", Static).content).endswith("derivations not compared: a value fails")
 
 
+async def test_the_status_counts_derivations_as_the_row_does(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [Edit(("a",), "2")])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        status = str(app.query_one("#status", Static).content)
+        rows = [str(node.label) for node in app.query_one("#cascade", Tree).root.children]
+        summary = next(r for r in rows if r.startswith("Derivations: "))
+        assert status.endswith(", derivations: " + summary.removeprefix("Derivations: "))
+
+
 def test_the_readme_lists_every_key() -> None:
     readme = (Path(__file__).parent.parent / "README.md").read_text()
     table = readme.split("## Keys", 1)[1].split("\n\n", 2)[1]

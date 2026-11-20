@@ -678,10 +678,13 @@ def drv_line(change: DrvChange) -> Text:
     return Text(f"{DRV_MARK[change.kind]} {name}", style=DRV_STYLE[change.kind])
 
 
-def drv_summary(changes: tuple[DrvChange, ...]) -> Text:
+def drv_counts(changes: tuple[DrvChange, ...]) -> str:
     counts = Counter(c.kind for c in changes)
-    parts = [f"{counts[k]} {k}" for k in Rebuild if counts[k]]
-    return Text(f"Derivations: {', '.join(parts)}", style="bold")
+    return ", ".join(f"{counts[k]} {k}" for k in Rebuild if counts[k])
+
+
+def drv_summary(changes: tuple[DrvChange, ...]) -> Text:
+    return Text(f"Derivations: {drv_counts(changes)}", style="bold")
 
 
 def drv_detail(row: DrvRow, diff: DrvDiff | None = None) -> RenderableType:
@@ -1013,11 +1016,7 @@ class ModiffApp(App[None]):
                     if path is not None and (file := drv_file(path, cascade.derivers)) is not None:
                         self.drv_nodes.setdefault(file, leaf)
         total = sum(len(g.changes) for g in cascade.groups)
-        drvs = (
-            f", derivations +{len(cascade.drvs_added)} -{len(cascade.drvs_removed)}"
-            if cascade.drvs_added or cascade.drvs_removed
-            else ""
-        )
+        drvs = f", derivations: {drv_counts(cascade.drvs)}" if cascade.drvs else ""
         failed = sum(1 for g in cascade.groups for c in g.changes if c.kind is Kind.FAILED)
         if failed and not drvs:
             drvs = ", derivations not compared: a value fails"
