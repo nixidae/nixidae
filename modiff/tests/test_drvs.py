@@ -7,6 +7,7 @@ S = "/nix/store/"
 
 def test_store_name_drops_the_hash() -> None:
     assert store_name(S + "abc-openssh-9.8p1-man") == "openssh-9.8p1-man"
+    assert store_name(S + "abc-openssh-9.8p1.drv") == "openssh-9.8p1"
 
 
 def test_package_name_follows_parse_drv_name() -> None:

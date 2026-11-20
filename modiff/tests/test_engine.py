@@ -68,6 +68,15 @@ def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> 
     assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top"]
 
 
+def test_listing_rebuilds_forces_nothing_in_the_base(engine: EngineThread) -> None:
+    """The base forced `top.drvPath` alone. Reading its `outPath` for the
+    rebuilds would key `top` by outPath in every later cascade."""
+    first = changes(cascade(engine, Edit(("a",), "2")))["top"]
+    second = changes(cascade(engine, Edit(("a",), "2")))["top"]
+    assert first == second
+    assert first.old.startswith("«drvPath ")
+
+
 def test_drv_diff_names_the_input_that_changed(engine: EngineThread) -> None:
     def job(e: Engine) -> DrvDiff:
         c = e.apply([Edit(("a",), "2")])
@@ -77,7 +86,7 @@ def test_drv_diff_names_the_input_that_changed(engine: EngineThread) -> None:
 
     diff = run(engine, job)
     assert diff.error is None, diff.error
-    assert [(d.kind, d.name) for d in diff.inputs] == [(Rebuild.VERSION, "dep-20.drv")]
+    assert [(d.kind, d.name) for d in diff.inputs] == [(Rebuild.VERSION, "dep-20")]
     assert [a.name for a in diff.attrs] == ["env.inputs"]
 
 

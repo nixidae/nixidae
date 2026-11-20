@@ -34,10 +34,21 @@ from .model import (
     changed_paths,
     edit_file,
     format_path,
+    is_drv_file,
     nix_string,
     overlaps,
 )
-from .walk import SKIP, Walker, count_forced, drv_string, error_text, fully_forced, show_forced, show_lazy
+from .walk import (
+    SKIP,
+    Walker,
+    count_forced,
+    drv_string,
+    error_text,
+    fully_forced,
+    instantiated,
+    show_forced,
+    show_lazy,
+)
 
 # Nix's CLI sets this stack in `main()`; an embedder's thread keeps 8 MiB, and
 # the default max-call-depth of 10000 needs about 27 MB (huggorm's runtime,
@@ -101,6 +112,7 @@ class Engine:
         # Output path -> `.drv` path, for each side.
         self.base_derivers: dict[str, str] = {}
         self.ext_derivers: dict[str, str] = {}
+        self.base_recorded_drvs: frozenset[str] = frozenset()
         self._options: dict[OptionPath, bool] = {}
 
     def _sel(self, v: Value, path: Path) -> Value:
@@ -136,6 +148,7 @@ class Engine:
             self.state.set_record_derivations(False)
         self.base_drvs = frozenset(self.state.recorded_out_paths())
         self.base_derivers = self._derivers(self.base_drvs)
+        self.base_recorded_drvs = frozenset(self.base_derivers.values())
         self.state.clear_recorded_derivations()
         self.base = base
         return Loaded(time.monotonic() - start, count_forced(self._sel(base, ("config",))))
@@ -174,17 +187,24 @@ class Engine:
         self.ext_derivers = self._derivers(drvs)
         self.state.clear_recorded_derivations()
         base_drvs = set(self.base_drvs)
+        # A `.drv` whose output a coercion recorded is listed by that output.
+        listed_old = self.base_recorded_drvs
+        listed_new = set(self.ext_derivers.values())
         for old, new in walker.rebuilt:
-            old_out = drv_string(self.state, old, "outPath")
-            new_out = drv_string(self.state, new, "outPath")
-            old_drv = drv_string(self.state, old, "drvPath")
+            # Keyed as the walk keyed it: the base forced only `drvPath`
+            # of a top level, and reading its `outPath` would change the
+            # key of every later cascade.
+            old_key = instantiated(old)
+            new_key = drv_string(self.state, new, "outPath" if old_key and not is_drv_file(old_key) else "drvPath")
+            if not old_key or not new_key or old_key in listed_old or new_key in listed_new:
+                continue
+            base_drvs.add(old_key)
+            drvs.add(new_key)
+            old_drv = old_key if is_drv_file(old_key) else drv_string(self.state, old, "drvPath")
             new_drv = drv_string(self.state, new, "drvPath")
-            if old_out and new_out:
-                base_drvs.add(old_out)
-                drvs.add(new_out)
-                if old_drv and new_drv:
-                    self.base_derivers.setdefault(old_out, old_drv)
-                    self.ext_derivers[new_out] = new_drv
+            if old_drv and new_drv:
+                self.base_derivers.setdefault(old_key, old_drv)
+                self.ext_derivers[new_key] = new_drv
         changes = walker.result()
         clean = not walker.failures
         quiet = self._quiet(enabled, changes) if clean else ()

@@ -17,7 +17,8 @@ from .model import Change, Kind, Path, nix_string
 SKIP: Final = frozenset({"_module"})
 # A derivation is keyed by the first of these its evaluation forced.
 DRV_KEYS: Final = ("outPath", "drvPath", "name")
-INSTANTIATED: Final = frozenset({"outPath", "drvPath"})
+INSTANTIATED_ORDER: Final = ("outPath", "drvPath")
+INSTANTIATED: Final = frozenset(INSTANTIATED_ORDER)
 
 # A list element's key: field name to its value as Nix prints it. `SELF` is
 # the element itself, a scalar or a kind. A field a side lacks is unknown
@@ -203,13 +204,25 @@ class Walker:
 def drv_string(state: EvalState, drv: Value, name: str) -> str | None:
     """`outPath` or `drvPath` of a derivation that was instantiated: one
     of them was forced. Both select from one `derivationStrict` result,
-    so this evaluates nothing new."""
+    so this evaluates nothing new. It still turns a thunk into a value,
+    which `show_lazy` and the walk would read: use `instantiated` on the
+    base."""
     if not drv.has(name):
         return None
     v = drv.get(name)
     if not quiet_force(state, v) or v.type_name() != "string":
         return None
     return str(v.string_value())
+
+
+def instantiated(drv: Value) -> str | None:
+    """The path the walk keyed a derivation on: its `outPath`, else its
+    `.drv`. Forces nothing."""
+    for name in INSTANTIATED_ORDER:
+        child = forced_attr(drv, name)
+        if child is not None and child.type_name() == "string":
+            return str(child.string_value())
+    return None
 
 
 def quiet_force(state: EvalState, v: Value) -> bool:
@@ -388,9 +401,11 @@ def show_lazy(v: Value) -> str:
     what nothing needed. Forces nothing, so showing a value never widens
     what the next cascade compares. Nix prints a derivation as its path
     only when it may force (`print.cc`, `printDerivation`): modiff names a
-    top-level one itself."""
+    top-level one itself, by the attribute the walk keys it on. Not
+    `drvPath` first, as Nix: the engine reads `drvPath` of each coerced
+    derivation, and the name would then change after the first cascade."""
     if is_derivation(v):
-        for name in ("drvPath", "outPath", "name"):
+        for name in DRV_KEYS:
             child = forced_attr(v, name)
             if child is not None and child.type_name() == "string":
                 return f"«derivation {child.string_value()}»"

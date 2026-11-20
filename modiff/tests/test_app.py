@@ -80,7 +80,7 @@ async def test_a_rebuilt_derivation_names_its_changed_input(tmp_path: Path) -> N
         await drained(app, pilot)
         text = detail_text(app)
         assert "Inputs that changed" in text
-        assert "dep-10.drv → dep-20.drv" in text
+        assert "dep-10 → dep-20" in text
 
 
 async def test_edit_through_the_modal(tmp_path: Path) -> None:

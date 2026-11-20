@@ -110,9 +110,18 @@ class DrvChange:
         return store_name(self.new or self.old or "")
 
 
+DRV_SUFFIX: Final = ".drv"
+
+
+def is_drv_file(path: str) -> bool:
+    return path.endswith(DRV_SUFFIX)
+
+
 def store_name(path: str) -> str:
-    """`/nix/store/<hash>-openssh-9.8p1` -> `openssh-9.8p1`."""
-    return path.rsplit("/", 1)[-1].split("-", 1)[-1]
+    """`/nix/store/<hash>-openssh-9.8p1` -> `openssh-9.8p1`. A `.drv`
+    is named as the derivation, so its outputs and it pair."""
+    name = path.rsplit("/", 1)[-1].split("-", 1)[-1]
+    return name.removesuffix(DRV_SUFFIX)
 
 
 _VERSION_START: Final = re.compile(r"-(?![A-Za-z])")
