@@ -32,7 +32,7 @@ def machine_json(name: str, backend: BackendName = BackendName.UML) -> MachineSp
         "control": {"kind": "agent", "config": {}},
         "interfaces": [],
         "uplink": None,
-        "uplinkProxy": UplinkProxy.PASST,
+        "uplinkProxy": UplinkProxy.VSOCK,
         "uplinkNetwork": {
             "address": "10.0.2.15",
             "prefixLength": 24,

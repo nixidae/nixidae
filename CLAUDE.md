@@ -440,13 +440,12 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 - After touching `machine.py`, `net.py` or `forward.py`: `nix build .#lan .#lan.qemu`. Segment wiring also runs `segments` (`--option extra-sandbox-paths /dev/net`). `.#lan.qemu` needs `/dev/kvm`.
 - QEMU guests get `-cpu host` minus `vmx`/`svm`; `vivarium.nestedVirtualization = true` passes it (`nested`, by hand).
 - `container` (nixidae/nixidae#530): crun, no kernel. By hand: a user namespace, 65536 subordinate ids with working `newuidmap`/`newgidmap`, a delegable cgroup; `container.probe()` names what is missing; `container-probe` / `container-probe-tun` fail in seconds in the sandbox. Sandboxed (`checks.container`): a daemon with `uid-range` (CI: ghanix `nix.install.uidRange`), `/dev/net` in `extra-sandbox-paths` (ghanix `nix.install.devNet`). The store is an rbind; the launcher mounts the cgroup2 crun wants (`_ensure_cgroup2`); seccomp refuses setuid, so suid-sgid-wrappers are skipped. Without a writable cgroup the launcher runs under `systemd-run --user --scope -p Delegate=yes`.
-- `modules/container.nix`: `boot.isContainer`, an overlay over the host's `/nix/store` (all of `/nix` fails with EINVAL unprivileged). LAN: `crun_launch tap` (`container-lan`). Uplink: pasta as `vec0`; `/sys` read-only so udevd stays off. Agent on `unix:/run/host/agent/sock`. `crun_launch` relays the console pty; EIO is systemd reopening the console.
-- Lifetime chain: runner → launcher → crun, pasta, tap (`die_with_parent`) → init (`setpriv --pdeathsig KILL`). SIGKILL of the runner leaves nothing; keep every link.
+- `modules/container.nix`: `boot.isContainer`, an overlay over the host's `/nix/store` (all of `/nix` fails with EINVAL unprivileged). LAN: `crun_launch tap` (`container-lan`). Uplink: the relay as `vec0`, reaching the egress over two unix sockets in `/run/host/agent`; `/sys` read-only so udevd stays off. Agent on `unix:/run/host/agent/sock`. `crun_launch` relays the console pty; EIO is systemd reopening the console.
+- Lifetime chain: runner → launcher → crun, tap (`die_with_parent`) → init (`setpriv --pdeathsig KILL`). SIGKILL of the runner leaves nothing; keep every link.
 
 ### Network
 
-- `vivarium.inbound` is fixed before boot: passt binds every socket while parsing arguments and has no control socket. `auto` is pasta-only.
-- passt: a spec of only exclusions (`127.0.0.2/~32768-60999`) is weak mode (unbindable ports skipped, ephemeral ones too); a listed port that will not bind is fatal, so `forward.pick` checks it first. Check against real passt: `passt --foreground -s /tmp/p.sock <-t args>`, `ss -tlnH | grep -c 127.0.0.2`; the socket path must be short.
+- The uplink: a NixOS guest's relay over vsock to an egress on the host; a guest that is not NixOS sits behind the run's router (`router.enable = false` with one is an evaluation error). The runner binds each `vivarium.inbound` port and hands it to the egress, which takes new ones at run time. gvproxy (krun, deprecated) binds its forwards when it starts; `forward.pick` checks them first.
 - `nix build .#iperf` lies under host load (1.9 vs 4.4 Gbit/s) and outside a fresh netns (`net.unix.max_dgram_qlen`); compare back to back, under `unshare -rn`.
 
 ### Kubernetes test

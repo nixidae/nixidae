@@ -106,15 +106,15 @@ async def _writable_store(one: Machine) -> None:
 
 
 async def _uplink(one: Machine) -> None:
-    # pasta's DHCP gives vec0 the address passt gives the other backends,
-    # and its DNS forwarder answers.
+    # The relay gives vec0 the address it gives the other backends, and
+    # the egress's DNS forwarder answers.
     await one.succeed(
         "for i in $(seq 50); do ip -4 -o addr show vec0 | grep -q inet && exit 0; sleep 0.2; done; exit 1"
     )
     print(f"[test] vec0: {(await one.succeed('ip -4 -o addr show vec0')).stdout.split()[3]}")
     await one.succeed("getent hosts localhost")
 
-    # A forward: the host reaches the guest's sshd through pasta.
+    # A forward: the host reaches the guest's sshd through the egress.
     host, _, port = one.reachable(one.spec.ssh_port)[0].rpartition(":")
     with socket.create_connection((host, int(port)), timeout=10) as conn:
         banner = conn.recv(64)

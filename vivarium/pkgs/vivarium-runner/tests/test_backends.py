@@ -41,9 +41,9 @@ def test_get_names_what_is_installed() -> None:
 
 
 MINE = Path("/home/me/linux/vmlinux")
-UML = {"bridge": "/b", "passt": "/p"}
-QEMU = {"qemu": "/q", "qemuImg": "/i", "virtiofsd": "/v", "passt": "/p"}
-KRUN = {"krun": "/k", "qemuImg": "/i", "acpi": False}
+UML = {"egress": "/e"}
+QEMU = {"qemu": "/q", "qemuImg": "/i", "virtiofsd": "/v", "egress": "/e"}
+KRUN = {"krun": "/k", "qemuImg": "/i", "acpi": False, "egress": "/e"}
 KERNEL = Kernel(image=Path("/nix/store/bzImage"), vmlinux=Path("/nix/store/vmlinux"), initrd=Path("/i"), cmdline="")
 NIXOS = Boot(system="/nix/store/s", kernel=KERNEL, firmware=None)
 
@@ -81,4 +81,4 @@ class TestWithKernel:
 
     def test_a_container_refuses(self) -> None:
         with pytest.raises(BackendError, match="the host's kernel"):
-            Container.with_kernel(_spec(BackendName.CONTAINER, {"crun": "/c", "setpriv": "/s", "passt": "/p"}), MINE)
+            Container.with_kernel(_spec(BackendName.CONTAINER, {"crun": "/c", "setpriv": "/s", "egress": "/e"}), MINE)

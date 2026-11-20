@@ -203,11 +203,9 @@ A sandboxed check has no network, and most tests here are written for
 that. Run one by hand on a connected host and the guest suddenly resolves
 names and reaches a cache, so a test that would fail the check passes.
 
-`--offline` binds passt's outbound sockets to loopback. The guest keeps
-its address, its DHCP lease and the host's way in; only the way out goes.
-Measured on a connected host, same session: plain reaches `1.1.1.1:53`
-and resolves `example.com`, `--offline` does neither, and the forward on
-`127.0.0.2` still works in both.
+`--offline` gives the run a network namespace with only `lo`, and binds
+the egress's outbound sockets to loopback. The guest keeps its address and
+the host's way in; only the way out goes.
 
 ## Pausing a run
 
@@ -232,8 +230,8 @@ run prints them with absolute paths.
 
 ```
         host                                  guest
-  ┌──────────────┐   vec0  ┌───────┐
-  │    passt     ├─────────┤       │   NAT out, forwards in
+  ┌──────────────┐  vsock  ┌───────┐
+  │    egress    ├─────────┤       │   NAT out, forwards in
   └──────────────┘         │       │
   ┌──────────────┐   ssl0  │  UML  │
   │    runner    ├─────────┤kernel │   arpyc on /dev/ttyS0: the agent
@@ -245,10 +243,10 @@ run prints them with absolute paths.
                              the guest's store view
 ```
 
-Each guest is one `uml-passt-bridge` process. It forks passt for the
-uplink, then execs the UML kernel with three fds: passt on `vec0`, a
-socket to its segment on `vec1`, and a socketpair to the host runner on
-`ssl0`.
+Each guest is one UML kernel process, with a vhost-user vsock device the
+egress serves, a socket to its segment on `vec1`, and a socketpair to the
+host runner on `ssl0`. The guest's relay runs in a network namespace
+behind `vec0` and carries each flow over vsock to the egress.
 
 **Control channel.** The host drives guests over `ssl0`, not ssh, so
 commands work before networking exists and inside a sandbox. `vivarium_agent.arpyc`
@@ -367,40 +365,32 @@ MTU a guest has 15 KB in flight and no more. Guests therefore run a
 
 ## Reaching a guest from the host
 
-A guest's uplink is `10.0.2.15/24`, with passt as the router on `10.0.2.2`
-and answering DNS on `10.0.2.3` — the range QEMU's own user-mode network
-has always used. Every guest gets the same address, and that is right:
-each has a passt of its own, none of them shares a link, and two guests
-that must reach each other do it on `vec1`.
-
-This is set explicitly, because **passt's default is to hand the guest the
-host's own address** — its real IPv4, netmask and router. That makes the
-host's LAN on-link to the guest, and on a hosted machine that LAN has
-other people's servers on it. IPv6 is left alone: there the guest gets an
-address of its own out of the host's prefix, which is the normal way to do
+A guest's uplink is `10.0.2.15/24`, with its relay as the router on
+`10.0.2.2` and answering DNS on `10.0.2.3` — the range QEMU's own
+user-mode network has always used (nix/uplink.nix). Every guest gets the
+same address, and that is right: each has a relay of its own, none of
+them shares a link, and two guests that must reach each other do it on
+`vec1`. Not the host's own address: that makes the host's LAN on-link to
+the guest, and on a hosted machine that LAN has other people's servers on
 it.
 
-passt is the only way in, and **its forwards cannot be changed while it is
-running**: `conf_ports()` binds every socket while parsing arguments, there
-is no control socket, and the `auto` mode that watches `/proc/net/tcp` is
-pasta-only — pasta shares the target namespace's `/proc`, and passt, talking
-to a VM over a socket, does not. Adding a forward to a live passt means
-restarting it, which drops every connection through it, including the ssh
-session you were in when you started the service you wanted to reach.
+`vivarium.uplink.proxy = "vsock"` is the uplink of a NixOS guest on every
+backend (nixidae/nixidae#1404, nixidae/nixidae#1522). The relay runs in
+the guest, in a network namespace behind `vec0`, and carries each flow
+over vsock to an egress on the host. A container has no vsock device: its
+relay and the egress share two unix sockets instead. The runner binds
+each inbound port and hands it to the egress, which takes new ones while
+it runs (`vivarium switch`).
 
-passt and gvproxy are deprecated: `vivarium.uplink.proxy = "vsock"` replaces
-them, and is the default for a NixOS guest on every backend
-(nixidae/nixidae#1404, nixidae/nixidae#1522). A container has no vsock
-device: its relay and the egress share two unix sockets instead. passt stays
-the default for a guest that is not NixOS, which cannot run the relay.
+A guest that is not NixOS cannot run the relay, so it sits behind the
+run's router. A run that sets `router.enable = false` and holds such a
+guest with an uplink fails to evaluate.
 
 A krun guest can take gvproxy instead: `vivarium.uplink.proxy = "gvproxy"`
-(nixidae/nixidae#1163). gvproxy runs on macOS and needs no user namespace.
-The guest gets the same addresses, from gvproxy's DHCP, and gvproxy
-forwards only listed TCP ports. `checks.uplink-iperf` measures both through
-a forward on dynhetz, 8 runs at MTU 1500: host to guest 2.7 to 6.0 Gbit/s
-with passt and 1.7 to 2.5 with gvproxy; guest to host 5.9 to 9.1 with passt
-and 2.8 to 3.7 with gvproxy.
+(nixidae/nixidae#1163), deprecated. gvproxy runs on macOS and needs no
+user namespace. The guest gets the same addresses, from gvproxy's DHCP,
+and gvproxy forwards only listed TCP ports, fixed when it starts.
+`checks.uplink-iperf` measures it against vsock.
 
 So `vivarium.inbound` lists the guest ports before boot, one entry each.
 Nothing else reaches the guest from the host, ssh included: the default is
@@ -510,13 +500,8 @@ for the state.
 is a `SOCK_SEQPACKET` socketpair from `net.py`; UML takes the fd as
 `vec1:transport=fd` and QEMU takes it as `dgram,local.type=fd`. Both are
 plain `send` and `recv` on the fd with no framing of their own, so the two
-kinds of guest could sit on one segment. The forwards are the specifiers
-`forward.py` builds, unchanged.
-
-`uml-passt-bridge` is not in the QEMU picture. It exists to add and strip
-passt's 4-byte length prefix for UML's vector transport, and that prefix
-*is* QEMU's socket protocol — so the runner starts passt directly and the
-two talk.
+kinds of guest could sit on one segment. The uplink is vsock either way:
+a vhost-user device the egress serves.
 
 Two things to know about the QEMU guest:
 
@@ -571,7 +556,6 @@ The uplink is the guest's `vec0` (`vivarium.uplink.proxy`):
 
 | uplink | backends | Linux, by hand | Linux, in a build | macOS, by hand |
 | --- | --- | --- | --- | --- |
-| `passt`, deprecated | `uml`, `qemu`, `krun`; pasta on `container` | yes | yes | no: macOS has no passt |
 | `gvproxy`, deprecated | `krun` | yes | yes (`uplink-iperf`) | yes |
 | `vsock` | `uml`, `qemu`, `krun`; two unix sockets on `container` | yes | yes (`lan-vsock` on `uml`, `krun` and `container`) | yes (`lan-vsock`, `forward-vsock`) |
 | `router` | guests on any backend; the router on `uml`, `qemu` or `krun` | yes | yes (`router`, `lan-router`, `forward-router`) | yes, a krun router |
@@ -580,7 +564,9 @@ The uplink is the guest's `vec0` (`vivarium.uplink.proxy`):
 What a guest gets when its run sets nothing:
 
 - A NixOS guest: `vsock`.
-- A guest that is not NixOS: `passt`, unless its run has a router.
+- A guest that is not NixOS: `router`. A run with `router.enable = false`
+  and such a guest fails to evaluate, unless the guest has no uplink or
+  sets `uplink.segment`.
 - A run gets a router when one of its guests asks for one
   (`vivarium.uplink.wantsRouter`), and then every guest of the run goes
   behind it. A cloud image (`vivarium.kinds.image`), RouterOS, VyOS,
@@ -588,7 +574,7 @@ What a guest gets when its run sets nothing:
   elsewhere; `checks.suse`, `checks.routeros-router`,
   `checks.vyos-router`, `checks.sonic-router` and `checks.dinix` measure
   them. A dinix guest leases `vec0` with busybox's udhcpc. An appliance
-  does not ask.
+  with an uplink asks too (`checks.appliance`).
 - On macOS, a krun run gets a router. With `router.enable = false`, each
   guest takes `vsock`.
 
@@ -648,7 +634,7 @@ configuring on SUSE quickly, not for certifying anything.
 A run with such a guest gets a router guest, and every guest of the run
 goes behind it (nixidae/nixidae#1521). The cloud image leases its uplink
 address from the router, because `vsock` cannot serve a guest that is
-not NixOS. A run that sets `router.enable = false` keeps passt for it.
+not NixOS. A run that sets `router.enable = false` fails to evaluate.
 
 - The runner converts the qcow2 to a sparse raw file in the run
   directory. The store keeps the qcow2: a NAR cannot hold a sparse file.
@@ -658,7 +644,7 @@ not NixOS. A run that sets `router.enable = false` keeps passt for it.
   journal events and `/artifacts` work as on NixOS. Add your own
   cloud-config with `userData`.
 - Interfaces come from a cloud-init network-config: vec0 by DHCP from
-  passt, each of `vivarium.interfaces` matched by its MAC and renamed.
+  the router, each of `vivarium.interfaces` matched by its MAC and renamed.
 - `add_closure` makes a closure the host built visible under `/nix`,
   which runs a Nix-built tool on SUSE. `switch_to` refuses.
 - With no initrd, `systemd-remount-fs` runs before udev has made

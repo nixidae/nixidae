@@ -18,7 +18,7 @@ from vivarium_runner import Machine, Machines
 
 DURATION = 5
 PORT = 5201
-# One sample on a shared CI runner swung passt fivefold between two runs.
+# One sample on a shared CI runner swung an uplink fivefold between two runs.
 ROUNDS = 3
 READY_WAIT = 30
 

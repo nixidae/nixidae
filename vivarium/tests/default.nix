@@ -85,9 +85,9 @@ let
   # guests from here (ssh/api), so this guest is also the jump host.
   #
   # `gateway` makes it the OOB gateway too: it routes the segment out
-  # through its passt uplink (`vec0`) and masquerades, advertises itself
+  # through its uplink (`vec0`) and masquerades, advertises itself
   # as the DHCP default route, and `forwardPorts` (nixpkgs' `networking.nat`
-  # shape) DNATs a port arriving over passt to an address on the segment --
+  # shape) DNATs a port arriving on the uplink to an address on the segment --
   # the single forwarding point host->OOB-guest access goes through.
   # `reservations` (Kea's subnet shape) pins a client's address outside the
   # pool, so a DNAT target is stable. Both default off, so a plain services
@@ -376,17 +376,17 @@ let
         --offline  tcp4 no route, tcp6 no route, link-local only,
                    dns no answer: the phase passes
 
-    Both answer a ping to the gateway: passt or the egress on the host
-    answers it, and nothing leaves (`namespace.allow_ping`).
+    Both answer a ping to the gateway: the egress on the host answers it,
+    and nothing leaves (`namespace.allow_ping`).
 
     `--offline` runs the session in a network namespace of its own with
-    only lo, as a build sandbox does (`vivarium/namespace.py`), so passt
-    takes its local mode in both and they cannot drift apart. passt stays:
-    the guest keeps its address, its DHCP lease and the host's way in, and
+    only lo, as a build sandbox does (`vivarium/namespace.py`), so the
+    egress finds no way out in both and they cannot drift apart. The
+    egress stays: the guest keeps its address and the host's way in, and
     a test reaching an API server through a forward fails, if it fails,
-    for the reason being reproduced. Binding passt's outbound to loopback
-    is not enough on its own: it binds IPv4 only, and IPv6 got out, with
-    the host's prefix copied onto vec0 (nixidae#1094).
+    for the reason being reproduced. Binding outbound sockets to loopback
+    is not enough on its own: passt bound IPv4 only, and IPv6 got out,
+    with the host's prefix copied onto vec0 (nixidae#1094).
   */
   uplink = mkTest {
     name = "uplink";

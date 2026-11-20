@@ -1,7 +1,6 @@
 """The run's own user and mount namespace, entered before anything else.
 
-Every run depends on user namespaces: passt makes one for itself, and a
-guest's store view is bind mounts, which need root of a mount namespace.
+Every run depends on user namespaces: a guest's store view is bind mounts, which need root of a mount namespace.
 So `vivarium run` checks for them first and fails in seconds, naming the fix,
 rather than after the guests boot.
 
@@ -15,11 +14,10 @@ util-linux's `unshare` does the mapping: ``--map-auto`` calls the host's
 setuid newuidmap, which must run outside the new namespace.
 
 `--offline` adds a private network namespace holding only ``lo``, which is
-what a build sandbox gives a run. passt then finds no interface to copy and
-takes its local mode, and a guest gets no way off the host in either family
-and no ICMP, as in a build. Binding passt's outbound to loopback instead
-left IPv6 out to the internet and copied the host's IPv6 prefix into the
-guest (measured 2026-10-26, nixidae#1094).
+what a build sandbox gives a run. The egress then finds no way off the
+host in either family and no ICMP, as in a build. Binding outbound sockets
+to loopback alone left IPv6 out to the internet (measured with passt
+2026-10-26, nixidae#1094).
 """
 
 from __future__ import annotations

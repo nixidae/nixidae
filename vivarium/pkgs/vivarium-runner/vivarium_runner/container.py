@@ -769,33 +769,6 @@ def _init_pid(crun: list[str], name: str, proc: subprocess.Popen[bytes]) -> int:
         time.sleep(0.02)
 
 
-def _uplink(pid: int, log: Path, pasta: list[str]) -> subprocess.Popen[bytes]:
-    """Start pasta in the guest's namespaces: ``vec0``, as passt gives the
-    other backends, with its DHCP, its DNS and its forwards.
-
-    It fails at start or not at all -- a port it cannot bind is fatal --
-    so a dead pasta a moment later is reported with its log.
-    """
-    # By pid, pasta joins the init's user namespace as well. Where the guest
-    # shares the runner's -- the uid-range sandbox -- that join is EINVAL,
-    # "Couldn't enter user namespace" (measured), so name the network
-    # namespace alone, which pasta then joins by itself.
-    target = [f"--netns=/proc/{pid}/ns/net"] if _shares_userns(pid) else [str(pid)]
-    with log.open("wb") as handle:
-        proc = subprocess.Popen(
-            [*pasta, *target],
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            preexec_fn=die_with_parent,
-        )
-    time.sleep(0.05)
-    if proc.poll() is not None:
-        tail = "\n".join(log.read_text(errors="replace").splitlines()[-20:])
-        raise RuntimeError(f"pasta exited ({proc.returncode}) instead of serving the uplink:\n{tail}")
-    return proc
-
-
 TUNSETIFF = 0x400454CA
 SIOCSIFMTU = 0x8922
 SIOCSIFHWADDR = 0x8924
@@ -969,8 +942,6 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         default=[],
         help="FD,NAME,MAC,MTU: one segment interface; repeat for each",
     )
-    run.add_argument("--pasta-log")
-    run.add_argument("pasta", nargs=argparse.REMAINDER)
     check = sub.add_parser("probe", help="say what this host lacks, and exit 1 if anything")
     check.add_argument("--tun", action="store_true", help="a LAN will be asked for")
     bind = sub.add_parser("attach", help="mount store paths inside a running guest")
@@ -988,9 +959,8 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """``python -m vivarium_runner.crun_launch run|tap ...``.
 
-    ``run`` starts the guest and relays its console; with ``--pasta-log``
-    and a pasta command line after ``--`` it gets an uplink, and with
-    ``--lan-fd`` a ``vec1`` on that segment. ``tap`` is the ``vec1`` relay.
+    ``run`` starts the guest and relays its console, and with ``--lan``
+    a segment interface for each. ``tap`` is the ``vec1`` relay.
     """
     args = _parse(sys.argv[1:] if argv is None else argv)
     if args.mode == "tap":
@@ -1003,7 +973,6 @@ def main(argv: list[str] | None = None) -> int:
 
     name = args.name
     bundle = args.bundle
-    uplink = [args.pasta_log, *[a for a in args.pasta if a != "--"]] if args.pasta_log else []
     manager = "cgroupfs" if _split_cgroup(Path(bundle)) else "disabled"
     crun = [args.crun, "--root", args.state, f"--cgroup-manager={manager}"]
 
@@ -1055,8 +1024,6 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 pid = _init_pid(crun, name, proc)
                 (Path(args.state) / INIT_PID).write_text(f"{pid}\n")
-                if uplink:
-                    helpers.append(_uplink(pid, Path(uplink[0]), uplink[1:]))
                 for lan in args.lan:
                     fd, nic, mac, mtu = lan.split(",")
                     helpers.append(_lan(pid, int(fd), nic, int(mtu), mac))

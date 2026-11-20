@@ -20,11 +20,6 @@
   ...
 }:
 let
-  tools = import ./tools.nix {
-    pkgs = hostPkgs;
-    inherit lib;
-  };
-
   inboundEntry = lib.types.submodule {
     options = {
       guest = lib.mkOption {
@@ -188,8 +183,9 @@ in
         `container` runs the system
         under rootless crun on the host's own kernel: no kernel boot, but
         no kernel of its own either, and the host needs user namespaces,
-        subordinate ids and a writable cgroup. Its uplink and forwards
-        are pasta's, and its LAN shares a segment with the other two.
+        subordinate ids and a writable cgroup. Its relay reaches the
+        egress over unix sockets, and its LAN shares a segment with the
+        other two.
 
         The guest is the same NixOS configuration either way, and so is
         the test script. What changes is the kernel and how `/nix`
@@ -580,8 +576,8 @@ in
       type = lib.types.str;
       default = "uml";
       description = ''
-        Root's password.  The guest is only reachable through the passt
-        forward on the host's loopback, so this is a convenience rather
+        Root's password.  The guest is only reachable through the
+        forwards the egress binds on the host, so this is a convenience rather
         than a secret -- do not put anything real in a guest.
       '';
     };
@@ -964,37 +960,36 @@ in
       default = null;
       example = "mgmt";
       description = ''
-        The Ethernet segment the uplink (`vec0`) joins instead of passt:
-        an out-of-band management network a peer serves with DHCP (see the
-        `servicesNode` helper; nixidae/nixidae#958). The guest leases its
-        management address there. It then has no passt uplink, and so no
-        forwards. QEMU only.
+        The Ethernet segment the uplink (`vec0`) joins instead of the
+        egress: an out-of-band management network a peer serves with DHCP
+        (see the `servicesNode` helper; nixidae/nixidae#958). The guest
+        leases its management address there. It then has no egress, and
+        so no forwards. QEMU only.
       '';
     };
 
     uplink.proxy = lib.mkOption {
       type = lib.types.enum [
-        "passt"
         "gvproxy"
         "router"
         "vsock"
       ];
       # Not by `uplink.segment`: a routed guest's segment default reads this.
-      default = if config.vivarium.kind == "nixos" then "vsock" else "passt";
-      defaultText = lib.literalMD "`vsock` for a NixOS guest, else `passt`";
+      default = if config.vivarium.kind == "nixos" then "vsock" else "router";
+      defaultText = lib.literalMD "`vsock` for a NixOS guest, else `router`";
       description = ''
         What serves the uplink (`vec0`).
 
-        `passt` and `gvproxy` are deprecated: `vsock` replaces them
-        (nixidae/nixidae#1404). Choosing either for a NixOS guest is a
-        warning. passt stays the default for a guest that is not NixOS,
-        which cannot run the relay.
+        A guest that is not NixOS cannot run the relay, so it sits behind
+        the run's router. A run that sets `router.enable = false` and
+        holds such a guest with an uplink fails to evaluate.
 
         An `uplink.segment` takes precedence over `vsock`.
         `gvproxy`, deprecated, is gvisor-tap-vsock's,
         which runs on macOS too and needs no user namespace
-        (nixidae/nixidae#1163). It gives the guest passt's addresses, and
-        forwards TCP ports only.
+        (nixidae/nixidae#1163). It gives the guest the uplink's fixed
+        addresses, and forwards TCP ports only. Choosing it is a warning:
+        `vsock` replaces it (nixidae/nixidae#1404).
         krun only.
 
         `router` is the run's router guest (`router.enable` in `mkTest`,
@@ -1005,7 +1000,7 @@ in
         guest: the relay runs in a network namespace of its own, behind a
         veth pair whose guest end is `vec0`, and reaches an egress on the
         host over vsock, or over unix sockets in a container. The guest has
-        passt's addresses.
+        the uplink's fixed addresses (nix/uplink.nix).
       '';
     };
 
@@ -1061,7 +1056,7 @@ in
           Name of an Ethernet segment to join on `vec1`.  Every machine
           in a test naming the same segment is wired together; the host
           runner creates the sockets.  Null leaves the guest with only
-          its passt uplink.
+          its uplink.
         '';
       };
 
@@ -1093,18 +1088,11 @@ in
       nicsOf config.vivarium.interfaces config.vivarium.index config.vivarium.mtu
         config.vivarium.segments;
     vivarium.uplinkMac = lib.toLower "52:54:00:12:00:${hex config.vivarium.index}";
-    vivarium.uplink.segment = lib.mkIf (config.vivarium.uplink.proxy == "router") (
-      lib.mkDefault "uplink-${config.networking.hostName}"
-    );
 
     # Under mkIf, so a guest on another backend never names the kernel:
     # naming it is what builds it, and that is half an hour the first time.
     vivarium.launch = lib.mkIf (config.vivarium.backend == "uml") {
       backend = "uml";
-      config = {
-        bridge = lib.getExe config.system.build.umlPasstBridge;
-        inherit (tools) passt;
-      };
     };
     # The guest runs as the UML kernel, whatever its kind. UML boots the
     # NixOS image through its own /init: see modules/image.nix.
@@ -1124,7 +1112,7 @@ in
       let
         proxy = config.vivarium.uplink.proxy;
       in
-      lib.optional (proxy == "gvproxy" || (proxy == "passt" && config.vivarium.kind == "nixos")) ''
+      lib.optional (proxy == "gvproxy") ''
         ${config.networking.hostName}: vivarium.uplink.proxy = "${proxy}" is deprecated, and `vsock` replaces it (nixidae/nixidae#1404).
       '';
 
@@ -1312,7 +1300,6 @@ in
       umlKernel = pkgs.callPackage ../pkgs/uml-kernel {
         inherit (config.boot.kernelPackages.kernel) src version modDirVersion;
       };
-      umlPasstBridge = pkgs.callPackage ../pkgs/uml-passt-bridge { };
     };
   };
 }

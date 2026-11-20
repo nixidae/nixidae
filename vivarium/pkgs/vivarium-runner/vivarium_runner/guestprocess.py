@@ -30,10 +30,9 @@ if TYPE_CHECKING:
 def _killpg(pid: int, sig: int) -> None:
     """Signal *pid*'s whole process group, and tolerate it being gone.
 
-    The group and not the process: a guest is a tree -- the UML bridge
-    starts passt and the kernel under it, QEMU starts nothing but is
-    itself one of several -- and signalling only the leader leaves the
-    rest running with nothing to report to.
+    The group and not the process: a guest is a tree -- a UML kernel runs
+    its userspace as host processes under it -- and signalling only the
+    leader leaves the rest running with nothing to report to.
     """
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(os.getpgid(pid), sig)
@@ -184,9 +183,8 @@ def _release(helpers: list[sync_subprocess.Popen[bytes]], cleanup: list[Path]) -
     """Kill *helpers* and remove *cleanup*.
 
     By group and not by pid: each helper leads its own session, and a
-    helper that forked -- passt does -- leaves the child behind when only
-    the leader is killed. Under UML the helpers are children of the bridge
-    and went with it.
+    helper that forked leaves the child behind when only the leader is
+    killed.
     """
     for helper in helpers:
         if helper.poll() is None:

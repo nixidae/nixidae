@@ -546,7 +546,7 @@ in
     (lib.mkIf ownRelay {
       vivarium.launch.config.egress = "${egress}/bin/egress";
 
-      # passt's addresses, fixed: nothing in the namespace serves DHCP.
+      # The uplink's fixed addresses: nothing in the namespace serves DHCP.
       networking.interfaces.vec0 = {
         useDHCP = lib.mkForce false;
         ipv4.addresses = [

@@ -1,17 +1,13 @@
-"""Turning `vivarium.inbound` into host sockets, passt and egress arguments.
+"""Turning `vivarium.inbound` into host sockets and egress arguments.
 
 An inbound entry is a guest port, and a host port or none: none takes
 any free one. The runner binds a forward through an egress itself and
-hands the socket over (nixidae/nixidae#1546). passt and gvproxy bind
-their own when they start, so for them the runner picks a free port and
-checks a fixed one, both before the guest boots.
+hands the socket over (nixidae/nixidae#1546). gvproxy binds its own when
+it starts, so for it the runner picks a free port and checks a fixed
+one, both before the guest boots.
 
 Each guest gets a loopback address of its own on Linux. macOS has
 127.0.0.1 alone, where the guests share it and a taken port fails.
-
-The checks exist because passt reports a port that will not bind as a
-bare ``Address already in use`` and exits, naming neither the guest nor
-the port.
 """
 
 from __future__ import annotations
@@ -67,7 +63,7 @@ class PortMap:
 
 @dataclass(frozen=True)
 class Rule:
-    """One ``(address, ports)`` pair to hand passt.
+    """One ``(address, ports)`` pair to bind on the host.
 
     ``address`` is None until :func:`resolve` picks one.
     """
@@ -109,10 +105,10 @@ def unprivileged_start() -> int:
 
 
 def _bind(address: str, port: int) -> socket.socket:
-    """Bind one port the way passt will, so a probe means what it says."""
+    """Bind one port the way a listener will, so a probe means what it says."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # passt sets this on every listening socket (util.c:109), so probing
-    # without it would call a TIME_WAIT leftover a collision.
+    # Listeners set this (Go's net.Listen too), so probing without it
+    # would call a TIME_WAIT leftover a collision.
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind((address, port))
@@ -275,12 +271,12 @@ alias needs root. The guests then share one port space."""
 
 
 def pick(rules: list[Rule], *, taken: set[str], random: bool) -> list[Rule]:
-    """The host ports of a forward that passt or gvproxy binds, after
+    """The host ports of a forward that gvproxy binds, after
     :func:`resolve`: a fixed one checked free, an unset one (every one with
     *random*) any free one.
 
     The choice is a bind that closes again, so another process can take
-    the port before the bridge binds it. *taken* holds ``address:port`` for
+    the port before gvproxy binds it. *taken* holds ``address:port`` for
     each port this run picked, so two guests on one address never get the
     same one.
     """
@@ -307,22 +303,6 @@ def _pick_port(address: str, protocols: tuple[str, ...], port: int | None, taken
         if port is not None or f"{address}:{chosen}" not in taken:
             return chosen
     raise ForwardError(f"no host port on {address} free for {', '.join(protocols)} after {_RANDOM_TRIES} tries")
-
-
-# ── passt arguments ────────────────────────────────────────────────
-
-
-def _spec(rule: Rule) -> str:
-    """The passt port spec a rule turns into."""
-    if any(port.host is None for port in rule.ports):
-        raise ForwardError("passt gets a host port for every guest port; pick() chooses them")
-    return f"{rule.address}/" + ",".join(str(port) for port in sorted(rule.ports, key=lambda p: p.host or 0))
-
-
-def to_args(rules: list[Rule]) -> list[str]:
-    """Bridge arguments carrying *rules*, as ``--tcp-ports``/``--udp-ports``."""
-    flags = {"tcp": "--tcp-ports", "udp": "--udp-ports"}
-    return [arg for rule in rules for protocol in rule.protocols for arg in (flags[protocol], _spec(rule))]
 
 
 # ── what the egress takes, for a guest behind it ───────────────────
@@ -409,7 +389,7 @@ class UplinkNetworkJson(TypedDict):
 class UplinkNetwork:
     """The guest's own address on its uplink, and what answers behind it.
 
-    nix/uplink.nix writes them, for passt, gvproxy and the router alike.
+    nix/uplink.nix writes them, for the relay, gvproxy and the router alike.
     Every guest gets the same address: each has an uplink of its own, and
     the host reaches a guest through its own 127.0.0.x.
     """
@@ -418,7 +398,7 @@ class UplinkNetwork:
     prefix_length: int
     gateway: str
     dns: str
-    """Where passt and the egress answer DNS for the guest."""
+    """Where the egress answers DNS for the guest."""
     gateway6: str
     """The router's IPv6 gateway, which the egress maps to the host's ::1."""
 
@@ -437,7 +417,7 @@ class UplinkNetwork:
         return str(ipaddress.ip_interface(f"{self.address}/{self.prefix_length}").network)
 
 
-# Where passt sends a query it is asked to forward.  A constant, and not
+# Where the egress sends a query it is asked to forward.  A constant, and not
 # the host's own resolver: reading the host's nameserver files gave a
 # different answer on a laptop and on a GitHub runner, and the runner's
 # answer was the 127.0.0.53 stub, which no guest can reach.  Two rounds of
@@ -446,7 +426,7 @@ class UplinkNetwork:
 #
 # The guests do not depend on it.  modules/guest.nix names its own
 # resolvers and drops the ones DHCP offers, so this covers only something
-# that asks passt directly.
+# that asks the uplink's resolver directly.
 UPLINK_UPSTREAM_DNS = "1.1.1.1"
 
 # For a network that does not reach 1.1.1.1.  The one knob, and the only
@@ -455,20 +435,19 @@ ENV_DNS = "VIVARIUM_DNS_HOST"
 
 
 OFFLINE_OUTBOUND = "127.0.0.1"
-"""What passt binds its outbound sockets to when a run asks for no
+"""What the egress binds its outbound sockets to when a run asks for no
 internet.
 
 Loopback, so a connection the guest makes to anything off the host has no
 route and fails at once.  Everything else about the uplink is unchanged
--- the guest still gets its address by DHCP, still hears about a gateway
-and a resolver, and the host's way *in* still works -- because the guest
-must look the same as it does in a sandbox, where passt runs and finds no
-usable route either.
+-- the guest still has its address, its gateway and its resolver, and the
+host's way *in* still works -- because the guest must look the same as it
+does in a sandbox, where the egress runs and finds no usable route either.
 
-Not simply leaving passt out: that takes vec0 away, so the guest has no
-uplink interface at all and no inbound forwards.  A test that reaches an
-API server through a forward would then fail for a reason that is not the
-one being reproduced."""
+Not simply leaving the egress out: that takes the uplink away, so the
+guest has no inbound forwards.  A test that reaches an API server through
+a forward would then fail for a reason that is not the one being
+reproduced."""
 
 
 OFFLINE_OUTBOUND6 = "::1"
@@ -479,24 +458,12 @@ def upstream_dns() -> str:
     return os.environ.get(ENV_DNS) or UPLINK_UPSTREAM_DNS
 
 
-def uplink_notes(network: UplinkNetwork, offline: bool = False) -> list[str]:
-    """The console lines for a guest behind passt or pasta.
-
-    passt's own banner is not in a QEMU run's output, and a guest that
-    cannot resolve gives no clue which of the two addresses is wrong.
-    """
-    return [
-        f"[uplink] DNS on {network.dns}, forwarded to {upstream_dns()}",
-        *(
-            [f"[uplink] offline: outbound bound to {OFFLINE_OUTBOUND}, so the guest reaches nothing off this host"]
-            if offline
-            else []
-        ),
-    ]
-
-
 def egress_notes(network: UplinkNetwork, offline: bool = False) -> list[str]:
-    """The console lines for a guest behind the egress: `uplink_notes` for a router."""
+    """The console lines for a guest behind the egress.
+
+    A guest that cannot resolve gives no clue which of the two addresses
+    is wrong.
+    """
     return [
         f"[uplink] router: DNS on {network.dns}, forwarded to {upstream_dns()}",
         *(
@@ -508,41 +475,10 @@ def egress_notes(network: UplinkNetwork, offline: bool = False) -> list[str]:
 
 
 def egress_uplink_args(network: UplinkNetwork, offline: bool = False) -> list[str]:
-    """The router's egress options that match `uplink_args`: DNS, the IPv6
-    gateway, offline."""
+    """The egress options for the uplink: DNS, the IPv6 gateway, offline."""
     upstream = upstream_dns()
     return [
         f"--map={network.dns}:53={upstream}:53",
         f"--loopback={network.gateway6}",
         *([f"--outbound={OFFLINE_OUTBOUND}", f"--outbound={OFFLINE_OUTBOUND6}"] if offline else []),
-    ]
-
-
-def uplink_args(network: UplinkNetwork, offline: bool = False) -> list[str]:
-    """passt arguments giving the guest an address of its own, and DNS.
-
-    Both backends pass these -- QEMU straight to passt, UML through
-    `uml-passt-bridge`'s `--passt` -- so that a guest's uplink looks the
-    same whichever machine it turned out to be.
-
-    `--dns-host` is named rather than left to passt's default, which is
-    the first nameserver in the host's `/etc/resolv.conf`.  On a
-    systemd-resolved host that is `127.0.0.53`, and passt then advertises
-    it to the guest, where it means the guest's own resolver.  That is how
-    every guest CI job came to fail on a runner with `lookup
-    registry.k8s.io: no such host`.
-    """
-    upstream = upstream_dns()
-    return [
-        "--address",
-        network.address,
-        "--netmask",
-        str(network.prefix_length),
-        "--gateway",
-        network.gateway,
-        "--dns-forward",
-        network.dns,
-        "--dns-host",
-        upstream,
-        *(["--outbound", OFFLINE_OUTBOUND] if offline else []),
     ]

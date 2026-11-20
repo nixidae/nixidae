@@ -100,16 +100,13 @@ class Launch:
     pass_fds: tuple[int, ...]
     env: dict[str, str] = field(default_factory=dict)
     helpers: list[subprocess.Popen[bytes]] = field(default_factory=list)
-    """Side processes the guest needs -- virtiofsd, passt -- for the
-    backends that do not hide them behind something else.  Killed when the
-    guest is torn down, in this order."""
+    """Side processes the guest needs -- virtiofsd, the egress.  Killed
+    when the guest is torn down, in this order."""
     controls: Controls = field(default_factory=Controls)
     """What the guest's process offers beside its agent. With `power`, the
     guest's CPUs wait for `Machine` to start them."""
     pid_file: Path | None = None
-    """Where the guest wrote its own pid, for a backend whose process is
-    not the one the runner spawned. UML forks the kernel from the passt
-    bridge, so the runner's own pid is the bridge's."""
+    """Where the guest wrote its own pid. A UML kernel writes one."""
     cleanup: list[Path] = field(default_factory=list)
     """Directories the backend made outside the run directory, removed when
     the guest is torn down."""

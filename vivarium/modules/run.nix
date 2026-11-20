@@ -125,7 +125,7 @@ in
         default = null;
         description = ''
           Give the run a router guest, `router.name`, and put every other
-          guest's uplink (`vec0`) behind it instead of a passt of its own
+          guest's uplink (`vec0`) behind it instead of a relay of its own
           (nixidae/nixidae#1404). Each guest then has an address of its
           own, `10.0.2.(15 + vivarium.index)`, and the guests reach each
           other on `vec0`. The router runs on `router.backend`; the guests
@@ -137,8 +137,10 @@ in
           cannot serve it, and it leases `vec0` by DHCP. Every guest of
           the run then goes behind the router. On macOS a krun run or a
           `.krun` variant gets one too: there the router's uplink is
-          faster than gvproxy both ways (docs/design/router-lab.md), and
-          macOS has no passt.
+          faster than gvproxy both ways (docs/design/router-lab.md).
+
+          `false` with a guest that is not NixOS, and has an uplink, is an
+          evaluation error: only the router serves such a guest.
         '';
       };
       backend = mkOption {

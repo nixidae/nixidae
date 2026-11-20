@@ -22,17 +22,14 @@ from vivarium_runner.machine_spec import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_json, machine_spec
 
-GOOD = {
-    "bridge": "/nix/store/b/bin/uml-passt-bridge",
-    "passt": "/nix/store/p/bin/passt",
-}
+GOOD = {"egress": "/nix/store/e/bin/egress"}
 LINUX = Kernel(image=Path("/nix/store/k/linux"), vmlinux=None, initrd=None, cmdline="")
 UML_NIXOS = Boot(system="/nix/store/s-nixos-system", kernel=LINUX, firmware=None)
 QEMU = {
     "qemu": "/nix/store/q/bin/qemu-system-x86_64",
     "qemuImg": "/nix/store/q/bin/qemu-img",
     "virtiofsd": "/nix/store/v/bin/virtiofsd",
-    "passt": "/nix/store/p/bin/passt",
+    "egress": "/nix/store/e/bin/egress",
 }
 
 
@@ -54,7 +51,7 @@ def qemu(config: Mapping[str, object]) -> MachineSpec:
 
 def test_a_good_config_reads() -> None:
     config = UmlConfig.of(uml(GOOD))
-    assert config.bridge == Path(GOOD["bridge"])
+    assert config.egress == Path(GOOD["egress"])
     assert config.qemu_img is None, "an optional field that is absent reads as None"
 
 
@@ -64,7 +61,6 @@ def test_a_good_config_reads() -> None:
         (uml(None), "one: vivarium.launch is not set"),
         (uml(GOOD, backend="qemu"), "vivarium.launch.backend is 'qemu'"),
         (uml({**GOOD, "kernal": "/x"}), "does not know: kernal"),
-        (uml({"passt": GOOD["passt"]}), "needs: bridge"),
         (uml(GOOD, boot=None), "one: a UML guest needs vivarium.boot.kernel"),
         (uml(GOOD, boot=replace(UML_NIXOS, kernel=None)), "needs vivarium.boot.kernel"),
         (
@@ -175,7 +171,12 @@ def test_a_disk_kind_s_hardware_reads() -> None:
     assert QemuConfig.of(qemu(QEMU)).uplink, "a guest has an uplink unless it says otherwise"
 
 
-KRUN = {"krun": "/nix/store/k/bin/vivarium-krun", "qemuImg": "/nix/store/q/bin/qemu-img", "acpi": True}
+KRUN = {
+    "krun": "/nix/store/k/bin/vivarium-krun",
+    "qemuImg": "/nix/store/q/bin/qemu-img",
+    "acpi": True,
+    "egress": "/nix/store/e/bin/egress",
+}
 DIRECT = Kernel(
     image=Path("/nix/store/k/bzImage"),
     vmlinux=Path("/nix/store/k/vmlinux"),
@@ -246,7 +247,7 @@ def test_qemu_boots_a_root_image_through_its_own_bootloader() -> None:
     )
 
 
-CONTAINER = {"crun": "/c", "setpriv": "/s", "passt": "/p"}
+CONTAINER = {"crun": "/c", "setpriv": "/s", "egress": "/e"}
 
 
 @pytest.mark.parametrize(

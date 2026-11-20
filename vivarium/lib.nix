@@ -365,7 +365,7 @@ rec {
     import (guestPkgs.path + "/nixos/lib/eval-config.nix") {
       inherit lib;
       system = null;
-      # What the host runs for a guest: its launcher, passt, the egress.
+      # What the host runs for a guest: its launcher and the egress.
       specialArgs.hostPkgs = pkgs;
       modules = [
         (lib.modules.importApply ./modules { inherit sources; })
@@ -677,6 +677,12 @@ rec {
                 # A template's instance is never behind it (router.nix says why),
                 # and keeps the uplink a guest has without a router.
                 vivarium.uplink.proxy = lib.mkIf (!config.vivarium.template) (lib.mkDefault "router");
+                # Here and not in the guest module: the `wantsRouter` probe
+                # evaluates a guest without a router, and reads a null
+                # segment as "the router serves my uplink".
+                vivarium.uplink.segment = lib.mkIf (config.vivarium.uplink.proxy == "router") (
+                  lib.mkDefault "uplink-${hostName}"
+                );
                 # A guest behind the router has no lease and no forwards without it.
                 vivarium.requires = lib.mkIf (config.vivarium.uplink.proxy == "router") [ routerName ];
               }
@@ -791,6 +797,17 @@ rec {
           ) fixed
         );
 
+      # Guests whose uplink only the router serves, in a run without one.
+      # `uplink.enable` is the appliance's, and false leaves out vec0.
+      unrouted = map (machine: machine.networking.hostName) (
+        lib.filter (
+          machine:
+          machine.vivarium.uplink.proxy == "router"
+          && machine.vivarium.uplink.segment == null
+          && (machine.vivarium.uplink.enable or true)
+        ) machines
+      );
+
       pythonPackages = lib.unique (
         checkedConfig.python.packages ++ lib.concatMap (machine: machine.vivarium.python.packages) machines
       );
@@ -886,6 +903,8 @@ rec {
           machines =
             if inboundClashes != [ ] then
               throw "vivarium.inbound: one fixed host port, asked for twice: ${lib.concatStringsSep "; " inboundClashes}. Give one another port, or none to take any free one."
+            else if unrouted != [ ] then
+              throw "${lib.concatStringsSep ", " unrouted}: only the run's router serves the uplink of a guest that is not NixOS, and this run has none. Leave router.enable null, set the guest's vivarium.uplink.segment, or leave its uplink out."
             else
               map (
                 machine:

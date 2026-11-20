@@ -2,7 +2,7 @@
 
 The runner gives every backend the same fds:
 
-    the uplink    passt, or a segment -- outbound NAT plus the host's way in
+    the uplink    the egress, or a segment -- outbound NAT plus the host's way in
     one per NIC   from :mod:`vivarium_runner.net` -- L2 between guests
     a socketpair  arpyc to the guest's agent, on a serial line
 
@@ -172,7 +172,7 @@ class Machine:
         self.command_timeout = command_timeout
         # A run-time choice, not a property of the built guest: the same
         # image runs either way. A sandboxed run is offline whatever this
-        # says, because the sandbox has no network for passt to use.
+        # says, because the sandbox has no network for the egress to use.
         self.offline = offline
         # Every forward through an egress on any free host port: a build's,
         # where nobody outside reaches one (nixidae/nixidae#1546).
@@ -251,7 +251,7 @@ class Machine:
     @property
     def uplink_ip(self) -> str | None:
         """`vec0`'s IPv4 address as vivarium gives it: the router's lease
-        for this guest, else passt's and gvproxy's fixed one. `None` on a
+        for this guest, else the relay's and gvproxy's fixed one. `None` on a
         segment a peer serves, which picks its own."""
         if self.spec.uplink_address is not None:
             return self.spec.uplink_address
@@ -294,11 +294,11 @@ class Machine:
 
     def _runtime_inbound(self) -> Machine:
         """The machine whose egress serves this guest's forwards; a
-        `MachineError` for a guest behind passt or gvproxy, which bind
-        their forwards when they start and take no new one."""
+        `MachineError` for a guest behind gvproxy, which binds its
+        forwards when it starts and takes no new one."""
         if not self.spec.forwards_through_egress:
             raise MachineError(
-                f"[{self.name}] inbound: passt and gvproxy take forwards only when they start; "
+                f"[{self.name}] inbound: gvproxy takes forwards only when it starts; "
                 "a runtime change needs the vsock uplink or the router"
             )
         return self.behind or self
@@ -1261,8 +1261,7 @@ class Machine:
         """
         if self._process is None:
             raise MachineError(f"[{self.name}] is not running")
-        # UML forks the kernel from the passt bridge, so the process the
-        # runner spawned is the bridge. The kernel writes its own pid.
+        # A UML kernel writes its own pid, and the backend reads it there.
         pid = self._process.guest_pid()
         if pid is None:
             raise MachineError(f"[{self.name}] no pid file: {self._process.pid_file}")

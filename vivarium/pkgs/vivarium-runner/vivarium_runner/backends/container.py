@@ -30,20 +30,17 @@ class ContainerConfig:
 
     crun: Path
     setpriv: Path
-    passt: Path
-    """passt's own path; pasta is the same program, beside it."""
     egress: Path | None = None
     """The relay's host half, for a `vsock` uplink."""
 
     @classmethod
     def of(cls, spec: MachineSpec) -> ContainerConfig:
-        config = launch_config(spec, "container", frozenset({"crun", "setpriv", "passt"}), frozenset({"egress"}))
+        config = launch_config(spec, "container", frozenset({"crun", "setpriv"}), frozenset({"egress"}))
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
             crun=config_path(config, "crun"),
             setpriv=config_path(config, "setpriv"),
-            passt=config_path(config, "passt"),
             egress=config_maybe_path(config, "egress"),
         )
 
@@ -59,10 +56,10 @@ class Container:
     """A guest as a rootless container: no kernel boot, the host's own.
 
     Needs what :func:`vivarium_runner.container.probe` checks, and says which of
-    it is missing before anything starts. The uplink and the forwards are
-    pasta's, joined to the guest's namespaces by the launcher, or a `vsock`
-    uplink's: the guest's relay and an egress on the host share two unix
-    sockets in the agent directory. Each segment
+    it is missing before anything starts. The uplink is a `vsock` one:
+    the guest's relay and an egress on the host share two unix sockets in
+    the agent directory. Or it is a segment, the router's port for the
+    guest. Each segment
     interface is a tap relayed to its segment fd, so a segment mixes all
     three kinds.
     No memory control yet.
@@ -136,15 +133,11 @@ class Container:
         if not container.setuid_allowed(rundir):
             (agent_dir / container.NO_SETUID).touch()
 
-        # pasta's tap and the LAN's are made on /dev/net/tun, which a Nix
-        # sandbox has only with /dev/net in `extra-sandbox-paths`. With no
-        # tun the guest has no uplink; the sandbox has no network anyway.
-        # The uplink is taken where a tap can be made and left out where it
-        # cannot; the LAN is required, and probe() checked it above. An
-        # uplink segment (a router's, nixidae/nixidae#1404) is a tap like
-        # vec1, and replaces pasta. A `vsock` uplink is a veth in the guest,
-        # and needs no tun.
-        pasta = spec.uplink is None and not spec.vsock and (bool(lan_fds) or await self.host.tap_failure() is None)
+        # An uplink segment (a router's, nixidae/nixidae#1404) is a tap like
+        # vec1, on /dev/net/tun, which probe() checked above. A `vsock`
+        # uplink is a veth in the guest, and needs no tun.
+        if spec.uplink is None and not spec.vsock:
+            raise BackendError(f"{spec.name}: nothing serves vec0 in a container: uplink.proxy is {spec.uplink_proxy}")
 
         uid, gid = os.getuid(), os.getgid()
         subuid: container.Range | None = None
@@ -191,7 +184,7 @@ class Container:
         # Otherwise the cgroup this runs in, which is every uid-range build.
         prefix = await self.host.scope(memory_bytes(spec.memory)) or []
         helpers: list[subprocess.Popen[bytes]] = []
-        notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline) if pasta else []
+        notes: list[str] = []
         if spec.vsock:
             listen, relay = agent_dir / EGRESS_SOCKET, agent_dir / RELAY_SOCKET
             try:
@@ -226,23 +219,6 @@ class Container:
                 "--name",
                 f"guest-{spec.name}-{os.getpid()}",
                 *lan,
-                # The uplink: pasta joins the guest's namespaces once crun
-                # has an init, with passt's arguments and forwards.
-                *(
-                    [
-                        "--pasta-log",
-                        str(rundir / "passt.log"),
-                        "--",
-                        str(config.passt.with_name("pasta")),
-                        "--foreground",
-                        "--ns-ifname",
-                        "vec0",
-                        *forward.uplink_args(machine.spec.uplink_network, machine.offline),
-                        *self._pasta_forwards(forward.to_args(machine.forward)),
-                    ]
-                    if pasta
-                    else []
-                ),
             ],
             pass_fds=tuple(lan_fds.values()),
             helpers=helpers,
@@ -250,17 +226,3 @@ class Container:
             cleanup=cleanup,
             notes=notes,
         )
-
-    @staticmethod
-    def _pasta_forwards(args: list[str]) -> list[str]:
-        """*args*, plus what makes pasta forward only what passt would.
-
-        pasta forwards more by default: UDP ports it scans for, and the
-        guest's loopback to the host's. passt does neither, so a guest
-        that could reach the host's loopback here could not under UML.
-        """
-        extra = ["--tcp-ns", "none", "--udp-ns", "none"]
-        for flag in ("--tcp-ports", "--udp-ports"):
-            if flag not in args:
-                extra += [flag, "none"]
-        return [*args, *extra]

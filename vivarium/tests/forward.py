@@ -4,13 +4,13 @@
 Everything else here drives guests over the serial line, which works
 before networking exists and says nothing about whether anyone outside
 can reach a service inside.  This is the test that connects the other
-way: the host opens a TCP connection to an address passt is listening on
+way: the host opens a TCP connection to an address the egress listens on
 and expects a process in the guest to answer it.
 
 The three things worth guarding, in order of how quietly they break:
 
-  * a listed port bound in the guest after boot is reachable: passt and
-    the egress listen on it from the start;
+  * a listed port bound in the guest after boot is reachable: the egress
+    listens on it from the start;
   * a privileged guest port is reachable at a host port anyone may bind,
     because nothing here may bind below `net.ipv4.ip_unprivileged_port_start`;
   * a port nobody listed is *not* reachable, and says so rather than
@@ -32,7 +32,7 @@ PAGE = "hello-from-inside-the-guest"
 DOC_ROOT = "/tmp/www"
 
 PLAIN = 8080
-"""An ordinary port, bound long after passt stopped taking arguments."""
+"""An ordinary port, bound long after the egress took its forwards."""
 
 PRIVILEGED = 80
 """Bound in the guest as root; its forward takes any free host port,
@@ -76,7 +76,7 @@ async def test(vms: Machines) -> None:
     await vm.wait_for_unit("sshd.service")
     assert vm.reachable(vm.spec.ssh_port), "sshd's port is not forwarded"
 
-    # Nothing has bound these yet, and passt has been running since
+    # Nothing has bound these yet, and the egress has been running since
     # before the guest booted.
     for port in (PLAIN, PRIVILEGED, UNLISTED):
         await serve(vm, port)

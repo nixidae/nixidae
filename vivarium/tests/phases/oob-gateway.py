@@ -1,8 +1,8 @@
 """The services guest as the OOB gateway (nixidae/nixidae#958).
 
 The host reaches an out-of-band guest through a single forwarding point.
-`sw` has no passt uplink of its own -- its uplink is on the management
-segment -- so the only way in is one passt forward on `svc`, which DNATs
+`sw` has no egress of its own -- its uplink is on the management
+segment -- so the only way in is one forward on `svc`, which DNATs
 to `sw`. The reply returns only because Kea gives `sw` its default route
 back to `svc`, so a working fetch proves the DNAT and the advertised
 route together.
@@ -11,7 +11,7 @@ Egress to the real world is not proven here: a sandboxed run has no
 network (see the `uplink` test). Measured by hand instead, 2026-10-21,
 this host, `.driver`: paused at this phase, sw opens a TCP connection to
 1.1.1.1:443 through svc, source 10.42.0.10 -- so svc forwards and
-masquerades the segment out through its passt uplink.
+masquerades the segment out through its uplink.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ async def test(vms: Machines) -> None:
     await sw.wait_until_succeeds(SETTLED, timeout=60)
     print(f"[test] sw leased its reserved {SW_ADDRESS} and a default route via {GATEWAY}")
 
-    # A service in sw, bound long after passt stopped taking arguments.
+    # A service in sw, bound long after svc's egress took its forwards.
     await sw.succeed(f"mkdir -p {DOC_ROOT} && echo {PAGE} > {DOC_ROOT}/probe")
     await sw.succeed(f"systemd-run --unit=probe --collect --working-directory={DOC_ROOT} python3 -m http.server {PORT}")
 

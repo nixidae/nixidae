@@ -40,7 +40,6 @@ from .host import (
     scratch_disk,
     socket_dir,
     start_egress,
-    start_passt,
 )
 
 if TYPE_CHECKING:
@@ -72,13 +71,12 @@ class QemuConfig:
     qemu: Path
     qemu_img: Path
     virtiofsd: Path
-    passt: Path
     ocr: tuple[Path, Path] | None
     """tesseract and magick, for a guest with `vivarium.display`."""
     config_disk: Path | None = None
     """A second disk, copied writable: RouterOS's configuration."""
     uplink: bool = True
-    """False: no passt uplink, so the first segment is the first NIC of a
+    """False: no uplink, so the first segment is the first NIC of a
     guest kind's own root image."""
     egress: Path | None = None
     """The router's host half, which serves its vhost-user vsock device."""
@@ -91,7 +89,7 @@ class QemuConfig:
         config = launch_config(
             spec,
             "qemu",
-            frozenset({"qemu", "qemuImg", "virtiofsd", "passt"}),
+            frozenset({"qemu", "qemuImg", "virtiofsd"}),
             frozenset({"tesseract", "magick", "configDisk", "uplink", "egress", "swtpm", "disks"}),
         )
         if spec.vsock and "egress" not in config:
@@ -104,7 +102,6 @@ class QemuConfig:
             qemu=config_path(config, "qemu"),
             qemu_img=config_path(config, "qemuImg"),
             virtiofsd=config_path(config, "virtiofsd"),
-            passt=config_path(config, "passt"),
             ocr=(tesseract, magick) if tesseract is not None and magick is not None else None,
             config_disk=config_maybe_path(config, "configDisk"),
             uplink=bool(config.get("uplink", True)),
@@ -266,28 +263,16 @@ class Qemu:
             abandon(helpers, opened)
             raise
 
-    async def _uplink_netdev(
-        self,
-        machine: Machine,
-        rundir: Path,
-        lan_fds: dict[str, int],
-        helpers: list[subprocess.Popen[bytes]],
-        opened: list[int],
-    ) -> tuple[str, int | None]:
-        """The `vec0` QEMU netdev, and the passt fd to keep open (or None).
+    @staticmethod
+    def _uplink_netdev(spec: MachineSpec, lan_fds: dict[str, int]) -> str:
+        """The `vec0` QEMU netdev: a dgram on the uplink segment's fd.
 
-        passt by default. When the spec names an uplink segment, vec0 is a
-        dgram on that segment's fd instead, so the uplink joins an
-        out-of-band management network a peer serves -- there is no passt,
-        and so no forwards (nixidae/nixidae#958).
+        The segment is the router's port for this guest, or an out-of-band
+        management network a peer serves (nixidae/nixidae#958).
         """
-        spec = machine.spec
-        if spec.uplink is not None:
-            return f"dgram,id=vec0,local.type=fd,local.str={lan_fds['vec0']}", None
-        passt_fd = await start_passt(
-            QemuConfig.of(spec).passt, rundir, spec.uplink_network, machine.forward, machine.offline, helpers, opened
-        )
-        return f"stream,id=vec0,addr.type=fd,addr.str={passt_fd}", passt_fd
+        if spec.uplink is None:
+            raise BackendError(f"{spec.name}: nothing serves vec0 under QEMU: uplink.proxy is {spec.uplink_proxy}")
+        return f"dgram,id=vec0,local.type=fd,local.str={lan_fds['vec0']}"
 
     async def _launch(
         self,
@@ -349,7 +334,6 @@ class Qemu:
         if config.swtpm is not None:
             tpm_fd = await self._swtpm(config.swtpm, rundir, helpers, opened)
 
-        passt_fd: int | None = None
         if spec.vsock:
             # No vec0 from the host: the guest reaches it over vsock, a
             # vhost-user device the egress serves, as on UML. A reboot
@@ -370,8 +354,8 @@ class Qemu:
             uplink = ["-chardev", f"socket,id=vsock,path={device}", "-device", "vhost-user-vsock-pci,chardev=vsock"]
             notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
         else:
-            netdev, passt_fd = await self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
-            notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else []
+            netdev = self._uplink_netdev(spec, lan_fds)
+            notes = []
             uplink = ["-netdev", netdev, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)},host_mtu={spec.mtu}"]
 
         argv = [
@@ -479,9 +463,7 @@ class Qemu:
         argv += _lan_args(spec, lan_fds)
 
         pass_fds = tuple(
-            fd
-            for fd in (agent_fd, passt_fd, *lan_fds.values(), vfs_fd, art_fd, tpm_fd, monitor_fd, *disk_fds)
-            if fd is not None
+            fd for fd in (agent_fd, *lan_fds.values(), vfs_fd, art_fd, tpm_fd, monitor_fd, *disk_fds) if fd is not None
         )
         return Launch(
             argv=argv,
@@ -555,9 +537,8 @@ class Qemu:
             "-serial",
             "chardev:control",
         ]
-        passt_fd: int | None = None
         if config.uplink:
-            uplink, passt_fd = await self._uplink_netdev(machine, rundir, lan_fds, helpers, opened)
+            uplink = self._uplink_netdev(spec, lan_fds)
             argv += ["-netdev", uplink, "-device", f"virtio-net-pci,netdev=vec0,mac={spec.mac(0)}"]
         monitor_fd = _monitor(sockets / "qmp")
         opened.append(monitor_fd)
@@ -575,7 +556,7 @@ class Qemu:
                 copy.chmod(0o600)
             argv += ["-drive", f"file={copy},if=virtio,format=raw"]
         argv += _lan_args(spec, lan_fds)
-        pass_fds = tuple(fd for fd in (agent_fd, passt_fd, *lan_fds.values(), monitor_fd, *disk_fds) if fd is not None)
+        pass_fds = tuple(fd for fd in (agent_fd, *lan_fds.values(), monitor_fd, *disk_fds) if fd is not None)
         return Launch(
             argv=argv,
             pass_fds=pass_fds,
@@ -583,7 +564,6 @@ class Qemu:
             controls=Qemu._controls(spec, sockets / "qmp"),
             cleanup=cleanup,
             disk_fds=disk_fds,
-            notes=forward.uplink_notes(machine.spec.uplink_network, machine.offline) if passt_fd is not None else [],
         )
 
     @staticmethod
@@ -628,7 +608,8 @@ class Qemu:
 
         *socket_name* keeps the store's and the artifacts' sockets apart
         under *rundir*. virtiofsd goes into *helpers* and QEMU's end into
-        *opened*, as `start_passt` does.
+        *opened* as each one exists, so the launch that owns them cleans
+        up after a failure or a cancel here.
 
         virtiofsd takes a *listening* socket on ``--fd``, so the path it
         was bound to is only needed for long enough to connect to it once.

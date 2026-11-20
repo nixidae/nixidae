@@ -45,7 +45,7 @@ async def test(vms: Machines) -> None:
     print(f"[test] vec0 IPv6 -> {' '.join(addresses) or 'none'}")
     out_of_host += [f"vec0 has {address}" for address in addresses if not address.startswith("fe80:")]
 
-    # Not past the host: passt or the egress answers it, offline too
+    # Not past the host: the egress answers it, offline too
     # (`namespace.allow_ping`).
     rc = (await vms.one.execute(f"ping -c 2 -W 2 {GATEWAY} >/dev/null 2>&1", timeout=20)).returncode
     print(f"[test] ping {GATEWAY} -> {'answered' if rc == 0 else 'no answer'}")

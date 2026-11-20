@@ -41,7 +41,7 @@ def test_an_inbound_entry_comes_from_json() -> None:
 
 
 def test_an_unset_host_port_is_any_free_one_that_binds_again() -> None:
-    """passt binds the pick itself, so the pick lets go of it."""
+    """gvproxy binds the pick itself, so the pick lets go of it."""
     taken: set[str] = set()
     [rule] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 80),))], taken=taken), taken=taken, random=False)
     [picked] = rule.ports
@@ -76,22 +76,6 @@ def test_random_picks_ignore_a_fixed_port() -> None:
         holder.listen()
         [picked] = forward.pick([rule], taken=set(), random=True)
     assert picked.ports[0].host != port
-
-
-def test_passt_never_gets_an_unpicked_port() -> None:
-    with pytest.raises(ForwardError):
-        forward.to_args([Rule(address="127.0.0.2", ports=(PortMap(None, 6443),))])
-
-
-def test_passt_gets_one_spec_per_protocol_in_host_port_order() -> None:
-    """passt reads `ADDR/HOST:GUEST,...`, and a port mapped to itself as one number."""
-    rule = Rule(address="127.0.0.3", ports=(PortMap(14325, 22), PortMap(8080, 8080)), protocols=("tcp", "udp"))
-    assert forward.to_args([rule]) == [
-        "--tcp-ports",
-        "127.0.0.3/8080,14325:22",
-        "--udp-ports",
-        "127.0.0.3/8080,14325:22",
-    ]
 
 
 @linux_loopback
@@ -132,7 +116,7 @@ class Forwarding(Machine):
 def test_a_forward_that_cannot_be_set_up_fails_the_guest_by_name(egress: bool) -> None:
     """`Session.prepare` reports a `MachineError` as a failed boot; a bare
     `ForwardError` ended the run as a traceback (nixidae/nixidae#1335). A
-    forward through an egress fails at its claim, a passt one at its pick."""
+    forward through an egress fails at its claim, a gvproxy one at its pick."""
     port = free_port_above(FIRST, 22000)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
         holder.bind((FIRST, port))
@@ -366,9 +350,9 @@ def test_a_switch_keeps_a_staying_port_and_rolls_back_on_failure(
     ]
 
 
-def test_a_guest_behind_passt_refuses_a_runtime_change() -> None:
+def test_a_guest_behind_gvproxy_refuses_a_runtime_change() -> None:
     vm = Runtime(None, egress=False)
-    with pytest.raises(MachineError, match="passt and gvproxy take forwards only when they start"):
+    with pytest.raises(MachineError, match="gvproxy takes forwards only when it starts"):
         anyio.run(functools.partial(vm.open_inbound, 9000))
 
 
@@ -378,36 +362,22 @@ NETWORK = UplinkNetwork(
 
 
 def test_the_uplink_args_say_nothing(capsys: pytest.CaptureFixture[str]) -> None:
-    """The DNS and offline lines are `uplink_notes`, which the guest says under its name."""
-    forward.uplink_args(NETWORK, offline=True)
+    """The DNS and offline lines are `egress_notes`, which the guest says under its name."""
     forward.egress_uplink_args(NETWORK, offline=True)
     assert capsys.readouterr().out == ""
 
 
 def test_the_args_carry_the_spec_s_addresses(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(forward.ENV_DNS, "192.0.2.53")
-    passt = forward.uplink_args(NETWORK)
-    assert passt[:8] == [
-        "--address",
-        "192.0.2.15",
-        "--netmask",
-        "24",
-        "--gateway",
-        "192.0.2.2",
-        "--dns-forward",
-        "192.0.2.3",
-    ]
     assert forward.egress_uplink_args(NETWORK) == ["--map=192.0.2.3:53=192.0.2.53:53", "--loopback=fd00:9::2"]
     assert NETWORK.subnet == "192.0.2.0/24"
 
 
 def test_the_notes_name_the_upstream_and_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(forward.ENV_DNS, "192.0.2.53")
-    assert forward.uplink_notes(NETWORK) == ["[uplink] DNS on 192.0.2.3, forwarded to 192.0.2.53"]
-    [_, offline] = forward.uplink_notes(NETWORK, offline=True)
-    assert offline.startswith(f"[uplink] offline: outbound bound to {forward.OFFLINE_OUTBOUND}")
-    [router, _] = forward.egress_notes(NETWORK, offline=True)
+    [router, offline] = forward.egress_notes(NETWORK, offline=True)
     assert router == "[uplink] router: DNS on 192.0.2.3, forwarded to 192.0.2.53"
+    assert offline.startswith(f"[uplink] router offline: outbound bound to {forward.OFFLINE_OUTBOUND}")
 
 
 class Speaking(Machine):

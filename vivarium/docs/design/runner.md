@@ -137,10 +137,8 @@ a test.
   Checking for them is the first thing a run does; without them it fails
   at once and names the fix. It never fails after the guests boot.
   Ubuntu 24.04 needs `kernel.apparmor_restrict_unprivileged_userns=0`.
-- **passt runs in every run**, so a guest has the same interfaces,
-  addresses and forwards everywhere. passt refuses to start without a
-  user namespace; this holds inside the sandbox too
-  (`uplink.sandboxedNoUserns` fails, `uplink.sandboxed` passes).
+- **The egress runs in every run**, so a guest has the same interfaces,
+  addresses and forwards everywhere, inside the sandbox too.
 - **Each guest sees only its own closure** in `/nix/store`, in every
   run. The runner builds a view per guest: a tmpfs with one read-only
   bind per path, read-only as a whole through `mount_setattr`
@@ -163,8 +161,7 @@ a test.
   overwritten. No overlay, because a host-side overlay cannot see
   binds. Built; writable in the sandbox too (`store-view`).
 - **Guests talk to each other on `vec1`**: socketpairs, and a hub in the
-  runner for three or more. It needs no namespace and no passt
-  (`lan.stubBlocked`). UML, QEMU and container guests mix in one run
+  runner for three or more. It needs no namespace and no egress. UML, QEMU and container guests mix in one run
   and reach each other over IP by name (`backends`).
 - **The run's own user namespace maps root and, when the host has
   them, the caller's subordinate ids.** Container guests need those ids
@@ -229,11 +226,8 @@ a test.
 
 - **Several isolated segments per guest**, for network topology tests:
   a list of networks, one interface each, as nixos-test's
-  `virtualisation.vlans`. Plus one special segment where passt has an
-  address and routes to the internet. Open: passt serves one guest per
-  instance (from memory, not checked), so a segment that many guests
-  share reaches the internet through a router guest, or each guest keeps
-  a private `vec0` of its own, as now.
+  `virtualisation.vlans`. The uplink reaches the internet: each guest
+  through a relay of its own, or every guest through the run's router.
 
 ## Not measured
 
@@ -263,8 +257,7 @@ the kernel, did not.
 | derivations `uml-session-*`, `uml-driver-*`, `uml-check-*`, `uml-test-*` | `vivarium-…` |
 
 Unchanged: the backend value `"uml"` and the `.uml` output,
-`pkgs/uml-kernel` and `umlKernel`, `pkgs/uml-passt-bridge` and
-`umlPasstBridge`, the UML `/init` (`uml-init`), and the kernel's
+`pkgs/uml-kernel` and `umlKernel`, the UML `/init` (`uml-init`), and the kernel's
 `CONFIG_UML_*` symbols.
 
 ## Order of work

@@ -16,11 +16,11 @@ MINE = Path("/home/me/linux/linux")
 
 class TestWithKernel:
     def test_each_guest_s_backend_names_it(self) -> None:
-        uml_config = {"bridge": "/b", "passt": "/p"}
+        uml_config = {"egress": "/e"}
         linux = Kernel(image=Path("/nix/store/k/linux"), vmlinux=None, initrd=None, cmdline="")
         kernel = Kernel(image=Path("/nix/store/bzImage"), vmlinux=Path("/nix/store/vmlinux"), initrd=None, cmdline="")
         boot = Boot(system="/nix/store/s", kernel=kernel, firmware=None)
-        krun_config = {"krun": "/k", "qemuImg": "/i", "acpi": False}
+        krun_config = {"krun": "/k", "qemuImg": "/i", "acpi": False, "egress": "/e"}
         machines = [
             machine_spec("u", boot=replace(boot, kernel=linux), launch=LaunchSpec("uml", uml_config)),
             machine_spec("k", BackendName.KRUN, boot=boot, launch=LaunchSpec("krun", krun_config)),
@@ -34,14 +34,14 @@ class TestWithKernel:
 
     def test_a_guest_with_no_kernel_of_its_own_refuses_the_run(self) -> None:
         container = machine_spec(
-            "c", BackendName.CONTAINER, launch=LaunchSpec("container", {"crun": "/c", "setpriv": "/s", "passt": "/p"})
+            "c", BackendName.CONTAINER, launch=LaunchSpec("container", {"crun": "/c", "setpriv": "/s", "egress": "/e"})
         )
         with pytest.raises(SessionError, match="--kernel: c: a container guest runs on the host's kernel"):
             with_kernel([container], PerGuest(every=MINE))
 
     def test_a_named_guest_takes_its_own_and_the_rest_keep_nix_s(self) -> None:
         container = machine_spec(
-            "c", BackendName.CONTAINER, launch=LaunchSpec("container", {"crun": "/c", "setpriv": "/s", "passt": "/p"})
+            "c", BackendName.CONTAINER, launch=LaunchSpec("container", {"crun": "/c", "setpriv": "/s", "egress": "/e"})
         )
         linux = Kernel(image=Path("/nix/store/k/linux"), vmlinux=None, initrd=None, cmdline="")
         uml = machine_spec("u", boot=Boot(system="/s", kernel=linux, firmware=None))

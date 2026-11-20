@@ -24,8 +24,7 @@ if TYPE_CHECKING:
 def log_tail(path: Path, lines: int = 20) -> str:
     """The end of *path*, for a helper that has already exited.
 
-    The end and not the start: passt names the port it could not bind
-    once per port and says why it gave up on the last line.
+    The end and not the start: a helper says why it gave up last.
     """
     try:
         text = path.read_text(errors="replace")
@@ -139,8 +138,8 @@ def abandon(helpers: Iterable[subprocess.Popen[bytes]], opened: Iterable[int]) -
 
 
 PULSE = 0.05
-"""How long a helper that fails at startup takes to fail. passt,
-virtiofsd and swtpm fail at once or not at all."""
+"""How long a helper that fails at startup takes to fail. virtiofsd and
+swtpm fail at once or not at all."""
 
 
 async def alive(proc: subprocess.Popen[bytes]) -> bool:
@@ -292,59 +291,3 @@ async def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str =
     fds = (os.open(scratch, os.O_RDWR), os.open(scratch, os.O_RDONLY))
     scratch.unlink()
     return fds
-
-
-async def start_passt(
-    passt: Path,
-    rundir: Path,
-    network: forward.UplinkNetwork,
-    rules: list[forward.Rule],
-    offline: bool,
-    helpers: list[subprocess.Popen[bytes]],
-    opened: list[int],
-) -> int:
-    """Start passt on one end of a socketpair; return QEMU's end.
-
-    passt goes into *helpers* and QEMU's end into *opened* as each one
-    exists, so the launch that owns them cleans up after a failure or a
-    cancel here.
-
-    No bridge: passt frames with a 4-byte big-endian length prefix,
-    which is QEMU's own socket protocol, so the two talk directly.
-    The specifiers are the ones forward.py builds for UML, unchanged.
-
-    **passt keeps a log and is checked for a pulse.**  Without them, a
-    passt that refuses to start -- which it does outright when a port
-    it was asked for will not bind -- leaves a guest with no uplink and
-    no word said.  What that looks like from inside is a guest whose
-    vec0 has a link-local address and nothing else, two minutes later,
-    reported as a name that would not resolve.  Measured on a
-    GitHub runner; see the `[cp] addresses and routes` of
-    user-mode-nixos run 34943651620.
-    """
-    qemu_end, passt_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    qemu_fd = qemu_end.detach()
-    opened.append(qemu_fd)
-    log = rundir / "passt.log"
-    with passt_end, log.open("wb") as handle:
-        proc = subprocess.Popen(
-            [
-                str(passt),
-                "--foreground",
-                "--fd",
-                str(passt_end.fileno()),
-                *forward.uplink_args(network, offline),
-                *forward.to_args(rules),
-            ],
-            stdin=subprocess.DEVNULL,
-            pass_fds=(passt_end.fileno(),),
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            preexec_fn=die_with_parent,
-        )
-    helpers.append(proc)
-    if not await alive(proc):
-        raise BackendError(f"passt exited ({proc.returncode}) instead of serving the uplink:\n{log_tail(log)}")
-    # Kept open until the guest has spawned; Machine closes it after.
-    return qemu_fd

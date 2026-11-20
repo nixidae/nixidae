@@ -26,7 +26,7 @@ def test_root_already_takes_only_a_mount_namespace() -> None:
 
 
 def test_offline_takes_a_network_namespace_too() -> None:
-    # Only lo, as a build sandbox has: passt's local mode, no way out.
+    # Only lo, as a build sandbox has: the egress finds no way out.
     for root in (False, True):
         assert "--net" in unshare_argv("/u", root=root, subordinate=False, private_net=True)
         assert "--net" not in unshare_argv("/u", root=root, subordinate=False)

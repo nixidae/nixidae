@@ -2,8 +2,8 @@
   Can the host reach a service in a guest?
 
   The only test that connects inwards.  One guest with three ports
-  forwarded, and web servers started long after passt stopped accepting
-  arguments.
+  forwarded, and web servers started long after the egress took its
+  forwards.
 */
 { pkgs, mkTest, ... }:
 mkTest {

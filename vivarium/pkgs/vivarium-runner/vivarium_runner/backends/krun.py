@@ -31,7 +31,6 @@ from .host import (
     scratch_disk,
     socket_dir,
     start_egress,
-    start_passt,
 )
 
 if TYPE_CHECKING:
@@ -48,9 +47,6 @@ class KrunConfig:
     krun: Path
     """`vivarium-krun`, the process a krun guest runs as."""
     qemu_img: Path
-    passt: Path | None
-    """For `vivarium.uplink.proxy = "passt"`. passt is Linux's, so a macOS
-    host has none."""
     gvproxy: Path | None
     """For `vivarium.uplink.proxy = "gvproxy"`."""
     acpi: bool
@@ -61,15 +57,12 @@ class KrunConfig:
 
     @classmethod
     def of(cls, spec: MachineSpec) -> KrunConfig:
-        config = launch_config(
-            spec, "krun", frozenset({"krun", "qemuImg", "acpi"}), frozenset({"passt", "gvproxy", "egress"})
-        )
+        config = launch_config(spec, "krun", frozenset({"krun", "qemuImg", "acpi"}), frozenset({"gvproxy", "egress"}))
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
             krun=config_path(config, "krun"),
             qemu_img=config_path(config, "qemuImg"),
-            passt=config_maybe_path(config, "passt"),
             gvproxy=config_maybe_path(config, "gvproxy"),
             acpi=bool(config["acpi"]),
             egress=config_maybe_path(config, "egress"),
@@ -106,7 +99,7 @@ the window in its own RAM, 1/64 of the window's size. That is 8 MiB at
 class Krun:
     """A guest as a libkrun microVM, with KVM.
 
-    The kernel, initrd and disk are QEMU's, so is the passt uplink. The
+    The kernel, initrd and disk are QEMU's. The
     store is served from inside the guest's own process, with a DAX window,
     so the guest maps the host's page cache of it instead of reading it
     into its own RAM. No monitor: no screen, and no balloon to resize.
@@ -171,18 +164,19 @@ class Krun:
     ) -> int:
         """Start gvproxy for one guest's uplink; return the guest's end.
 
-        gvproxy goes into *helpers* and the guest's end into *opened*, as
-        `start_passt` does.
+        gvproxy goes into *helpers* and the guest's end into *opened* as
+        each one exists, so the launch that owns them cleans up after a
+        failure or a cancel here.
 
         gvproxy takes no fd: it listens on a socket in *rundir*, and the
-        runner connects. Its framing on that socket is passt's, so
+        runner connects. It frames with a 4-byte length prefix, so
         `vivarium-krun --uplink` takes the fd unchanged. The config is
         always written: without one gvproxy forwards 127.0.0.1:2222 and
-        two guests collide on it. The addresses are passt's, so a guest
-        cannot tell the two apart.
+        two guests collide on it. The addresses are the uplink's fixed
+        ones (nix/uplink.nix), as the relay gives.
 
         Under `--offline` gvproxy runs in the session's own network
-        namespace, as passt does, and reaches nothing.
+        namespace and reaches nothing.
         """
         if gvproxy is None:
             raise BackendError(f"{spec.name}: vivarium.launch.config has no gvproxy")
@@ -258,7 +252,7 @@ class Krun:
         opened: list[int] = []
         helpers: list[subprocess.Popen[bytes]] = []
         disk_ro: int | None = None
-        passt_fds: tuple[int, ...] = ()
+        uplink_fds: tuple[int, ...] = ()
         cleanup: list[Path] = []
         notes: list[str] = []
         try:
@@ -269,8 +263,8 @@ class Krun:
             else:
                 disk_rw, disk_ro = await scratch_disk(config.qemu_img, rundir, spec.image)
                 opened += [disk_rw, disk_ro]
-            # As Qemu._uplink_netdev: an uplink segment (a router's, nixidae/nixidae#1404)
-            # replaces passt, and its fd is the run's.
+            # As Qemu._uplink_netdev: an uplink segment (a router's,
+            # nixidae/nixidae#1404) is the run's fd.
             if spec.vsock:
                 # No uplink: libkrun's own vsock carries each relay flow to
                 # the egress's socket, and listens for its forwards (E2).
@@ -303,18 +297,12 @@ class Krun:
                 notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
             elif spec.uplink is not None:
                 uplink = [f"--uplink-segment={lan_fds['vec0']},{spec.mac(0)}"]
+            elif spec.uplink_proxy == UplinkProxy.GVPROXY:
+                gvproxy_fd = await Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward, helpers, opened)
+                uplink_fds = (gvproxy_fd,)
+                uplink = [f"--uplink={gvproxy_fd},{spec.mac(0)}"]
             else:
-                if spec.uplink_proxy == UplinkProxy.GVPROXY:
-                    passt_fd = await Krun._gvproxy(config.gvproxy, rundir, spec, machine.forward, helpers, opened)
-                else:
-                    if config.passt is None:
-                        raise BackendError(f"{spec.name}: vivarium.launch.config has no passt")
-                    passt_fd = await start_passt(
-                        config.passt, rundir, spec.uplink_network, machine.forward, machine.offline, helpers, opened
-                    )
-                    notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline)
-                passt_fds = (passt_fd,)
-                uplink = [f"--uplink={passt_fd},{spec.mac(0)}"]
+                raise BackendError(f"{spec.name}: nothing serves vec0 under krun: uplink.proxy is {spec.uplink_proxy}")
         except BaseException:
             abandon(helpers, opened)
             raise
@@ -347,7 +335,7 @@ class Krun:
             argv.append("--acpi")
         return Launch(
             argv=argv,
-            pass_fds=(agent_fd, *passt_fds, disk_rw, *lan_fds.values()),
+            pass_fds=(agent_fd, *uplink_fds, disk_rw, *lan_fds.values()),
             helpers=helpers,
             disk_fds=(disk_rw,),
             cleanup=cleanup,

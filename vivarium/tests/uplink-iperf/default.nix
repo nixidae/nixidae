@@ -3,7 +3,7 @@
 
   The krun guests run in one run, so the uplinks are measured back to
   back on the same host. The host runs the iperf3 client through each
-  guest's forward, both directions. passt is Linux only.
+  guest's forward, both directions.
 */
 {
   hostPkgs,
@@ -23,13 +23,10 @@ mkTest {
   };
   nodes =
     lib.genAttrs
-      (
-        lib.optional hostPkgs.stdenv.hostPlatform.isLinux "passt"
-        ++ [
-          "gvproxy"
-          "vsock"
-        ]
-      )
+      [
+        "gvproxy"
+        "vsock"
+      ]
       (proxy: {
         imports = [ ../../modules/iperf3.nix ];
         services.iperf3-server.enable = true;

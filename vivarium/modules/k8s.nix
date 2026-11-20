@@ -33,7 +33,7 @@ let
     .${cfg.cri};
   criSocket = cri.socket;
 
-  # The node's address on the segment.  vec0 is passt's NAT, and every
+  # The node's address on the segment.  vec0 is the relay's NAT, and every
   # guest sits behind it on the same 10.0.2.x address -- so a node that
   # let kubelet pick its own IP would register the same InternalIP as
   # every other node, and the API server would talk to whichever one it
@@ -831,7 +831,7 @@ in
         assertion = config.vivarium.lan.address != null;
         message = ''
           services.vivarium-k8s needs vivarium.lan.address: every guest shares
-          one address behind passt, so a node with no segment of its own
+          one address behind its relay, so a node with no segment of its own
           has no address to register with.
         '';
       }

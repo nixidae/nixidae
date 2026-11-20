@@ -538,7 +538,7 @@ async def wait_for_dns(vm: Machine, host: str = "registry.k8s.io", timeout: floa
     is a constant now -- see `networking.nameservers` in
     modules/guest.nix -- so it is the same on a guest that resolves and
     on one that does not, and says nothing.  What differs is whether
-    passt's DHCP ever answered: a guest with only a link-local address
+    vec0 ever got its address: a guest with only a link-local address
     on vec0 has no route to any resolver, however good the address.
     That was the whole of it on a GitHub runner, under a report that
     named the resolver -- run 34943651620.

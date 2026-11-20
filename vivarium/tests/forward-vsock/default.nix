@@ -1,5 +1,5 @@
-# `forward` with the guest's uplink on vsock: its egress binds the
-# forwards, not passt (nixidae/nixidae#1404).
+# `forward` with the guest's uplink named vsock: its own egress binds the
+# forwards (nixidae/nixidae#1404).
 { pkgs, mkTest, ... }:
 mkTest {
   name = "forward-vsock";

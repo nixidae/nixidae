@@ -9,16 +9,11 @@ The host-side plumbing is shared, not reimplemented.  Every backend takes:
 
     the agent socketpair    a fd carrying arpyc, raw
     the segment fd          a fd from :mod:`vivarium_runner.net`, raw frames
-    passt                   started from :mod:`vivarium_runner.forward`'s specs
+    the egress              the uplink's host half, over vsock
 
 UML takes the segment fd as ``vec1:transport=fd``; QEMU takes the same fd
 as ``dgram,local.type=fd``.  Both are plain ``send``/``recv`` on the fd
 with no framing, which is why one segment can hold guests of either kind.
-
-The difference is passt.  UML's vector transport has no length prefix and
-passt has one, so a UML guest runs behind ``uml-passt-bridge``, which
-forks passt and translates.  QEMU speaks passt's protocol itself, so the
-bridge is not in the picture and the runner starts passt directly.
 """
 
 from __future__ import annotations

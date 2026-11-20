@@ -9,7 +9,6 @@ let
   qemu = pkgs.qemu_kvm;
 in
 {
-  passt = "${pkgs.callPackage ../pkgs/passt { }}/bin/passt";
   qemu = "${qemu}/bin/qemu-system-x86_64";
   # A macOS host needs qemu-img alone, for a krun guest's scratch disk.
   qemuImg = "${if pkgs.stdenv.hostPlatform.isDarwin then pkgs.qemu-utils else qemu}/bin/qemu-img";

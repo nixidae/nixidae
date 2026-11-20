@@ -16,7 +16,7 @@ from .. import forward, mconsole
 from ..boot import RootFormat
 from ..capability import Controls
 from ..store import BoundStore
-from .base import BackendError, Launch, Stop, config_maybe_path, config_path, launch_config, with_boot_image
+from .base import BackendError, Launch, Stop, config_maybe_path, launch_config, with_boot_image
 from .host import (
     RELAY_IN_PORT,
     abandon,
@@ -39,9 +39,6 @@ if TYPE_CHECKING:
 class UmlConfig:
     """`vivarium.launch.config` under UML."""
 
-    bridge: Path
-    """`uml-passt-bridge`, which forks passt for the uplink."""
-    passt: Path
     qemu_img: Path | None
     """For a cloud image, which is qcow2 and which ubd cannot read."""
     seed: Path | None = None
@@ -51,12 +48,10 @@ class UmlConfig:
 
     @classmethod
     def of(cls, spec: MachineSpec) -> UmlConfig:
-        config = launch_config(spec, "uml", frozenset({"bridge", "passt"}), frozenset({"qemuImg", "seed", "egress"}))
+        config = launch_config(spec, "uml", frozenset(), frozenset({"qemuImg", "seed", "egress"}))
         if spec.vsock and "egress" not in config:
             raise BackendError(f"{spec.name}: a vsock uplink needs egress in vivarium.launch.config")
         return cls(
-            bridge=config_path(config, "bridge"),
-            passt=config_path(config, "passt"),
             qemu_img=config_maybe_path(config, "qemuImg"),
             seed=config_maybe_path(config, "seed"),
             egress=config_maybe_path(config, "egress"),
@@ -287,35 +282,18 @@ class Uml:
             kernel.append(f"virtio_uml.device={device}:{VIRTIO_ID_VSOCK}")
             argv = kernel
         elif spec.uplink is None:
-            # vec0 is passt, behind the bridge: it forks passt and
-            # translates its length-prefixed frames to the fd transport.
-            notes = forward.uplink_notes(machine.spec.uplink_network, machine.offline)
-            argv = [
-                str(config.bridge),
-                "--vec",
-                self._vec(0, 3, spec.mtu),
-                # The bridge forks passt, so the uplink's addressing reaches
-                # it one argument at a time rather than directly.
-                *(
-                    arg
-                    for value in forward.uplink_args(machine.spec.uplink_network, machine.offline)
-                    for arg in ("--passt", value)
-                ),
-                *forward.to_args(machine.forward),
-                *kernel,
-            ]
+            raise BackendError(f"{spec.name}: nothing serves vec0 under UML: uplink.proxy is {spec.uplink_proxy}")
         else:
-            # vec0 joins an out-of-band management segment instead of passt
-            # (nixidae/nixidae#958). No passt means no bridge: vec0 is a
-            # plain fd transport like the segment NICs, straight to the
-            # kernel, and the guest leases its management address there.
+            # vec0 joins a segment: the router's port for this guest, or an
+            # out-of-band management network (nixidae/nixidae#958). A plain
+            # fd transport like the segment NICs, and the guest leases its
+            # address there.
             argv = [*kernel, self._vec(0, lan_fds["vec0"], spec.mtu, spec.mac(0))]
         for nic in spec.interfaces:
             argv.append(self._vec(nic.nic, lan_fds[nic.name], nic.mtu, nic.mac))
 
         pass_fds = (agent_fd, *lan_fds.values())
-        # The bridge finds passt on PATH.
-        env = dict(os.environ, PATH=f"{config.passt.parent}:{os.environ['PATH']}")
+        env = dict(os.environ)
         # The guest's RAM, and nothing else: the runner's own temporary
         # files -- the cow file above among them -- keep the caller's
         # TMPDIR, because a guest's disk belongs on a disk.  See

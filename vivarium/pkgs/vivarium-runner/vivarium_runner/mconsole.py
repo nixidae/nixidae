@@ -37,8 +37,7 @@ UMID = "mc"
 directory, so one fixed name per guest collides with nothing.
 
 Short on purpose: the path goes in a ``sockaddr_un``, which holds 108
-bytes including the NUL.  The same limit passt hits -- see
-``forward.py``."""
+bytes including the NUL -- see ``unixpath.py``."""
 
 _REQUEST = struct.Struct("=III")
 _REPLY = struct.Struct("=III")

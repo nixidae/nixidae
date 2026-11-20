@@ -91,11 +91,6 @@ lib.mkMerge [
               inherit (tools) krun qemuImg;
               acpi = krunAcpi;
             }
-            # Only where it serves vec0 (`MachineSpec.vsock`): a macOS host
-            # has no passt.
-            // lib.optionalAttrs (
-              cfg.uplink.proxy == "passt" && cfg.uplink.segment == null && !cfg.router.enable
-            ) { inherit (tools) passt; }
             // lib.optionalAttrs (cfg.uplink.proxy == "gvproxy") { inherit (tools) gvproxy; };
           }
         else
@@ -106,7 +101,6 @@ lib.mkMerge [
                 qemu
                 qemuImg
                 virtiofsd
-                passt
                 ;
             }
             // lib.optionalAttrs cfg.display.enable { inherit (tools) tesseract magick; }

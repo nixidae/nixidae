@@ -17,9 +17,8 @@ from typing import NoReturn, TypedDict, cast
 PAUSED = 4
 """`vivarium monitor`'s exit status at a pause."""
 
-UML_PROCESSES = ("linux", "uml-passt-bridg", "passt", "passt.avx2")
-"""A UML guest's processes, by `comm`: the kernel cuts it at 15 bytes, and
-passt execs `passt.avx2` on a CPU that has AVX2."""
+UML_PROCESSES = ("linux", "egress")
+"""A UML guest's processes, by `comm`: the kernel and its egress."""
 
 
 class State(TypedDict):

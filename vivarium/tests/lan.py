@@ -4,9 +4,8 @@
 Checks the things everything else is built on: that guests boot, that the
 host can talk to each of them over the serial line, that frames get
 between them on vec1, and that each uplink is the one vivarium promises,
-`uplink_ip`/24 via 10.0.2.2, in a build sandbox too: unpatched, passt gives
-a sandboxed guest 169.254.2.1/16 instead. `lan-router` runs it with the
-guests behind a router, where each has its own address.
+`uplink_ip`/24 via 10.0.2.2, in a build sandbox too. `lan-router` runs
+it with the guests behind a router, where each has its own address.
 """
 
 from __future__ import annotations

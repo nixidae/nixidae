@@ -152,21 +152,21 @@ in
     };
   };
 
-  # vec0 is the passt uplink (NAT plus the forwarded ssh port); each of
+  # vec0 is the uplink (the relay's NAT and the inbound ports); each of
   # `vivarium.interfaces` is an L2 link to the peers on its segment.
   networking = {
     useNetworkd = true;
     useDHCP = false;
     dhcpcd.enable = false;
-    # The guest is only reachable through passt's forwards, and a test
+    # The guest is only reachable through its inbound ports, and a test
     # wants to see what a service does, not what a firewall did to it.
     firewall.enable = lib.mkDefault false;
     /*
       A resolver named here, and not whatever the uplink advertises.
 
-      passt tells the guest to use the host's first nameserver, which on a
-      systemd-resolved host is the 127.0.0.53 stub -- an address that inside
-      the guest means the guest.  So the guest resolves nothing, and says so
+      The host's first nameserver on a systemd-resolved host is the
+      127.0.0.53 stub -- an address that inside the guest means the guest.
+      A guest told to use it resolves nothing, and says so
       as `lookup registry.k8s.io: no such host` several minutes into a test.
       Every guest CI job failed that way on a GitHub runner while the same
       code passed on a laptop, because a laptop's resolved has public
@@ -208,7 +208,7 @@ in
   # failed with "Port 2379 is in use" on its own address, before etcd
   # existed.
   systemd.network.networks = {
-    # The resolver passt advertises stays off vec0; see below.
+    # The resolver the uplink advertises stays off vec0; see below.
     "40-vec0" = {
       dhcpV4Config.UseDNS = false;
       dhcpV6Config.UseDNS = false;
@@ -249,15 +249,15 @@ in
       }
     ) cfg.nics
   );
-  # Take the address and the route from DHCP, not the resolver.  passt
-  # advertises one, resolved adds it to the link, and a link server is
+  # Take the address and the route from DHCP, not the resolver.  The
+  # router advertises one, resolved adds it to the link, and a link server is
   # queried beside the global ones above -- so whichever answers first
   # decides, which is the non-determinism `nameservers` is here to remove.
-  # All three, because passt advertises a resolver over DHCPv4, over
-  # DHCPv6 and in a router advertisement, and one of them left open puts
-  # the address back on the link. Set in `systemd.network.networks` above.
+  # All three, because a DHCP server can advertise a resolver over DHCPv4,
+  # over DHCPv6 and in a router advertisement, and one of them left open
+  # puts the address back on the link. Set in `systemd.network.networks` above.
 
-  # vec0 gets its address from passt within a second; blocking boot on a
+  # vec0 gets its address within a second; blocking boot on a
   # 90s timeout only ever makes tests slower.
   systemd.network.wait-online.enable = false;
 

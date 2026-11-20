@@ -611,7 +611,7 @@ class Session:
                 raise SessionError(f"no guest {', '.join(missing)}, and nothing to boot it from")
             return
         try:
-            # Captured: passt and the forward resolver say useful things
+            # Captured: the forward resolver says useful things
             # on the way up, and they say them with `print`.
             with self._capture():
                 await self._run.ensure(names)

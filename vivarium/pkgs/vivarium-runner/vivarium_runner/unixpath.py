@@ -10,7 +10,7 @@ from typing import Final
 UNIX_PATH_MAX: Final = 108 if sys.platform == "linux" else 104
 """``sizeof(struct sockaddr_un.sun_path)``, including the NUL; 104 on macOS.
 A longer path fails at ``bind`` or ``connect``, and a program that binds it
-for a guest (UML's mconsole, passt) often says so in one line of a long log."""
+for a guest (UML's mconsole, gvproxy) often says so in one line of a long log."""
 
 
 def fits(path: Path | str) -> bool:

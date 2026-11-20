@@ -239,9 +239,9 @@ class MachineSpec:
     interfaces: tuple[Interface, ...]
     """The guest's segment links, in NIC order."""
     uplink: str | None
-    """The segment the uplink (`vec0`, NIC 0) joins instead of passt: an
-    out-of-band management network a peer serves (nixidae/nixidae#958).
-    `None` is passt, the default."""
+    """The segment the uplink (`vec0`, NIC 0) joins: the router's port for
+    this guest, or an out-of-band management network a peer serves
+    (nixidae/nixidae#958). `None` is the guest's own relay or gvproxy."""
     uplink_proxy: UplinkProxy
     uplink_network: UplinkNetwork
     """The addresses on `vec0`, from nix/uplink.nix."""

@@ -76,7 +76,7 @@ async def test(vms: Machines) -> None:
 
     # Echo through the relay and the egress's ping socket, to the host. The
     # egress shares this process's network namespace; the build sandbox's
-    # refuses ping sockets, as it does passt's.
+    # refuses ping sockets.
     if ping_sockets(socket.AF_INET, socket.IPPROTO_ICMP):
         await vms.a.succeed("ping -c2 -W2 10.0.2.2")
         print("[test] a pinged the gateway through the router")

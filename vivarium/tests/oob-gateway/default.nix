@@ -1,8 +1,8 @@
 /*
   The services guest as the OOB gateway (nixidae/nixidae#958): the
   single point the host reaches an out-of-band guest through. `sw`'s
-  uplink is on the management segment and has no passt forward of its
-  own; the host reaches a service in it through one passt forward on
+  uplink is on the management segment and has no forward of its own;
+  the host reaches a service in it through one forward on
   `svc`, which DNATs to `sw`. The reply only returns because Kea gives
   `sw` the default route back to `svc`, so this proves both halves at
   once.
@@ -41,8 +41,7 @@ mkTest {
           ];
         })
       ];
-      # passt must forward 8080 for the DNAT to have anything to rewrite;
-      # its forwards are fixed before boot.
+      # svc must forward 8080 for the DNAT to have anything to rewrite.
       vivarium.inbound = [ { guest = 8080; } ];
     };
   nodes.sw = {

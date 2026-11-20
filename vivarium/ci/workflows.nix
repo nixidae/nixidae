@@ -13,7 +13,7 @@ let
 
   # A job that boots a guest needs the user namespace, whether the guest is
   # a UML process inside the Nix sandbox or a QEMU machine outside it: the
-  # sandbox unshares one, and so does passt. A QEMU guest needs /dev/kvm on
+  # sandbox unshares one, and so does the runner. A QEMU guest needs /dev/kvm on
   # top, and `uid-range`: virtiofsd serves a guest user's file as that
   # user, which a sandbox mapping one uid cannot (see `featuresFor`).
   #
@@ -183,15 +183,15 @@ let
     };
     oob-gateway = {
       # The services guest as the OOB gateway: the host reaches a guest
-      # whose uplink is on the management segment through one passt
-      # forward that DNATs to it. Two small NixOS guests, 1.6 s once built.
+      # whose uplink is on the management segment through one forward
+      # that DNATs to it. Two small NixOS guests, 1.6 s once built.
       description = "the services guest is the single forwarding point to an out-of-band guest";
       timeoutMinutes = 20;
     };
     oob-uml = {
       # The oob lease over UML processes: proves a UML guest's uplink
-      # joins a management segment (vec0 on a segment fd, not the passt
-      # bridge), which VyOS needs. Needs the UML kernel job.
+      # joins a management segment (vec0 on a segment fd, not vsock),
+      # which VyOS needs. Needs the UML kernel job.
       description = "a UML guest's uplink joins a management segment";
       timeoutMinutes = 20;
       backend = "uml";
@@ -286,7 +286,7 @@ let
     # What each krun uplink carries, both ways; the numbers are in the log.
     uplink-iperf = {
       backend = "krun";
-      description = "what passt, gvproxy and vsock carry for a libkrun guest";
+      description = "what gvproxy and vsock carry for a libkrun guest";
       timeoutMinutes = 30;
     };
     uplink-iperf-router = {
@@ -696,11 +696,10 @@ let
     images. The sandbox has no network, so this is `nix run`, not
     `nix build`.
 
-    passt needs an unprivileged user namespace, and Ubuntu denies one by
-    default. On a runner without `ghanix.userNamespaces`, passt exits at
-    startup and every guest boots with no uplink; the failure reads as a
-    name that does not resolve. A developer machine allows the namespace,
-    so only a runner shows it, and this job is where it shows.
+    The runner needs an unprivileged user namespace for a guest's store
+    view, and Ubuntu denies one by default: `ghanix.userNamespaces`
+    allows it. A developer machine allows the namespace, so only a
+    runner shows its absence, and this job is where it shows.
   */
   pullJob = job {
     id = "test-k8s-pull";

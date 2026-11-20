@@ -236,11 +236,9 @@ class Agent(Service):
         """Ports this guest has a TCP socket listening on.
 
         Read out of ``/proc/net/tcp`` rather than asked of ``ss``,
-        because that is the file pasta's own ``auto`` forwarding watches
-        and because it works whatever the guest has installed.  The
-        forwards themselves were decided before boot -- passt cannot be
-        told about a new one -- so this is here to say what is reachable
-        and what came up somewhere nothing is listening for it.
+        because it works whatever the guest has installed.  The forwards
+        themselves are `vivarium.inbound`, so this is here to say what is
+        reachable and what came up somewhere nothing is listening for it.
         """
         ports: set[int] = set()
         for family in ("tcp", "tcp6"):

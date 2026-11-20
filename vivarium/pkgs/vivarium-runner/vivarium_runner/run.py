@@ -67,8 +67,8 @@ def segment_members(specs: Iterable[MachineSpec]) -> dict[str, list[str]]:
     """Each segment's members, `<guest>/<interface>`: neither name can hold a slash."""
     segments: dict[str, list[str]] = defaultdict(list)
     for one in specs:
-        # A guest whose uplink joins a management segment instead of
-        # passt (nixidae/nixidae#958): vec0 is a member of that segment.
+        # A guest whose uplink joins a segment -- the router's port, or a
+        # management network (nixidae/nixidae#958): vec0 is a member.
         if one.uplink is not None:
             segments[one.uplink].append(f"{one.name}/vec0")
         for nic in one.interfaces:

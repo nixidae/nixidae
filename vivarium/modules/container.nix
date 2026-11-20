@@ -23,7 +23,7 @@ lib.mkMerge [
   (lib.mkIf (cfg.backend == "container") {
     vivarium.launch = {
       backend = "container";
-      config = { inherit (tools) crun setpriv passt; };
+      config = { inherit (tools) crun setpriv; };
     };
     # `uid-range`: 65536 ids and a cgroup of its own, which a plain sandbox
     # build does not have. With `nestedVirtualization` the container binds
