@@ -225,7 +225,7 @@ class Engine:
         self._walk_failed = not clean
         quiet = self._quiet(enabled, changes) if clean else ()
         added = tuple(sorted(drvs - base_drvs)) if clean else ()
-        removed = tuple(sorted(base_drvs - drvs)) if clean else ()
+        removed = tuple(sorted(self._unreached(base_drvs - drvs, walker.kept))) if clean else ()
         return Cascade(
             groups=self._group(changes) + quiet,
             seconds=time.monotonic() - start,
@@ -235,6 +235,27 @@ class Engine:
             drvs=pair_drvs(added, removed, self._likeness),
             derivers=self.base_derivers | self.ext_derivers,
         )
+
+    def _unreached(self, gone: set[str], kept: list[str]) -> set[str]:
+        """The base derivations the new side no longer reaches. Nix records
+        a derivation when it instantiates one, and a value the new side
+        shares with the base (`pkgs` through `specialArgs`) is instantiated
+        once: its inputs are never recorded again. So the new side reaches
+        whatever the closure of its own derivations holds."""
+        if not gone:
+            return gone
+        roots = set(self.ext_derivers.values())
+        roots |= {drv for key in kept if (drv := drv_file(key, self.base_derivers))}
+        if self.ext is not None:
+            for path in self.source.force:
+                v = self._peek(self.ext, path)
+                if v is not None and v.type_name() == "string" and is_drv_file(key := str(v.string_value())):
+                    roots.add(key)
+        if not roots:
+            return gone
+        closure = self.store.compute_fs_closure([self.store.parse_store_path(r) for r in roots])
+        reached = {self.store.print_store_path(p) for p in closure}
+        return {key for key in gone if drv_file(key, self.base_derivers) not in reached}
 
     def _likeness(self, old_key: str, new_key: str) -> int:
         """How many attributes and inputs two derivations share."""

@@ -12,6 +12,15 @@ from modiff.model import Path
 TOY: Final = """
 let
   lib = import <nixpkgs/lib>;
+  # Outside every module, as `pkgs` is when it comes through
+  # `specialArgs`. The edited evaluation shares `shared` and coerces it
+  # again, but never instantiates it again, so it never records `deep`.
+  shared = derivation {
+    name = "shared";
+    system = "x86_64-linux";
+    builder = "/bin/sh";
+    deep = derivation { name = "deep"; system = "x86_64-linux"; builder = "/bin/sh"; };
+  };
 in lib.evalModules {
   modules = [
     # An edit to `old` reaches `a` and never `config.old`.
@@ -90,6 +99,7 @@ in lib.evalModules {
           builder = "/bin/sh";
           # Not `config.drv`: the tests need one derivation with no path read.
           inputs = [
+            shared
             (derivation {
               name = "dep-${toString config.b}";
               system = "x86_64-linux";

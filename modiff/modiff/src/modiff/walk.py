@@ -99,6 +99,8 @@ class Walker:
     # walk never does: without these, a top level like
     # `system.build.toplevel` is missing from the rebuilds.
     rebuilt: list[tuple[Value, Value]] = field(default_factory=list)
+    # The `outPath` or `.drv` of each derivation both sides share.
+    kept: list[str] = field(default_factory=list)
 
     def force(self, v: Value, path: Path) -> bool:
         """Force a value of the new evaluation. A failure is a result: it
@@ -160,6 +162,8 @@ class Walker:
                 self.changes.append(Change(Kind.CHANGED, path, a, b))
                 if name in INSTANTIATED:
                     self.rebuilt.append((old, new))
+            elif a is not None and a == b and (key := instantiated(new)):
+                self.kept.append(key)
         elif kind == "attrs":
             self._attrs(old, new, path, above)
         elif kind == "list":
