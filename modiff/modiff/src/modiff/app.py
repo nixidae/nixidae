@@ -788,6 +788,8 @@ def help_text(keys: list[tuple[str, str]]) -> RenderableType:
         cascade.append(f"{KIND_HELP[kind]}\n")
     cascade.append("  «thunk» ", style="bold")
     cascade.append("a value nothing evaluated: Nix is lazy\n")
+    cascade.append("  «failed» ", style="bold")
+    cascade.append("a value whose evaluation threw an error\n")
     drvs = Text()
     for rebuild, mark in DRV_MARK.items():
         drvs.append(f"  {mark} {rebuild:<8}", style=DRV_STYLE[rebuild])

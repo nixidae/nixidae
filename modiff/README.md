@@ -7,7 +7,12 @@ needed. An edit adds a module through `extendModules`. modiff evaluates the
 same values again and lists every option whose value changed. For each
 option it shows the type, the declaration, every module that defines it, and
 the value before and after. A value that nothing evaluated shows as
-`«thunk»`.
+`«thunk»`, and one whose evaluation threw an error as `«failed»`.
+
+An edit that fails to evaluate shows as a failure (`!`) under the option
+the error names, or else under the option the edit sets. The detail pane
+says where the evaluation met the error first: often `assertions`, which
+reads nearly every option.
 
 The last row of the cascade lists the derivations the edit rebuilds. Select
 one to see why: the inputs that changed and the attributes of its `.drv`

@@ -148,6 +148,7 @@ async def test_question_mark_opens_the_help(tmp_path: Path) -> None:
         assert "/       Find option" in text
         assert "~ rebuilt" in text
         assert "«thunk»" in text
+        assert "«failed»" in text
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, HelpScreen)
