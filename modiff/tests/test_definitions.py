@@ -61,4 +61,5 @@ def test_an_option_the_base_never_read_folds_too() -> None:
     shown = text(view)
     assert heads(shown)[0] == f"+ {edit_file(('xs',))}"
     assert len(heads(shown)) == 1 + UNCHANGED_SHOWN
-    assert "… 2 more the edits left alone" in shown
+    # Nothing was compared, so the fold claims nothing about the edits.
+    assert "… 2 more definitions, from 2 files" in shown

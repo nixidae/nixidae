@@ -251,9 +251,11 @@ def definitions(view: OptionView, all_shown: bool = False) -> list[RenderableTyp
     if rest:
         # NixOS `assertions`: 949 more from hundreds of files; naming them floods too.
         files = len({d.file for d in rest})
+        # Without the base's list nothing was compared.
+        what = "the edits left alone" if view.base_read else "definitions"
         out.append(
             Text.assemble(
-                (f"… {len(rest)} more the edits left alone, from {files} files: ", "dim italic"),
+                (f"… {len(rest)} more {what}, from {files} files: ", "dim italic"),
                 ("D", "bold"),
                 (" shows them", "dim italic"),
             )
