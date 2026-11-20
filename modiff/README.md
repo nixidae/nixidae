@@ -16,7 +16,9 @@ reads nearly every option.
 
 The last row of the cascade lists the derivations the edit rebuilds. Select
 one to see why: the inputs that changed and the attributes of its `.drv`
-that differ.
+that differ. A derivation added or removed with its own inputs, such as a
+service's package with its sources and build tools, shows as one row with
+`+N inputs`: the inputs are rows under it.
 
 It is a tool to learn the module system with: set one option and watch it
 reach the firewall, the systemd units and `/etc`.

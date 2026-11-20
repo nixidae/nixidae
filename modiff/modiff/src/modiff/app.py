@@ -840,6 +840,8 @@ def help_text(keys: list[tuple[str, str]]) -> RenderableType:
     for rebuild, mark in DRV_MARK.items():
         drvs.append(f"  {mark} {rebuild:<8}", style=DRV_STYLE[rebuild])
         drvs.append(f"{DRV_HELP[rebuild]}\n")
+    drvs.append("  +N inputs  ", style="dim")
+    drvs.append("added or removed with it, as inputs it needs; enter opens them\n")
     for block in (rows, cascade, drvs):
         block.rstrip()
     return RichGroup(
