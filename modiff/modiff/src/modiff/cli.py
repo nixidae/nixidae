@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import huggorm
+
 from .app import ModiffApp
 from .engine import EngineThread, Source, nixos_source
 from .model import Edit, parse_option_path
@@ -57,4 +59,8 @@ def edits_of(args: argparse.Namespace) -> list[Edit]:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    # What `nix` does at startup: without it, `experimental-features` is
+    # empty and a configuration that calls `builtins.fetchTree` fails.
+    huggorm.load_config()
+    huggorm.init_plugins()
     ModiffApp(EngineThread(source_of(args)), edits_of(args)).run()
