@@ -138,6 +138,38 @@ async def test_enter_on_a_changed_input_goes_to_its_row(tmp_path: Path) -> None:
         assert node.data.change.name == "dep-20"
 
 
+async def test_with_a_build_root_every_changed_input_has_a_row(tmp_path: Path) -> None:
+    """The build closure finds `hidden`, which nothing records."""
+    app = app_for(tmp_path, [Edit(("a",), "2")])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        tree: Tree[TreeData] = app.query_one("#cascade", Tree)
+        drvs = next(n for n in tree.root.children if isinstance(n.data, DrvRow))
+        drvs.expand()
+        await pilot.pause()
+        top = next(
+            n for n in drvs.children if isinstance(n.data, DrvRow) and n.data.change and n.data.change.name == "top"
+        )
+        tree.move_cursor(top)
+        await drained(app, pilot)
+        top.expand()
+        await pilot.pause()
+        assert [str(n.label) for n in top.children] == [
+            "~ dep-10 → dep-20  ⏎ its row",
+            "~ hidden-10 → hidden-20  ⏎ its row",
+            "~ unit  ⏎ its row",
+            "~ unit  ⏎ its row",
+        ]
+        assert str(drvs.label).startswith("Derivations: ")
+        tree.move_cursor(top.children[1])
+        await pilot.press("enter")
+        await pilot.pause()
+        node = tree.cursor_node
+        assert node is not None and node.parent is drvs
+        assert isinstance(node.data, DrvRow) and node.data.change is not None
+        assert node.data.change.name == "hidden-20"
+
+
 NEW_EXTRAS: Final = """let src = derivation { name = "new-src"; system = "x86_64-linux"; builder = "/bin/sh"; };
 in [ (derivation { name = "new"; system = "x86_64-linux"; builder = "/bin/sh"; inherit src; }) src ]"""
 
