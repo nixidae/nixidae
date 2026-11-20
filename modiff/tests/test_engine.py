@@ -7,7 +7,7 @@ from typing import Final
 import pytest
 from toy import SOURCE, TOY
 
-from modiff.engine import Crash, Engine, EngineThread, Source, edit_module
+from modiff.engine import Crash, Engine, EngineThread, Source, edit_module, nixos_source
 from modiff.model import (
     Cascade,
     Change,
@@ -427,6 +427,12 @@ def test_a_failing_force_path_is_named(tmp_path: Path) -> None:
         thread.shutdown()
     assert loaded.error is not None
     assert loaded.error.startswith("evaluating config.nope: attribute 'nope' missing")
+
+
+def test_a_nixos_path_may_hold_a_space(engine: EngineThread) -> None:
+    source = nixos_source("/tmp/my config/configuration.nix", "/tmp/my nixpkgs")
+    run(engine, lambda e: e.state.parse_expr(source.expr, "/"))
+    assert '"/tmp/my config/configuration.nix"' in source.expr
 
 
 def test_a_free_name_is_no_parse_error(engine: EngineThread) -> None:

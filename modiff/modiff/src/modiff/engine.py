@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import pathlib
 import threading
 import time
 import traceback
@@ -85,13 +86,18 @@ class Source:
     base_dir: str = "/"
 
 
+def nix_path(path: str) -> str:
+    """A path literal cannot hold a space; a string added to `/.` can."""
+    return f"(/. + {nix_string(str(pathlib.Path(path).absolute()))})"
+
+
 def nixos_source(configuration: str | None, nixpkgs: str) -> Source:
-    module = configuration if configuration is not None else DEMO_MODULE
+    module = nix_path(configuration) if configuration is not None else DEMO_MODULE
     # `<nixpkgs>/nixos` is not a path: a lookup path takes the rest inside.
     eval_config = (
         f"{nixpkgs[:-1]}/nixos/lib/eval-config.nix>"
         if nixpkgs.startswith("<") and nixpkgs.endswith(">")
-        else f"{nixpkgs}/nixos/lib/eval-config.nix"
+        else nix_path(f"{nixpkgs}/nixos/lib/eval-config.nix")
     )
     expr = f"import {eval_config} {{ modules = [ ({module}) ]; }}"
     return Source(expr=expr, force=(("config", "system", "build", "toplevel", "drvPath"),))
