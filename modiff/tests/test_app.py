@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import anyio
+from rich.console import Console
 from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
@@ -39,6 +41,12 @@ async def drained(app: ModiffApp, pilot: Pilot[None]) -> None:
     await pilot.pause()
 
 
+def detail_text(app: ModiffApp) -> str:
+    console = Console(width=200, record=True, file=io.StringIO())
+    console.print(app.query_one("#detail", Static).content)
+    return console.export_text()
+
+
 def options(app: ModiffApp) -> list[str]:
     tree: Tree[TreeData] = app.query_one("#cascade", Tree)
     return [".".join(node.data[0].option) for node in tree.root.children if isinstance(node.data, tuple)]
@@ -55,6 +63,24 @@ async def test_start_edit_shows_its_cascade_first(tmp_path: Path) -> None:
         await settled(app, pilot)
         assert options(app) == ["a", "b", "drv", "top"]
         assert drv_rows(app) == ["~ dep-10 → dep-20", "~ top"]
+
+
+async def test_a_rebuilt_derivation_names_its_changed_input(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [Edit(("a",), "2")])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        tree: Tree[TreeData] = app.query_one("#cascade", Tree)
+        drvs = next(n for n in tree.root.children if isinstance(n.data, DrvRow))
+        drvs.expand()
+        await pilot.pause()
+        top = next(
+            n for n in drvs.children if isinstance(n.data, DrvRow) and n.data.change and n.data.change.name == "top"
+        )
+        tree.move_cursor(top)
+        await drained(app, pilot)
+        text = detail_text(app)
+        assert "Inputs that changed" in text
+        assert "dep-10.drv → dep-20.drv" in text
 
 
 async def test_edit_through_the_modal(tmp_path: Path) -> None:

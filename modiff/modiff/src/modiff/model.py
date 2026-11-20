@@ -151,6 +151,40 @@ def pair_drvs(added: tuple[str, ...], removed: tuple[str, ...]) -> tuple[DrvChan
 
 
 @dataclass(frozen=True, slots=True)
+class AttrChange:
+    """One attribute of a `.drv` that differs: `builder`, `args`,
+    `system`, or a variable of its environment."""
+
+    name: str
+    old: str | None
+    new: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DrvDiff:
+    """Why a derivation rebuilds: what differs between its two `.drv`s."""
+
+    old: str = ""
+    new: str = ""
+    inputs: tuple[DrvChange, ...] = ()
+    sources: tuple[DrvChange, ...] = ()
+    attrs: tuple[AttrChange, ...] = ()
+    error: str | None = None
+
+
+def changed_paths(old: set[str], new: set[str]) -> tuple[DrvChange, ...]:
+    return pair_drvs(tuple(sorted(new - old)), tuple(sorted(old - new)))
+
+
+def changed_attrs(old: dict[str, str], new: dict[str, str]) -> tuple[AttrChange, ...]:
+    return tuple(
+        AttrChange(name, old.get(name), new.get(name))
+        for name in sorted(old.keys() | new.keys())
+        if old.get(name) != new.get(name)
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class Definition:
     file: str
     value: str

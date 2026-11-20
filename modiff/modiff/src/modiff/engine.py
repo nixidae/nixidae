@@ -7,20 +7,22 @@ is. `EngineThread` gives it one, with the stack the evaluator needs.
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import threading
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Final
 
-from huggorm import EvalState, Store, Value
+from huggorm import Derivation, EvalState, Store, Value
 from huggorm.errors import NixError
 
 from .model import (
     Cascade,
     Change,
     Definition,
+    DrvDiff,
     Edit,
     Group,
     Loaded,
@@ -28,12 +30,14 @@ from .model import (
     OptionView,
     Path,
     Quiet,
+    changed_attrs,
+    changed_paths,
     edit_file,
     format_path,
     nix_string,
     overlaps,
 )
-from .walk import SKIP, Walker, count_forced, error_text, fully_forced, out_path, show_forced, show_lazy
+from .walk import SKIP, Walker, count_forced, drv_string, error_text, fully_forced, show_forced, show_lazy
 
 # Nix's CLI sets this stack in `main()`; an embedder's thread keeps 8 MiB, and
 # the default max-call-depth of 10000 needs about 27 MB (huggorm's runtime,
@@ -87,12 +91,16 @@ def edit_module(edit: Edit) -> str:
 
 class Engine:
     def __init__(self, source: Source, store: str = "auto") -> None:
-        self.state = EvalState(Store(store))
+        self.store = Store(store)
+        self.state = EvalState(self.store)
         self.source = source
         self._extend = self.state.eval_expr(EXTEND, "/")
         self.base: Value | None = None
         self.ext: Value | None = None
         self.base_drvs: frozenset[str] = frozenset()
+        # Output path -> `.drv` path, for each side.
+        self.base_derivers: dict[str, str] = {}
+        self.ext_derivers: dict[str, str] = {}
         self._options: dict[OptionPath, bool] = {}
 
     def _sel(self, v: Value, path: Path) -> Value:
@@ -127,6 +135,7 @@ class Engine:
         finally:
             self.state.set_record_derivations(False)
         self.base_drvs = frozenset(self.state.recorded_out_paths())
+        self.base_derivers = self._derivers(self.base_drvs)
         self.state.clear_recorded_derivations()
         self.base = base
         return Loaded(time.monotonic() - start, count_forced(self._sel(base, ("config",))))
@@ -162,12 +171,20 @@ class Engine:
         finally:
             self.state.set_record_derivations(False)
         drvs = set(self.state.recorded_out_paths())
+        self.ext_derivers = self._derivers(drvs)
         self.state.clear_recorded_derivations()
         base_drvs = set(self.base_drvs)
         for old, new in walker.rebuilt:
-            if (old_out := out_path(self.state, old)) and (new_out := out_path(self.state, new)):
+            old_out = drv_string(self.state, old, "outPath")
+            new_out = drv_string(self.state, new, "outPath")
+            old_drv = drv_string(self.state, old, "drvPath")
+            new_drv = drv_string(self.state, new, "drvPath")
+            if old_out and new_out:
                 base_drvs.add(old_out)
                 drvs.add(new_out)
+                if old_drv and new_drv:
+                    self.base_derivers.setdefault(old_out, old_drv)
+                    self.ext_derivers[new_out] = new_drv
         changes = walker.result()
         clean = not walker.failures
         quiet = self._quiet(enabled, changes) if clean else ()
@@ -177,6 +194,48 @@ class Engine:
             visited=walker.visited,
             drvs_added=tuple(sorted(drvs - base_drvs)) if clean else (),
             drvs_removed=tuple(sorted(base_drvs - drvs)) if clean else (),
+        )
+
+    def _derivers(self, outs: Iterable[str]) -> dict[str, str]:
+        """The `.drv` of each recorded output path. Recording coerced each
+        one, which instantiated it: its `drvPath` is already known."""
+        found: dict[str, str] = {}
+        for out in outs:
+            drv = self.state.recorded_derivation(out)
+            if drv is not None and (path := drv_string(self.state, drv, "drvPath")):
+                found[out] = path
+        return found
+
+    def _drv_attrs(self, drv: Derivation) -> dict[str, str]:
+        attrs = {"builder": drv.builder(), "args": " ".join(drv.args()), "system": drv.system()}
+        # An output's variable holds its path, which differs on every
+        # rebuild: a result of the change, not a cause.
+        outputs = drv.outputs().keys()
+        attrs |= {f"env.{k}": v for k, v in drv.env().items() if k not in outputs}
+        if (structured := drv.structured_attrs()) is not None:
+            # Values of any JSON shape: shown as text, compared as text.
+            for key, value in json.loads(structured).items():
+                attrs[f"attrs.{key}"] = value if isinstance(value, str) else json.dumps(value, indent=2)
+        return attrs
+
+    def drv_diff(self, old_out: str, new_out: str) -> DrvDiff:
+        old_path = self.base_derivers.get(old_out)
+        new_path = self.ext_derivers.get(new_out)
+        if old_path is None or new_path is None:
+            return DrvDiff(error="modiff did not see this derivation instantiated on both sides")
+        try:
+            old = self.store.read_derivation(self.store.parse_store_path(old_path))
+            new = self.store.read_derivation(self.store.parse_store_path(new_path))
+        except NixError as err:
+            return DrvDiff(old_path, new_path, error=error_text(err))
+        return DrvDiff(
+            old_path,
+            new_path,
+            inputs=changed_paths(set(old.input_drvs()), set(new.input_drvs())),
+            sources=changed_paths(
+                {str(p.to_string()) for p in old.input_srcs()}, {str(p.to_string()) for p in new.input_srcs()}
+            ),
+            attrs=changed_attrs(self._drv_attrs(old), self._drv_attrs(new)),
         )
 
     def _options_root(self) -> Value:

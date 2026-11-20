@@ -9,11 +9,14 @@ from modiff.engine import Crash, Engine, EngineThread
 from modiff.model import (
     Cascade,
     Change,
+    DrvDiff,
     Edit,
     Kind,
     OptionView,
     Quiet,
+    Rebuild,
     format_path,
+    pair_drvs,
     parse_option_path,
     priority_text,
     store_name,
@@ -63,6 +66,19 @@ def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> 
     c = cascade(engine, Edit(("a",), "2"))
     assert sorted(store_name(p) for p in c.drvs_added) == ["dep-20", "top"]
     assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top"]
+
+
+def test_drv_diff_names_the_input_that_changed(engine: EngineThread) -> None:
+    def job(e: Engine) -> DrvDiff:
+        c = e.apply([Edit(("a",), "2")])
+        top = next(d for d in pair_drvs(c.drvs_added, c.drvs_removed) if d.name == "top")
+        assert top.old is not None and top.new is not None
+        return e.drv_diff(top.old, top.new)
+
+    diff = run(engine, job)
+    assert diff.error is None, diff.error
+    assert [(d.kind, d.name) for d in diff.inputs] == [(Rebuild.VERSION, "dep-20.drv")]
+    assert [a.name for a in diff.attrs] == ["env.inputs"]
 
 
 def test_changes_group_under_their_option(engine: EngineThread) -> None:

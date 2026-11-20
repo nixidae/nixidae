@@ -200,13 +200,13 @@ class Walker:
                 self.changes.append(Change(Kind.ADDED, (*path, j), "", describe(b_keys[j])))
 
 
-def out_path(state: EvalState, drv: Value) -> str | None:
-    """The output path of a derivation whose `drvPath` or `outPath` was
-    forced. Both select from one `derivationStrict` result, so this
-    evaluates nothing new."""
-    if not drv.has("outPath"):
+def drv_string(state: EvalState, drv: Value, name: str) -> str | None:
+    """`outPath` or `drvPath` of a derivation that was instantiated: one
+    of them was forced. Both select from one `derivationStrict` result,
+    so this evaluates nothing new."""
+    if not drv.has(name):
         return None
-    v = drv.get("outPath")
+    v = drv.get(name)
     if not quiet_force(state, v) or v.type_name() != "string":
         return None
     return str(v.string_value())

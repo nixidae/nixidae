@@ -32,6 +32,7 @@ from .model import (
     Cascade,
     Change,
     DrvChange,
+    DrvDiff,
     Edit,
     Group,
     Kind,
@@ -48,6 +49,7 @@ from .model import (
 )
 
 SHORT: Final = 60
+ATTR_LIMIT: Final = 2000
 MARK: Final = {Kind.CHANGED: "~", Kind.ADDED: "+", Kind.REMOVED: "-", Kind.FAILED: "!"}
 STYLE: Final = {Kind.CHANGED: "yellow", Kind.ADDED: "green", Kind.REMOVED: "red", Kind.FAILED: "bold red"}
 
@@ -518,7 +520,7 @@ def drv_summary(changes: tuple[DrvChange, ...]) -> Text:
     return Text(f"Derivations: {', '.join(parts)}", style="bold")
 
 
-def drv_detail(row: DrvRow) -> RenderableType:
+def drv_detail(row: DrvRow, diff: DrvDiff | None = None) -> RenderableType:
     if row.change is None:
         return RichGroup(
             drv_summary(row.changes),
@@ -535,7 +537,41 @@ def drv_detail(row: DrvRow) -> RenderableType:
         parts.append(Text.assemble(("before: ", "dim"), change.old))
     if change.new is not None:
         parts.append(Text.assemble(("after:  ", "dim"), change.new))
+    if diff is not None:
+        parts.extend(drv_diff_parts(diff))
+    elif change.old is not None and change.new is not None:
+        parts.append(Text("\nreading both .drv files…", style="dim"))
     return RichGroup(*parts)
+
+
+def drv_diff_parts(diff: DrvDiff) -> list[RenderableType]:
+    if diff.error is not None:
+        return [Text(f"\n{diff.error}", style="red")]
+    parts: list[RenderableType] = []
+    if diff.inputs:
+        parts.append(section("Inputs that changed"))
+        parts.append(
+            Text("Derivations this one builds on. Each one that changed changes this one.", style="dim italic")
+        )
+        parts.extend(drv_line(c) for c in diff.inputs)
+    if diff.sources:
+        parts.append(section("Sources that changed"))
+        parts.extend(drv_line(c) for c in diff.sources)
+    if diff.attrs:
+        parts.append(section("Attributes that changed"))
+        for attr in diff.attrs:
+            parts.append(Text(attr.name, style="bold"))
+            if attr.old is not None and attr.new is not None and ("\n" in attr.old or "\n" in attr.new):
+                parts.append(diff_text(attr.old, attr.new))
+                continue
+            # Whole values: the part that differs is often a hash mid-line.
+            if attr.old is not None:
+                parts.append(Text(f"- {attr.old[:ATTR_LIMIT]}", style="red"))
+            if attr.new is not None:
+                parts.append(Text(f"+ {attr.new[:ATTR_LIMIT]}", style="green"))
+    if not parts:
+        parts.append(Text("\nThe two .drv files differ in nothing modiff compares.", style="dim"))
+    return parts
 
 
 class ModiffApp(App[None]):
@@ -568,6 +604,7 @@ class ModiffApp(App[None]):
         self.pending = False
         self.generation = 0
         self.views: dict[OptionPath, OptionView] = {}
+        self.drv_diffs: dict[tuple[str, str], DrvDiff] = {}
         self.showing: TreeData | None = None
         # An option found with `/`: listed first, changed or not.
         self.browsed: OptionPath | None = None
@@ -672,6 +709,7 @@ class ModiffApp(App[None]):
         self.cascade = cascade
         self.generation += 1
         self.views.clear()
+        self.drv_diffs.clear()
         tree = self.query_one("#cascade", Tree)
         tree.clear()
         if cascade.error is not None:
@@ -734,7 +772,7 @@ class ModiffApp(App[None]):
             return
         self.showing = data
         if isinstance(data, DrvRow):
-            self.detail(drv_detail(data))
+            self.show_drv(data)
             return
         group, change = data
         if not group.option:
@@ -751,6 +789,28 @@ class ModiffApp(App[None]):
                 self.detail(option_detail(view, changes, note))
 
         self.explain(group.option, shown)
+
+    def show_drv(self, row: DrvRow) -> None:
+        change = row.change
+        if change is None or change.old is None or change.new is None:
+            self.detail(drv_detail(row))
+            return
+        key = (change.old, change.new)
+        if (diff := self.drv_diffs.get(key)) is not None:
+            self.detail(drv_detail(row, diff))
+            return
+        self.detail(drv_detail(row))
+        generation = self.generation
+        old, new = key
+
+        def shown(diff: DrvDiff) -> None:
+            if generation != self.generation:
+                return
+            self.drv_diffs[key] = diff
+            if self.showing is row:
+                self.detail(drv_detail(row, diff))
+
+        self.run_job(lambda engine: engine.drv_diff(old, new), shown)
 
     def refresh_edits(self) -> None:
         listing = self.query_one("#edits", ListView)
