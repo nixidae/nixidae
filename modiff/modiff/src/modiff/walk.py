@@ -26,6 +26,10 @@ INSTANTIATED: Final = frozenset(INSTANTIATED_ORDER)
 type Key = dict[str, str]
 SELF: Final = ""
 SCALARS: Final = frozenset({"int", "float", "bool", "string", "null", "path"})
+# Not a value: nothing forced a thunk, and forcing a failed one threw. In
+# the base a `tryEval` leaves one failed; comparing it forces the new side
+# and reports the base's own failure as the edit's.
+UNEVALUATED: Final = frozenset({"thunk", "failed"})
 # Above this many element pairs, a stretch between anchors pairs by index:
 # the match is quadratic in Python.
 MATCH_CELLS: Final = 40_000
@@ -57,7 +61,7 @@ def forced_attr(v: Value, name: str) -> Value | None:
     if not v.has(name):
         return None
     child = v.get(name)
-    return None if child.type_name() == "thunk" else child
+    return None if child.type_name() in UNEVALUATED else child
 
 
 def drv_attr(v: Value) -> str | None:
@@ -126,7 +130,7 @@ class Walker:
         stop a cycle. A global set hid changes, because Nix shares one value
         for every `true`, so `{ p = true; q = true; }` walked `q` as seen."""
         kind = old.type_name()
-        if kind == "thunk":
+        if kind in UNEVALUATED:
             return
         if kind not in {"attrs", "list"}:
             self._compare(old, new, kind, path, above)
@@ -179,7 +183,7 @@ class Walker:
         derivation's name and the attributes in `fields`, nothing deeper,
         and records no failure: an inserted element may be one nothing
         evaluates."""
-        if v.type_name() == "thunk" and not quiet_force(self.state, v):
+        if v.type_name() in UNEVALUATED and not quiet_force(self.state, v):
             return {SELF: "«error»"}
         kind = v.type_name()
         if is_derivation(v):
@@ -199,7 +203,7 @@ class Walker:
     def _list(self, old: Value, new: Value, path: Path, above: set[int]) -> None:
         olds = [old.at(i) for i in range(old.length())]
         news = [new.at(i) for i in range(new.length())]
-        a_keys = [{} if v.type_name() == "thunk" else self.element_key(v) for v in olds]
+        a_keys = [{} if v.type_name() in UNEVALUATED else self.element_key(v) for v in olds]
         b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
         for i, j in align(a_keys, b_keys):
             if i is not None and j is not None:
@@ -216,7 +220,7 @@ class Walker:
         Only for the new side, which every apply replaces."""
         above = set() if above is None else above
         kind = old.type_name()
-        if kind == "thunk" or not quiet_force(self.state, new) or new.type_name() != kind:
+        if kind in UNEVALUATED or not quiet_force(self.state, new) or new.type_name() != kind:
             return
         if kind not in {"attrs", "list"} or is_derivation(old):
             return
@@ -231,7 +235,7 @@ class Walker:
                 return
             olds = [old.at(i) for i in range(old.length())]
             news = [new.at(i) for i in range(new.length())]
-            a_keys = [{} if v.type_name() == "thunk" else self.element_key(v) for v in olds]
+            a_keys = [{} if v.type_name() in UNEVALUATED else self.element_key(v) for v in olds]
             b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
             for i, j in align(a_keys, b_keys):
                 if i is not None and j is not None:
@@ -410,7 +414,7 @@ def count_forced(v: Value, above: set[int] | None = None) -> int:
     """Forced values under `v`, derivations counted as one."""
     above = set() if above is None else above
     kind = v.type_name()
-    if kind == "thunk":
+    if kind in UNEVALUATED:
         return 0
     if kind not in {"attrs", "list"} or is_derivation(v):
         return 1
@@ -430,7 +434,7 @@ def fully_forced(v: Value, above: set[int] | None = None) -> bool:
     """No thunk under `v`; a derivation counts as one value."""
     above = set() if above is None else above
     kind = v.type_name()
-    if kind == "thunk":
+    if kind in UNEVALUATED:
         return False
     if kind not in {"attrs", "list"} or is_derivation(v):
         return True

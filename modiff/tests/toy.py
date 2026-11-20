@@ -25,6 +25,8 @@ in lib.evalModules {
         # Sorts after `checks`, which reads it: the walk meets a conflict
         # on `z` first in `checks`, as NixOS meets one in `assertions`.
         z = lib.mkOption { type = lib.types.int; };
+        # `tryEval` leaves `bad` a failed value in the base, not a thunk.
+        tried = lib.mkOption { type = lib.types.attrs; };
         flags = lib.mkOption { type = lib.types.attrs; };
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
@@ -64,6 +66,7 @@ in lib.evalModules {
         ];
         b = config.a * 10;
         z = 3;
+        tried = { bad = throw "never works"; ok = (builtins.tryEval config.tried.bad).success; };
         flags = { p = true; q = true; };
         lines = [ "one" "two" ];
         drv = derivation {
@@ -127,6 +130,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "checks", 2, "ok"),
     ("config", "checks", 3, "ok"),
     ("config", "many"),
+    ("config", "tried", "ok"),
     ("config", "people", 0, "name"),
     ("config", "people", 0, "uid"),
     ("config", "people", 1, "name"),

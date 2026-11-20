@@ -226,6 +226,12 @@ def test_a_failed_merge_leaves_the_other_definitions_alone(engine: EngineThread)
     assert view.new.startswith("«error: ")
 
 
+def test_a_value_the_base_failed_is_no_failure_of_the_edit(engine: EngineThread) -> None:
+    c = cascade(engine, Edit(("a",), "2"))
+    assert not [ch for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
+    assert ("tried",) not in {g.option for g in c.groups}
+
+
 def test_a_failed_part_is_flagged(engine: EngineThread) -> None:
     cascade(engine, Edit(("z",), "4"))
     view = run(engine, lambda e: e.explain(("checks",)))
@@ -442,7 +448,11 @@ def test_the_written_module_means_what_the_edits_meant(engine: EngineThread, tmp
 
     def job(e: Engine) -> tuple[str, str]:
         def config(modules: str) -> str:
-            expr = f"builtins.toJSON (({TOY}).extendModules {{ modules = [ {modules} ]; }}).config"
+            # `tried.bad` throws by design.
+            expr = (
+                f"builtins.toJSON (removeAttrs (({TOY}).extendModules {{ modules = [ {modules} ]; }}).config"
+                ' [ "tried" ])'
+            )
             return str(e.state.eval_expr(expr, "/").string_value())
 
         return config(str(module)), config(on)

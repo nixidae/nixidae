@@ -44,6 +44,7 @@ from .model import (
 )
 from .walk import (
     SKIP,
+    UNEVALUATED,
     Walker,
     count_forced,
     drv_string,
@@ -353,7 +354,7 @@ class Engine:
                 reason = Quiet.DROPPED
             elif changes:
                 reason = Quiet.ELSEWHERE
-            elif v is None or v.type_name() == "thunk":
+            elif v is None or v.type_name() in UNEVALUATED:
                 reason = Quiet.UNREAD
             else:
                 reason = Quiet.SAME if fully_forced(v) else Quiet.PARTIAL
@@ -421,7 +422,7 @@ class Engine:
     def _shown_new(self, v: Value) -> str:
         """A new value that the base evaluated: a thunk left here failed,
         and forcing it again raises its error."""
-        if v.type_name() in {"thunk", "failed"}:
+        if v.type_name() in UNEVALUATED:
             self.state.force(v)
         return show_lazy(v)
 
@@ -495,7 +496,7 @@ class Engine:
         # (`dischargeProperties`). Merging the value did that already, so
         # the base is safe to read only where its value was evaluated.
         base_value = None if self.base is None else self._peek(self._sel(self.base, ("config",)), option)
-        base_read = base_value is not None and base_value.type_name() != "thunk"
+        base_read = base_value is not None and base_value.type_name() not in UNEVALUATED
         olds: list[tuple[str, Value]] = []
         news: list[tuple[str, Value]] = []
         prio_old = prio_new = None
