@@ -84,7 +84,18 @@ def change_value(change: Change) -> str:
         case Kind.REMOVED:
             return short(change.old, change.text) if change.old else "removed"
         case Kind.FAILED:
-            return short_file(change.new.splitlines()[0]) if change.new else ""
+            return short_file(failure_summary(change.new))
+
+
+def failure_summary(message: str) -> str:
+    """The first line of an error, and the next one when the first only
+    announces it: NixOS prints "Failed assertions:", then each one."""
+    lines = [line.strip() for line in message.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    if lines[0].endswith(":") and len(lines) > 1:
+        return f"{lines[0]} {lines[1]}"
+    return lines[0]
 
 
 def change_line(change: Change, option: OptionPath) -> Text:
@@ -1000,8 +1011,12 @@ class ModiffApp(App[None]):
             if cascade.drvs_added or cascade.drvs_removed
             else ""
         )
+        failed = sum(1 for g in cascade.groups for c in g.changes if c.kind is Kind.FAILED)
+        if failed and not drvs:
+            drvs = ", derivations not compared: a value fails"
         changed = sum(1 for g in cascade.groups if g.quiet is None)
-        tree.border_title = f"Cascade: {changed} options, {total} changes"
+        failures = f", {failed} failed" if failed else ""
+        tree.border_title = f"Cascade: {changed} options, {total} changes{failures}"
         self.status(self.base_status() + f" · edits {cascade.seconds:.1f}s{drvs}")
         if not tree.root.children:
             self.detail(HELP)

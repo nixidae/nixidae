@@ -14,7 +14,18 @@ from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
 
 from modiff import app as app_module
-from modiff.app import DrvRow, EditScreen, HelpScreen, ModiffApp, Target, TreeData, WriteScreen, find_options, target
+from modiff.app import (
+    DrvRow,
+    EditScreen,
+    HelpScreen,
+    ModiffApp,
+    Target,
+    TreeData,
+    WriteScreen,
+    failure_summary,
+    find_options,
+    target,
+)
 from modiff.engine import EngineThread
 from modiff.model import Edit, edits_module
 
@@ -205,6 +216,25 @@ async def test_edit_through_the_modal(tmp_path: Path) -> None:
         await pilot.press("a", *"a", "enter", *"3", "enter")
         await settled(app, pilot)
         assert options(app) == ["a", "b", "drv", "top"]
+
+
+async def test_a_failure_shows_in_the_title_and_the_status(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [Edit(("z",), "4")])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        assert options(app)[0] == "z"
+        assert str(app.query_one("#cascade", Tree).border_title).endswith(", 1 failed")
+        assert str(app.query_one("#status", Static).content).endswith("derivations not compared: a value fails")
+
+
+def test_failure_summary_reads_past_a_heading() -> None:
+    assert failure_summary("\nFailed assertions:\n- You must set grub.devices.\n- Other.") == (
+        "Failed assertions: - You must set grub.devices."
+    )
+    assert failure_summary("The option `z' has conflicting definition values:") == (
+        "The option `z' has conflicting definition values:"
+    )
+    assert failure_summary("attribute 'x' missing\nat foo") == "attribute 'x' missing"
 
 
 def test_target_places_a_path_among_the_options() -> None:
