@@ -146,13 +146,15 @@ class Engine:
     def load(self) -> Loaded:
         start = time.monotonic()
         self.state.set_record_derivations(True)
+        forcing: Path = ()
         try:
             base = self.state.eval_expr(self.source.expr, self.source.base_dir)
             self._sel(base, ("config",))
-            for path in self.source.force:
-                self._sel(base, path)
+            for forcing in self.source.force:
+                self._sel(base, forcing)
         except NixError as err:
-            return Loaded(time.monotonic() - start, 0, error_text(err))
+            where = f"{format_path(forcing)}: " if forcing else ""
+            return Loaded(time.monotonic() - start, 0, where + error_text(err))
         finally:
             self.state.set_record_derivations(False)
         self.base_drvs = frozenset(self.state.recorded_out_paths())

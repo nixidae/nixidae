@@ -398,6 +398,16 @@ def test_parse_error_names_the_edit(engine: EngineThread) -> None:
     assert "setAttrByPath" not in c.error
 
 
+def test_a_failing_force_path_is_named(tmp_path: Path) -> None:
+    thread = EngineThread(Source(TOY, (("config", "a"), ("config", "nope"))), store=f"local?root={tmp_path}")
+    try:
+        loaded = run(thread, Engine.load)
+    finally:
+        thread.shutdown()
+    assert loaded.error is not None
+    assert loaded.error.startswith("config.nope: attribute 'nope' missing")
+
+
 def test_a_free_name_is_no_parse_error(engine: EngineThread) -> None:
     assert cascade(engine, Edit(("a",), "lib.mkForce (lib.max 1 2)")).error is None
 
