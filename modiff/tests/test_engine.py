@@ -407,12 +407,13 @@ def test_explaining_every_option_widens_no_cascade(engine: EngineThread) -> None
 
 def test_no_action_widens_the_next_cascade(engine: EngineThread) -> None:
     """Every job the app submits: explain (moving, `/`, `D`), the option
-    list and `freeform` (`/`, tab completion, the edit dialog), a
+    list, `freeform` and `syntax_error` (`/`, tab completion, the edit dialog), a
     derivation's diff, and a second edit turned on and off. None may
     change the cascade of the first edit."""
     edit = Edit(("a",), "2")
     before = cascade(engine, edit)
     run(engine, Engine.freeform)
+    run(engine, lambda e: e.syntax_error("config.a + 1"))
     for drv in before.drvs:
         if drv.old is not None and drv.new is not None:
             run(engine, lambda e, drv=drv: e.drv_diff(drv.old, drv.new))
