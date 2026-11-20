@@ -41,7 +41,9 @@ With no arguments modiff loads a minimal NixOS configuration. Other sources:
 | `D` | show every definition of an option; by default the ones the edits left alone fold after three |
 | `tab` | move between the edits, the cascade and the detail pane |
 | `pgup` `pgdn` | scroll the detail pane, once `tab` has moved to it |
+| `↑` `↓` | move the cursor; the detail pane follows it |
 | `enter` | open or close a row; on a changed input of a derivation, go to its row |
+| `escape` | close a dialog |
 | `?` | show the keys and what each mark in the cascade means |
 | `q` | quit |
 

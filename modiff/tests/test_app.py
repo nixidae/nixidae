@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 import anyio
 import pytest
 from rich.console import Console
+from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
@@ -15,6 +17,7 @@ from toy import SOURCE
 
 from modiff import app as app_module, walk
 from modiff.app import (
+    NAVIGATION,
     DrvRow,
     EditScreen,
     HelpScreen,
@@ -236,6 +239,16 @@ async def test_a_failure_shows_in_the_title_and_the_status(tmp_path: Path) -> No
         assert options(app)[0] == "z"
         assert str(app.query_one("#cascade", Tree).border_title).endswith(", 1 failed")
         assert str(app.query_one("#status", Static).content).endswith("derivations not compared: a value fails")
+
+
+def test_the_readme_lists_every_key() -> None:
+    readme = (Path(__file__).parent.parent / "README.md").read_text()
+    table = readme.split("## Keys", 1)[1].split("\n\n", 2)[1]
+    documented = {key for row in table.splitlines()[2:] for key in re.findall(r"`([^`]+)`", row.split("|")[1])}
+    shown = {"slash": "/", "question_mark": "?"}
+    bound = {shown.get(b.key, b.key) for b in ModiffApp.BINDINGS if isinstance(b, Binding)}
+    navigation = {key for keys, _ in NAVIGATION for key in keys.split()}
+    assert documented == bound | navigation
 
 
 def test_failure_summary_reads_past_a_heading() -> None:
