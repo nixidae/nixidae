@@ -227,6 +227,14 @@ def test_a_failed_merge_leaves_the_other_definitions_alone(engine: EngineThread)
     assert view.new.startswith("«error: ")
 
 
+def test_elements_the_base_never_read_stay_unread(engine: EngineThread) -> None:
+    """The base forced the list `many` and none of its elements."""
+    c = cascade(engine, Edit(("many",), "lib.mkForce (lib.genList (i: if i == 200 then 0 else i) 250)"))
+    assert quiet(c) == {"many": Quiet.PARTIAL}
+    view = run(engine, lambda e: e.explain(("many",)))
+    assert view.new == view.old
+
+
 def test_a_value_the_base_failed_is_no_failure_of_the_edit(engine: EngineThread) -> None:
     c = cascade(engine, Edit(("a",), "2"))
     assert not [ch for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]

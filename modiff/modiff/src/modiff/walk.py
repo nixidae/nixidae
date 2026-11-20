@@ -204,14 +204,22 @@ class Walker:
         olds = [old.at(i) for i in range(old.length())]
         news = [new.at(i) for i in range(new.length())]
         a_keys = [{} if v.type_name() in UNEVALUATED else self.element_key(v) for v in olds]
-        b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
+        # A `listOf` element is a merge thunk of its own: often the base
+        # forced the list and no element. Then no key anchors anything, and
+        # forcing the new elements would print values where the base
+        # prints «thunk».
+        b_keys: list[Key] = (
+            [self.element_key(v, common_fields(a_keys)) for v in news] if any(a_keys) else [{} for _ in news]
+        )
         for i, j in align(a_keys, b_keys):
             if i is not None and j is not None:
                 self.compare(olds[i], news[j], (*path, j), above)
             elif i is not None:
                 self.changes.append(Change(Kind.REMOVED, (*path, i), describe(a_keys[i])))
             elif j is not None:
-                self.changes.append(Change(Kind.ADDED, (*path, j), "", describe(b_keys[j])))
+                # The base has no counterpart: its value is no fake change.
+                key = b_keys[j] or self.element_key(news[j])
+                self.changes.append(Change(Kind.ADDED, (*path, j), "", describe(key)))
 
     def force_like(self, old: Value, new: Value, above: set[int] | None = None) -> None:
         """Force `new` as far as `old` is forced, and record nothing. A walk
@@ -242,6 +250,8 @@ class Walker:
             olds = [old.at(i) for i in range(old.length())]
             news = [new.at(i) for i in range(new.length())]
             a_keys = [{} if v.type_name() in UNEVALUATED else self.element_key(v) for v in olds]
+            if not any(a_keys):
+                return
             b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
             for i, j in align(a_keys, b_keys):
                 if i is not None and j is not None:
