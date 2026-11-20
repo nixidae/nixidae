@@ -54,7 +54,14 @@ in lib.evalModules {
         # An edit to `[ ]` removes a derivation and adds none.
         extras = lib.mkOption {
           type = lib.types.listOf lib.types.package;
-          default = [ (derivation { name = "extra"; system = "x86_64-linux"; builder = "/bin/sh"; }) ];
+          default = [
+            (derivation {
+              name = "extra";
+              system = "x86_64-linux";
+              builder = "/bin/sh";
+              src = derivation { name = "extra-src"; system = "x86_64-linux"; builder = "/bin/sh"; };
+            })
+          ];
         };
         # Shaped like `system.build.toplevel`: its inputs are coerced to
         # their output paths, which records them.

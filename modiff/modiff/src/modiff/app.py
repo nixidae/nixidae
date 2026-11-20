@@ -675,7 +675,17 @@ def drv_line(change: DrvChange) -> Text:
     name = change.name
     if change.kind is Rebuild.VERSION and change.old is not None:
         name = f"{store_name(change.old)} → {name}"
-    return Text(f"{DRV_MARK[change.kind]} {name}", style=DRV_STYLE[change.kind])
+    line = Text(f"{DRV_MARK[change.kind]} {name}", style=DRV_STYLE[change.kind])
+    if change.only:
+        line.append(f"  +{counted(len(change.only), 'input', 'inputs')}", style="dim")
+    return line
+
+
+def folded_changes(change: DrvChange) -> tuple[DrvChange, ...]:
+    """The paths folded under an added or removed one, as changes of its kind."""
+    if change.old is None:
+        return tuple(DrvChange(None, p) for p in change.only)
+    return tuple(DrvChange(p, None) for p in change.only)
 
 
 CASCADE_TITLE: Final = "Cascade"
@@ -694,7 +704,9 @@ def cascade_title(options: int, changes: int, failed: int) -> str:
 
 
 def drv_counts(changes: tuple[DrvChange, ...]) -> str:
-    counts = Counter(c.kind for c in changes)
+    counts: Counter[Rebuild] = Counter()
+    for c in changes:
+        counts[c.kind] += 1 + len(c.only)
     return ", ".join(f"{counts[k]} {k}" for k in Rebuild if counts[k])
 
 
@@ -1030,10 +1042,14 @@ class ModiffApp(App[None]):
             drv_node = tree.root.add(drv_summary(drv_changes), data=DrvRow(drv_changes))
             for drv in drv_changes:
                 # Expandable once its diff names changed inputs.
-                leaf = drv_node.add(drv_line(drv), data=DrvRow(drv_changes, drv), allow_expand=False)
-                for path in (drv.new, drv.old):
-                    if path is not None and (file := drv_file(path, cascade.derivers)) is not None:
-                        self.drv_nodes.setdefault(file, leaf)
+                leaf = drv_node.add(drv_line(drv), data=DrvRow(drv_changes, drv), allow_expand=bool(drv.only))
+                rows = [(drv, leaf)]
+                for part in folded_changes(drv):
+                    rows.append((part, leaf.add_leaf(drv_line(part), data=DrvRow(drv_changes, part))))
+                for shown, row in rows:
+                    for path in (shown.new, shown.old):
+                        if path is not None and (file := drv_file(path, cascade.derivers)) is not None:
+                            self.drv_nodes.setdefault(file, row)
         total = sum(len(g.changes) for g in cascade.groups)
         drvs = f", derivations: {drv_counts(cascade.drvs)}" if cascade.drvs else ""
         failed = sum(1 for g in cascade.groups for c in g.changes if c.kind is Kind.FAILED)

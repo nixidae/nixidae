@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Final
 
@@ -105,6 +105,14 @@ class DrvChange:
 
     old: str | None
     new: str | None
+    # An added or removed path's inputs that are added or removed with it
+    # and that no other such path above them needs: removing nginx removes
+    # its tarballs and patches.
+    only: tuple[str, ...] = ()
+
+    @property
+    def path(self) -> str:
+        return self.new or self.old or ""
 
     @property
     def kind(self) -> Rebuild:
@@ -179,6 +187,35 @@ def pair_drvs(
     pairs += [DrvChange(None, p) for p in new_left]
     pairs += [DrvChange(p, None) for p in old_left]
     return tuple(sorted(pairs, key=lambda c: (c.name, c.kind)))
+
+
+FOLDED: Final = frozenset({Rebuild.ADDED, Rebuild.REMOVED})
+
+
+def fold_inputs(changes: tuple[DrvChange, ...], inputs: Callable[[str], Iterable[str]]) -> tuple[DrvChange, ...]:
+    """Each added or removed path that another one of its kind needs, as
+    `only` of the top one that reaches it first. `inputs(path)` names the
+    paths a path needs directly. A rebuilt pair stays as it is: its inputs
+    rebuilt too, each for a reason the user may want to see."""
+    out: list[DrvChange] = []
+    for kind in sorted(FOLDED):
+        single = {c.path: c for c in changes if c.kind is kind}
+        below = {p: [i for i in inputs(p) if i in single and i != p] for p in single}
+        needed = {i for found in below.values() for i in found}
+        taken: set[str] = set()
+        for top in sorted(p for p in single if p not in needed):
+            folded: list[str] = []
+            stack = list(below[top])
+            while stack:
+                p = stack.pop()
+                if p in taken:
+                    continue
+                taken.add(p)
+                folded.append(p)
+                stack.extend(below[p])
+            out.append(replace(single[top], only=tuple(sorted(folded, key=store_name))))
+    out += [c for c in changes if c.kind not in FOLDED]
+    return tuple(sorted(out, key=lambda c: (c.name, c.kind)))
 
 
 @dataclass(frozen=True, slots=True)

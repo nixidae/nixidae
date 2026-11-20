@@ -1,8 +1,26 @@
 from __future__ import annotations
 
-from modiff.model import DrvChange, Rebuild, package_name, pair_drvs, store_name
+from modiff.model import DrvChange, Rebuild, fold_inputs, package_name, pair_drvs, store_name
 
 S = "/nix/store/"
+
+
+def test_fold_inputs_folds_what_a_removed_path_needs() -> None:
+    """`nginx` needs `pcre` and `src`, `pcre` needs `src` too; `unit` is
+    rebuilt and needs `src`, which still folds: it is removed as well."""
+    nginx, pcre, src, tool = (S + f"a-{n}" for n in ("nginx", "pcre", "src", "tool"))
+    unit = DrvChange(S + "a-unit", S + "b-unit")
+    inputs: dict[str, list[str]] = {nginx: [pcre, src], pcre: [src], src: [], tool: []}
+    changes = (DrvChange(nginx, None), DrvChange(pcre, None), DrvChange(src, None), DrvChange(tool, None), unit)
+    folded = fold_inputs(changes, lambda p: inputs.get(p, []))
+    assert folded == (
+        DrvChange(nginx, None, only=(pcre, src)),
+        DrvChange(tool, None),
+        unit,
+    )
+    assert fold_inputs((DrvChange(None, nginx), DrvChange(None, pcre)), lambda p: inputs[p]) == (
+        DrvChange(None, nginx, only=(pcre,)),
+    )
 
 
 def test_store_name_drops_the_hash() -> None:

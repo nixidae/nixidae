@@ -76,8 +76,12 @@ def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> 
 
 
 def test_a_derivation_the_edit_drops_is_removed(engine: EngineThread) -> None:
+    """Its source goes with it, folded under it."""
     c = cascade(engine, Edit(("extras",), "[ ]"))
-    assert [(d.kind, d.name) for d in c.drvs if d.name != "top"] == [(Rebuild.REMOVED, "extra")]
+    gone = [d for d in c.drvs if d.name != "top"]
+    assert [(d.kind, d.name, [store_name(p) for p in d.only]) for d in gone] == [
+        (Rebuild.REMOVED, "extra", ["extra-src"])
+    ]
 
 
 def test_listing_rebuilds_forces_nothing_in_the_base(engine: EngineThread) -> None:

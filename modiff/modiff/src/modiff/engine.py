@@ -19,9 +19,11 @@ from huggorm import Derivation, EvalState, Store, Value
 from huggorm.errors import NixError
 
 from .model import (
+    FOLDED,
     Cascade,
     Change,
     Definition,
+    DrvChange,
     DrvDiff,
     Edit,
     Group,
@@ -37,6 +39,7 @@ from .model import (
     drv_file,
     edit_file,
     edited_path,
+    fold_inputs,
     format_path,
     is_drv_file,
     nix_string,
@@ -236,7 +239,7 @@ class Engine:
             visited=walker.visited,
             drvs_added=added,
             drvs_removed=removed,
-            drvs=pair_drvs(added, removed, self._likeness),
+            drvs=self._fold(pair_drvs(added, removed, self._likeness)),
             derivers=self.base_derivers | self.ext_derivers,
         )
 
@@ -255,6 +258,26 @@ class Engine:
         closure = self.store.compute_fs_closure([self.store.parse_store_path(r) for r in roots])
         reached = {self.store.print_store_path(p) for p in closure}
         return {key for key in gone if drv_file(key, self.base_derivers) not in reached}
+
+    def _fold(self, changes: tuple[DrvChange, ...]) -> tuple[DrvChange, ...]:
+        """Removing nginx from dinix removed 793 derivations, nearly all
+        its sources and patches: each folds under the path that needs it."""
+        derivers = self.base_derivers | self.ext_derivers
+        # One `.drv` builds every output of a package: `libxml2-bin` and `libxml2`.
+        by_drv: dict[str, list[str]] = {}
+        for c in changes:
+            if c.kind in FOLDED and (drv := drv_file(c.path, derivers)):
+                by_drv.setdefault(drv, []).append(c.path)
+
+        def inputs(path: str) -> list[str]:
+            drv = drv_file(path, derivers)
+            if drv is None:
+                return []
+            info = self.store.query_path_info(self.store.parse_store_path(drv))
+            refs = (self.store.print_store_path(r) for r in info.references())
+            return [p for r in refs for p in by_drv.get(r, [])]
+
+        return fold_inputs(changes, inputs)
 
     def _likeness(self, old_key: str, new_key: str) -> int:
         """How many attributes and inputs two derivations share."""
