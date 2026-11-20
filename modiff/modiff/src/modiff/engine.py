@@ -131,9 +131,9 @@ class Engine:
         self.base_derivers: dict[str, str] = {}
         self.ext_derivers: dict[str, str] = {}
         self.base_recorded_drvs: frozenset[str] = frozenset()
-        # The `.drv` of each forced path that is a derivation, and every
-        # `.drv` they need: what the base builds.
-        self.base_roots: tuple[str, ...] = ()
+        # The `.drv` of each forced path that is a derivation, by the string
+        # forced there, and every `.drv` they need: what the base builds.
+        self.base_roots: dict[str, str] = {}
         self.base_closure: frozenset[str] = frozenset()
         self._options: dict[OptionPath, bool] = {}
         # The last walk met a failure, so it left parts of the new side
@@ -180,7 +180,7 @@ class Engine:
         self.base_recorded_drvs = frozenset(self.base_derivers.values())
         self.state.clear_recorded_derivations()
         self.base_roots = self._roots(base)
-        self.base_closure = self._drv_closure(self.base_roots)
+        self.base_closure = self._drv_closure(self.base_roots.values())
         self.base = base
         return Loaded(time.monotonic() - start, count_forced(self._sel(base, ("config",))))
 
@@ -261,17 +261,19 @@ class Engine:
             derivers=self.base_derivers | self.ext_derivers,
         )
 
-    def _roots(self, base: Value) -> tuple[str, ...]:
-        """The `.drv` of each forced path that names a derivation. Reads
-        only what the load forced."""
-        roots: list[str] = []
+    def _roots(self, base: Value) -> dict[str, str]:
+        """The `.drv` of each forced path that names a derivation, keyed by
+        the string the base forced there. Reads only what the load forced."""
+        roots: dict[str, str] = {}
         for path in self.source.force:
             v = self._peek(base, path)
             if v is not None and is_derivation(v):
                 v = forced_attr(v, "drvPath")
-            if v is not None and v.type_name() == "string" and (drv := self._deriver(str(v.string_value()))):
-                roots.append(drv)
-        return tuple(roots)
+            if v is not None and v.type_name() == "string":
+                key = str(v.string_value())
+                if drv := self._deriver(key):
+                    roots[key] = drv
+        return roots
 
     def _deriver(self, path: str) -> str | None:
         """The `.drv` of a path, if it is a derivation or its output. An
@@ -297,17 +299,19 @@ class Engine:
     def _closure_diff(self, rebuilt: list[tuple[Value, Value]]) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """What the edited build needs that the base build does not, and
         the reverse. Recording cannot tell this: Nix records a derivation
-        when an evaluation instantiates it, and `pkgs.xonsh == x` in an
-        assertion instantiates one no build holds. The edited side shares
-        it, so it records nothing, and the base's recording made its inputs
-        look removed. A root the walk found unchanged builds the same."""
+        when an evaluation instantiates it, and NixOS's shell assertion
+        (`user.shell == pkgs.xonsh`, users-groups.nix) instantiates one no
+        build holds. The edited side shares `pkgs`, so it records nothing,
+        and the base's recording made its inputs look removed. A root the
+        walk found unchanged builds the same."""
+        roots = self.base_roots
         renamed: dict[str, str] = {}
         for old, new in rebuilt:
             key = instantiated(old)
-            old_drv = drv_file(key, self.base_derivers) if key else None
-            if old_drv in self.base_roots and (new_drv := drv_string(self.state, new, "drvPath")):
+            old_drv = roots.get(key) if key else None
+            if old_drv is not None and (new_drv := drv_string(self.state, new, "drvPath")):
                 renamed[old_drv] = new_drv
-        ext_closure = self._drv_closure(renamed.get(r, r) for r in self.base_roots)
+        ext_closure = self._drv_closure(renamed.get(r, r) for r in roots.values())
         return tuple(sorted(ext_closure - self.base_closure)), tuple(sorted(self.base_closure - ext_closure))
 
     def _unreached(self, gone: set[str], kept: list[str]) -> set[str]:
