@@ -385,11 +385,12 @@ def parse_option_path(text: str) -> OptionPath:
 
 # `lib/modules.nix`, `lib/options.nix`, `lib/types.nix`: "The option `a.b'
 # has conflicting definition values", "A definition for option `a.b' is not
-# of type". Some messages close the quote with a backtick.
-_BLAMED: Final = re.compile(r"option `([^`'\n]+)[`']")
+# of type". Some messages close the quote with a backtick. Anchored: a
+# NixOS "Failed assertions:" message may quote an option it is not about.
+_BLAMED: Final = re.compile(r"(?:The option|A definition for option) `([^`'\n]+)[`']")
 
 
 def blamed_path(message: str) -> OptionPath | None:
-    """The option path a module system error names first, if any."""
-    found = _BLAMED.search(message)
+    """The option path a module system error is about, if any."""
+    found = _BLAMED.match(message.strip())
     return None if found is None else parse_option_path(found.group(1))

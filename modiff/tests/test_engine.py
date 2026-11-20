@@ -250,6 +250,7 @@ def test_blamed_path_reads_the_module_system_messages() -> None:
     )
     assert blamed_path("The option `a.b` is defined both as `x` and `y`") == ("a", "b")
     assert blamed_path("attribute 'x' missing") is None
+    assert blamed_path("Failed assertions:\n- Set the option `a.b' first.") is None
 
 
 def test_parse_error_names_the_edit(engine: EngineThread) -> None:
