@@ -64,6 +64,28 @@ def test_list_insert_is_aligned(engine: EngineThread) -> None:
     assert got["lines[0]"].kind is Kind.ADDED and got["lines[0]"].new == "zero"
 
 
+INSERTED_CHECK = 'lib.mkOrder 750 [ { name = "inserted"; ok = true; msg = throw "never read"; } ]'
+
+
+def test_attrset_insert_aligns_on_literal_fields(engine: EngineThread) -> None:
+    """Every element is an attrset: keyed on kind alone, the insert shifted
+    each later element onto its neighbour and changed its `name`."""
+    c = cascade(engine, Edit(("checks",), INSERTED_CHECK))
+    assert c.error is None
+    got = changes(c)
+    assert set(got) == {"checks[1]"}
+    assert got["checks[1]"].kind is Kind.ADDED
+    assert 'name = "inserted";' in got["checks[1]"].new
+
+
+def test_aligning_leaves_unforced_fields_unforced(engine: EngineThread) -> None:
+    c = cascade(engine, Edit(("checks",), INSERTED_CHECK))
+    assert not [ch for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
+    view = run(engine, lambda e: e.explain(("checks",)))
+    assert "«thunk»" in view.new
+    assert "never read" not in view.new
+
+
 def test_type_error_is_a_failed_row(engine: EngineThread) -> None:
     c = cascade(engine, Edit(("a",), '"two"'))
     assert c.error is None

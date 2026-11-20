@@ -5,18 +5,28 @@ Runs on the engine thread: every `Value` here belongs to it.
 
 from __future__ import annotations
 
-import difflib
+import bisect
 from dataclasses import dataclass, field
 from typing import Final
 
 from huggorm import EvalState, Value
 from huggorm.errors import NixError
 
-from .model import Change, Kind, Path
+from .model import Change, Kind, Path, nix_string
 
 SKIP: Final = frozenset({"_module"})
 # A derivation is keyed by the first of these its evaluation forced.
 DRV_KEYS: Final = ("outPath", "drvPath", "name")
+
+# A list element's key: field name to its value as Nix prints it. `SELF` is
+# the element itself, a scalar or a kind. A field a side lacks is unknown
+# there, not different.
+type Key = dict[str, str]
+SELF: Final = ""
+SCALARS: Final = frozenset({"int", "float", "bool", "string", "null", "path"})
+# Above this many element pairs, a stretch between anchors pairs by index:
+# the match is quadratic in Python.
+MATCH_CELLS: Final = 40_000
 
 
 def error_text(err: NixError) -> str:
@@ -150,43 +160,167 @@ class Walker:
         for name in sorted(old_names & new_names):
             self.compare(old.get(name), new.get(name), (*path, name), above)
 
-    def align_key(self, v: Value, path: Path) -> str | None:
-        """What a list element is matched on: the scalar, a derivation's
-        name, or its kind. Forces it: an element the base forced is forced
-        in the new evaluation anyway."""
-        if not self.force(v, path):
-            return None
-        if is_derivation(v):
-            return self.drv_key(v, "name", path)
+    def element_key(self, v: Value) -> Key:
+        """What a list element is matched on. Forces the element and a
+        derivation's name, nothing deeper, and records no failure: an
+        inserted element may be one nothing evaluates."""
+        if v.type_name() == "thunk" and not quiet_force(self.state, v):
+            return {SELF: "«error»"}
         kind = v.type_name()
-        return f"«{kind}»" if kind in {"attrs", "list"} else scalar(v)
+        if is_derivation(v):
+            name = v.get("name") if v.has("name") else None
+            if name is None or not quiet_force(self.state, name):
+                return {SELF: "«derivation»"}
+            return {SELF: f"«name {scalar(name)}»"}
+        if kind == "attrs":
+            return {SELF: "«attrs»"} | known_fields(v)
+        if kind == "list":
+            return {SELF: "«list»"}
+        return {SELF: scalar(v)}
 
     def _list(self, old: Value, new: Value, path: Path, above: set[int]) -> None:
         olds = [old.at(i) for i in range(old.length())]
         news = [new.at(i) for i in range(new.length())]
-        a_keys = (
-            None
-            if any(v.type_name() == "thunk" for v in olds)
-            else [self.align_key(v, (*path, i)) for i, v in enumerate(olds)]
-        )
-        b_keys = None if a_keys is None else [self.align_key(v, (*path, i)) for i, v in enumerate(news)]
-        if a_keys is None or b_keys is None or None in a_keys or None in b_keys:
-            # Unforced or failed elements cannot be aligned: compare by index.
-            if len(olds) != len(news):
-                self.changes.append(Change(Kind.CHANGED, (*path, "length"), str(len(olds)), str(len(news))))
-            for i, (a, b) in enumerate(zip(olds, news, strict=False)):
-                self.compare(a, b, (*path, i), above)
-            return
-        matcher = difflib.SequenceMatcher(a=a_keys, b=b_keys, autojunk=False)
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == "equal":
-                for i, j in zip(range(i1, i2), range(j1, j2), strict=True):
-                    self.compare(olds[i], news[j], (*path, j), above)
-                continue
-            for i in range(i1, i2):
-                self.changes.append(Change(Kind.REMOVED, (*path, i), a_keys[i] or ""))
-            for j in range(j1, j2):
-                self.changes.append(Change(Kind.ADDED, (*path, j), "", b_keys[j] or ""))
+        a_keys = [{} if v.type_name() == "thunk" else self.element_key(v) for v in olds]
+        b_keys = [self.element_key(v) for v in news]
+        for i, j in align(a_keys, b_keys):
+            if i is not None and j is not None:
+                self.compare(olds[i], news[j], (*path, j), above)
+            elif i is not None:
+                self.changes.append(Change(Kind.REMOVED, (*path, i), describe(a_keys[i])))
+            elif j is not None:
+                self.changes.append(Change(Kind.ADDED, (*path, j), "", describe(b_keys[j])))
+
+
+def quiet_force(state: EvalState, v: Value) -> bool:
+    try:
+        state.force(v)
+    except NixError:
+        return False
+    return True
+
+
+def literal(v: Value) -> str:
+    return nix_string(str(v.string_value())) if v.type_name() == "string" else scalar(v)
+
+
+def known_fields(v: Value) -> Key:
+    """The scalar fields of `v` that are already values. Nix makes no thunk
+    for a constant, so a literal field is known on both sides, evaluated or
+    not."""
+    out: Key = {}
+    for i in range(v.size()):
+        name = v.name_at(i)
+        child = v.value_at(i)
+        if name not in SKIP and child.type_name() in SCALARS:
+            out[name] = literal(child)
+    return out
+
+
+def describe(key: Key) -> str:
+    fields = [f"{name} = {value};" for name, value in key.items() if name != SELF]
+    if not fields:
+        return key.get(SELF, "«thunk»")
+    shown = " ".join(f if len(f) <= 60 else f[:57] + "…;" for f in fields[:3])
+    return f"{{ {shown}{' …' if len(fields) > 3 else ''} }}"
+
+
+def compatible(old: Key, new: Key) -> bool:
+    return all(new.get(name, value) == value for name, value in old.items())
+
+
+def _anchors(a: list[Key], b: list[Key]) -> list[tuple[int, int]]:
+    """Pairs whose string fields are equal and unique on both sides,
+    longest run in order: patience diff's anchors. Strings only: a
+    literal string is a value on both sides, while a computed `bool` the
+    base forced is still a thunk on the new side."""
+
+    def unique(keys: list[Key]) -> dict[frozenset[tuple[str, str]], int]:
+        seen: dict[frozenset[tuple[str, str]], int] = {}
+        repeated: set[frozenset[tuple[str, str]]] = set()
+        for i, key in enumerate(keys):
+            frozen = frozenset((k, v) for k, v in key.items() if k == SELF or v.startswith('"'))
+            if frozen in seen:
+                repeated.add(frozen)
+            seen[frozen] = i
+        return {k: i for k, i in seen.items() if k not in repeated and k}
+
+    ua, ub = unique(a), unique(b)
+    pairs = sorted((i, ub[k]) for k, i in ua.items() if k in ub)
+    # Longest increasing run of `j`, by patience sorting.
+    tails: list[int] = []
+    tail_js: list[int] = []
+    back: list[int] = [-1] * len(pairs)
+    for n, (_, j) in enumerate(pairs):
+        at = bisect.bisect_left(tail_js, j)
+        if at > 0:
+            back[n] = tails[at - 1]
+        if at == len(tails):
+            tails.append(n)
+            tail_js.append(j)
+        else:
+            tails[at] = n
+            tail_js[at] = j
+    run: list[tuple[int, int]] = []
+    n = tails[-1] if tails else -1
+    while n >= 0:
+        run.append(pairs[n])
+        n = back[n]
+    return run[::-1]
+
+
+def _stretch(a: list[Key], b: list[Key], i0: int, i1: int, j0: int, j1: int) -> list[tuple[int | None, int | None]]:
+    """Align `a[i0:i1]` with `b[j0:j1]`, where no anchor is."""
+    head: list[tuple[int | None, int | None]] = []
+    while i0 < i1 and j0 < j1 and compatible(a[i0], b[j0]):
+        head.append((i0, j0))
+        i0, j0 = i0 + 1, j0 + 1
+    tail: list[tuple[int | None, int | None]] = []
+    while i0 < i1 and j0 < j1 and compatible(a[i1 - 1], b[j1 - 1]):
+        tail.append((i1 - 1, j1 - 1))
+        i1, j1 = i1 - 1, j1 - 1
+    n, m = i1 - i0, j1 - j0
+    middle: list[tuple[int | None, int | None]] = []
+    if n * m > MATCH_CELLS:
+        middle = [(i0 + k, j0 + k) for k in range(min(n, m))]
+        middle += [(i, None) for i in range(i0 + m, i1)] + [(None, j) for j in range(j0 + n, j1)]
+    elif n and m:
+        # Longest common subsequence under `compatible`.
+        best = [[0] * (m + 1) for _ in range(n + 1)]
+        for x in range(n - 1, -1, -1):
+            for y in range(m - 1, -1, -1):
+                best[x][y] = (
+                    best[x + 1][y + 1] + 1 if compatible(a[i0 + x], b[j0 + y]) else max(best[x + 1][y], best[x][y + 1])
+                )
+        x = y = 0
+        while x < n and y < m:
+            if compatible(a[i0 + x], b[j0 + y]) and best[x][y] == best[x + 1][y + 1] + 1:
+                middle.append((i0 + x, j0 + y))
+                x, y = x + 1, y + 1
+            elif best[x + 1][y] >= best[x][y + 1]:
+                middle.append((i0 + x, None))
+                x += 1
+            else:
+                middle.append((None, j0 + y))
+                y += 1
+        middle += [(i0 + k, None) for k in range(x, n)] + [(None, j0 + k) for k in range(y, m)]
+    else:
+        middle = [(i, None) for i in range(i0, i1)] + [(None, j) for j in range(j0, j1)]
+    return head + middle + tail[::-1]
+
+
+def align(a: list[Key], b: list[Key]) -> list[tuple[int | None, int | None]]:
+    """Match old list elements to new ones: `(i, j)` is a pair, `(i, None)`
+    removed, `(None, j)` added. Elements with a unique key anchor the
+    match; between anchors, elements pair when no known field differs."""
+    out: list[tuple[int | None, int | None]] = []
+    i0 = j0 = 0
+    for i, j in [*_anchors(a, b), (len(a), len(b))]:
+        out += _stretch(a, b, i0, i, j0, j)
+        if i < len(a):
+            out.append((i, j))
+        i0, j0 = i + 1, j + 1
+    return out
 
 
 def count_forced(v: Value, above: set[int] | None = None) -> int:
