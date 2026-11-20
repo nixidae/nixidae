@@ -298,6 +298,23 @@ def test_explaining_every_option_widens_no_cascade(engine: EngineThread) -> None
     assert cascade(engine, *edits).groups == before.groups
 
 
+def test_no_action_widens_the_next_cascade(engine: EngineThread) -> None:
+    """What each key asks of the engine: explain (moving, `/`, `D`), the
+    edit dialog (`option_of`), a derivation's diff, and a second edit
+    turned on and off. None may change the cascade of the first edit."""
+    edit = Edit(("a",), "2")
+    before = cascade(engine, edit)
+    for drv in before.drvs:
+        if drv.old is not None and drv.new is not None:
+            run(engine, lambda e, drv=drv: e.drv_diff(drv.old, drv.new))
+    cascade(engine, edit, Edit(("c",), '"x"'), Edit(("checks",), "1"))
+    for option in run(engine, Engine.option_paths):
+        run(engine, lambda e, option=option: (e.explain(option), e.option_of(option)))
+    after = cascade(engine, edit)
+    assert after.groups == before.groups
+    assert after.drvs == before.drvs
+
+
 def test_other_paths_counts_the_rest() -> None:
     assert other_paths(0) == ""
     assert other_paths(1) == "1 other path"
