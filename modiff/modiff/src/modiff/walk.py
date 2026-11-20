@@ -242,12 +242,13 @@ class Walker:
                 key = b_keys[j] or self.element_key(news[j])
                 self.changes.append(Change(Kind.ADDED, (*path, j), "", describe(key)))
 
-    def force_like(self, old: Value, new: Value, above: set[int] | None = None) -> None:
+    def force_like(self, old: Value, new: Value, seen: set[tuple[int, int]] | None = None) -> None:
         """Force `new` as far as `old` is forced, and record nothing. A walk
         that met a failure stops early, and its new side then prints
         «thunk» where the base prints a value: a change that is not one.
-        Only for the new side, which every apply replaces."""
-        above = set() if above is None else above
+        Only for the new side, which every apply replaces. Each pair of
+        sets or lists once: forcing it again forces nothing more."""
+        seen = set() if seen is None else seen
         kind = old.type_name()
         if kind in UNEVALUATED or not quiet_force(self.state, new) or new.type_name() != kind:
             return
@@ -259,26 +260,23 @@ class Walker:
                 if old.get(name).type_name() not in UNEVALUATED and new.has(name):
                     quiet_force(self.state, new.get(name))
             return
-        ident = old.identity()
-        if ident in above:
+        pair = (old.identity(), new.identity())
+        if pair in seen:
             return
-        above.add(ident)
-        try:
-            if kind == "attrs":
-                for name in sorted((set(old.names()) & set(new.names())) - SKIP):
-                    self.force_like(old.get(name), new.get(name), above)
-                return
-            olds = [old.at(i) for i in range(old.length())]
-            news = [new.at(i) for i in range(new.length())]
-            a_keys = [{} if v.type_name() in UNEVALUATED else self.element_key(v) for v in olds]
-            if not any(a_keys):
-                return
-            b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
-            for i, j in align(a_keys, b_keys):
-                if i is not None and j is not None:
-                    self.force_like(olds[i], news[j], above)
-        finally:
-            above.discard(ident)
+        seen.add(pair)
+        if kind == "attrs":
+            for name in sorted((set(old.names()) & set(new.names())) - SKIP):
+                self.force_like(old.get(name), new.get(name), seen)
+            return
+        olds = [old.at(i) for i in range(old.length())]
+        news = [new.at(i) for i in range(new.length())]
+        a_keys = [{} if v.type_name() in UNEVALUATED else self.element_key(v) for v in olds]
+        if not any(a_keys):
+            return
+        b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
+        for i, j in align(a_keys, b_keys):
+            if i is not None and j is not None:
+                self.force_like(olds[i], news[j], seen)
 
 
 def other_paths(count: int) -> str:
@@ -472,24 +470,23 @@ def count_forced(v: Value, seen: set[int] | None = None) -> int:
     return 1 + sum(count_forced(v.at(i), seen) for i in range(v.length()))
 
 
-def fully_forced(v: Value, above: set[int] | None = None) -> bool:
-    """No thunk under `v`; a derivation counts as one value."""
-    above = set() if above is None else above
+def fully_forced(v: Value, seen: set[int] | None = None) -> bool:
+    """No thunk under `v`; a derivation counts as one value. Each set and
+    list once: the first thunk ends the search, so one seen again either
+    passed or lies on the current path."""
+    seen = set() if seen is None else seen
     kind = v.type_name()
     if kind in UNEVALUATED:
         return False
     if kind not in {"attrs", "list"} or is_derivation(v):
         return True
     ident = v.identity()
-    if ident in above:
+    if ident in seen:
         return True
-    above.add(ident)
-    try:
-        if kind == "attrs":
-            return all(fully_forced(v.value_at(i), above) for i in range(v.size()) if v.name_at(i) not in SKIP)
-        return all(fully_forced(v.at(i), above) for i in range(v.length()))
-    finally:
-        above.discard(ident)
+    seen.add(ident)
+    if kind == "attrs":
+        return all(fully_forced(v.value_at(i), seen) for i in range(v.size()) if v.name_at(i) not in SKIP)
+    return all(fully_forced(v.at(i), seen) for i in range(v.length()))
 
 
 PRINT_DEPTH: Final = 6
