@@ -1,4 +1,4 @@
-extend = "../nix/shared/ruff-anyio.toml"
+extend = "nix/shared/ruff-anyio.toml"
 
 [lint.isort]
 known-first-party = ["modiff"]
