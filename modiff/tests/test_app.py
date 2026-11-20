@@ -124,6 +124,7 @@ async def test_enter_on_a_changed_input_goes_to_its_row(tmp_path: Path) -> None:
             "~ unit  ⏎ its row",
             "~ unit  ⏎ its row",
         ]
+        assert str(drvs.label).startswith("Derivations evaluated: ")
         hidden, dep = top.children[1], top.children[0]
         tree.move_cursor(hidden)
         await drained(app, pilot)

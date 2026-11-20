@@ -94,6 +94,10 @@ class Cascade:
     # Output path -> `.drv` path, both sides: output paths never collide.
     derivers: dict[str, str] = field(default_factory=dict)
     error: str | None = None
+    # The rows compare build closures. Without a forced derivation they
+    # are what the evaluations instantiated, which can hold a derivation
+    # no build uses.
+    built: bool = True
 
 
 class Rebuild(StrEnum):

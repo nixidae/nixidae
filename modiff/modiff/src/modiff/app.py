@@ -677,6 +677,7 @@ class DrvRow:
 
     changes: tuple[DrvChange, ...]
     change: DrvChange | None = None
+    built: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -738,19 +739,26 @@ def drv_counts(changes: tuple[DrvChange, ...]) -> str:
     return ", ".join(f"{counts[k]} {k}" for k in Rebuild if counts[k])
 
 
-def drv_summary(changes: tuple[DrvChange, ...]) -> Text:
-    return Text(f"Derivations: {drv_counts(changes)}", style="bold")
+BUILT_NOTE: Final = (
+    "What the forced derivations need to build, before and after the edits. A new hash means Nix "
+    "builds the path again, and every path that depends on it."
+)
+EVALUATED_NOTE: Final = (
+    "No forced path is a derivation, so these are the derivations the two evaluations instantiated. "
+    "One that an evaluation only compared, and no build uses, can show here."
+)
+
+
+def drv_summary(changes: tuple[DrvChange, ...], built: bool = True) -> Text:
+    title = "Derivations" if built else "Derivations evaluated"
+    return Text(f"{title}: {drv_counts(changes)}", style="bold")
 
 
 def drv_detail(row: DrvRow, diff: DrvDiff | None = None) -> RenderableType:
     if row.change is None:
         return RichGroup(
-            drv_summary(row.changes),
-            Text(
-                "The output paths the edits changed, among those the cascade evaluated. A new hash "
-                "means Nix builds the path again, and every path that depends on it.",
-                style="dim italic",
-            ),
+            drv_summary(row.changes, row.built),
+            Text(BUILT_NOTE if row.built else EVALUATED_NOTE, style="dim italic"),
             *(drv_line(c) for c in row.changes),
         )
     return drv_change_detail(row.change, diff)
@@ -1071,13 +1079,14 @@ class ModiffApp(App[None]):
             unchanged = Group(self.browsed, ())
             tree.root.add(group_label(unchanged, False, browsed=True), data=(unchanged, None), before=0)
         if drv_changes := cascade.drvs:
-            drv_node = tree.root.add(drv_summary(drv_changes), data=DrvRow(drv_changes))
+            built = cascade.built
+            drv_node = tree.root.add(drv_summary(drv_changes, built), data=DrvRow(drv_changes, built=built))
             for drv in drv_changes:
                 # Expandable once its diff names changed inputs.
-                leaf = drv_node.add(drv_line(drv), data=DrvRow(drv_changes, drv), allow_expand=bool(drv.only))
+                leaf = drv_node.add(drv_line(drv), data=DrvRow(drv_changes, drv, built), allow_expand=bool(drv.only))
                 rows = [(drv, leaf)]
                 for part in folded_changes(drv):
-                    rows.append((part, leaf.add_leaf(drv_line(part), data=DrvRow(drv_changes, part))))
+                    rows.append((part, leaf.add_leaf(drv_line(part), data=DrvRow(drv_changes, part, built))))
                 for shown, row in rows:
                     for path in (shown.new, shown.old):
                         if path is not None and (file := drv_file(path, cascade.derivers)) is not None:

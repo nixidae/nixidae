@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Final
 
@@ -108,6 +109,8 @@ CA: Final = Source(
       modules = [ ({ config, ... }: {
         options.v = lib.mkOption { type = lib.types.int; default = 1; };
         options.top = lib.mkOption { type = lib.types.package; };
+        # Coerces `top`, and is no store path: forced alone, no build root.
+        options.label = lib.mkOption { type = lib.types.str; default = "built: ${config.top}"; };
         config.top = let
           cav = derivation {
             name = "cav";
@@ -133,11 +136,13 @@ CA: Final = Source(
 )
 
 
-def test_a_content_addressed_derivation_pairs_by_its_name(tmp_path: Path) -> None:
-    """Its output path is a placeholder until it is built: `/0z17…`, no name."""
+@pytest.mark.parametrize("force", [("config", "top", "drvPath"), ("config", "label")])
+def test_a_content_addressed_derivation_pairs_by_its_name(tmp_path: Path, force: tuple[str, ...]) -> None:
+    """Its output path is a placeholder until it is built: `/0z17…`, no
+    name. Forcing `label` lists rebuilds from recording."""
     features = huggorm.get_setting("experimental-features") or ""
     huggorm.set_setting("experimental-features", f"{features} ca-derivations")
-    thread = EngineThread(CA, store=f"local?root={tmp_path}")
+    thread = EngineThread(replace(CA, force=(force,)), store=f"local?root={tmp_path}")
     try:
         run(thread, Engine.load)
         c = run(thread, lambda e: e.apply([Edit(("v",), "2")]))

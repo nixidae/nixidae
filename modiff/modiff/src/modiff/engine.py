@@ -259,6 +259,7 @@ class Engine:
             drvs_removed=removed,
             drvs=self._fold(pair_drvs(added, removed, self._likeness)),
             derivers=self.base_derivers | self.ext_derivers,
+            built=bool(self.base_roots),
         )
 
     def _roots(self, base: Value) -> dict[str, str]:

@@ -23,7 +23,10 @@ that differ. A derivation added or removed with its own inputs, such as a
 service's package with its sources and build tools, shows as one row with
 `+N inputs`: the inputs are rows under it. The list compares what the
 forced derivations need to build before and after the edit. A package that
-an assertion only compares is no rebuild.
+an assertion only compares is no rebuild. When no `--force` path is a
+derivation or its output, the row reads "Derivations evaluated": it lists
+what the two evaluations instantiated, and can hold a derivation that no
+build uses.
 
 It is a tool to learn the module system with: set one option and watch it
 reach the firewall, the systemd units and `/etc`.
