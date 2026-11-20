@@ -964,7 +964,8 @@ class ModiffApp(App[None]):
     def base_status(self) -> str:
         if self.loaded is None:
             return ""
-        return f"base {self.loaded.seconds:.1f}s, {self.loaded.forced} values evaluated"
+        # Short enough that an 80-column status line keeps the derivation counts.
+        return f"base {self.loaded.seconds:.1f}s, {self.loaded.forced} values"
 
     def on_cascade(self, cascade: Cascade) -> None:
         self.busy = False
