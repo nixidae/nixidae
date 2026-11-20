@@ -475,7 +475,7 @@ def test_definitions_print_derivations_by_what_was_evaluated(engine: EngineThrea
 
 FREEFORM: Final = Source(
     """
-    let lib = import /etc/nixpkgs/lib; in lib.evalModules {
+    let lib = import <nixpkgs/lib>; in lib.evalModules {
       modules = [ {
         freeformType = lib.types.attrsOf lib.types.anything;
         options.x = lib.mkOption { type = lib.types.int; default = 1; };

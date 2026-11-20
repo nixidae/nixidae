@@ -45,12 +45,17 @@ in
     default = pythonSet.mkVirtualEnv "modiff-env" { modiff = [ ]; };
   };
   lib = { inherit projectRoot overlay; };
-  checks = { };
+  checks = pkgs.callPackages ./nix/checks.nix {
+    inherit devEnv;
+    nixpkgsPath = pkgs.path;
+  };
   shell = pkgs.mkShell {
     packages = [
       devEnv
       pkgs.ruff
       pkgs.zuban
     ];
+    # The tests and the default `--nixpkgs` read `<nixpkgs>`: the pinned one.
+    NIX_PATH = "nixpkgs=${pkgs.path}";
   };
 }

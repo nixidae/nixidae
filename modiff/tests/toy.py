@@ -11,7 +11,7 @@ from modiff.model import Path
 
 TOY: Final = """
 let
-  lib = import /etc/nixpkgs/lib;
+  lib = import <nixpkgs/lib>;
 in lib.evalModules {
   modules = [
     # An edit to `old` reaches `a` and never `config.old`.
