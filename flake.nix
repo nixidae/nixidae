@@ -24,7 +24,11 @@
       flake = false;
     };
     # Forks for upstream: every patch there has to be one upstream could take.
-    # An ignored checkout at ./kr8s or ./containerd takes the place of the pin.
+    # An ignored checkout at ./kr8s, ./containerd or ./anyio takes the place of the pin.
+    anyio = {
+      url = "github:Lillecarl/anyio/fixes-4.14.2";
+      flake = false;
+    };
     kr8s = {
       url = "github:Lillecarl/kr8s/develop";
       flake = false;

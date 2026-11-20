@@ -12,7 +12,7 @@ This is the only shared instruction file. Shared rules first, then one section p
 - `user-initiated`: Agent never starts it; User does. Sub-items the issue marks for agents are open (#866: nanopynix to huggorm).
 - `off-main`: work on its own bookmark in its own workspace; nothing lands on `main` (#868: fix).
 - Tests run here only. An exported repository runs its Pages workflow and nothing else.
-- kr8s, containerd and flake-compatish are not sources. Each is a pin in `flake.lock`; an ignored checkout at `./<name>` replaces the pin. kr8s and containerd patches must stand as upstream pull requests.
+- kr8s, containerd, anyio and flake-compatish are not sources. Each is a pin in `flake.lock`; an ignored checkout at `./<name>` replaces the pin. kr8s, containerd and anyio patches must stand as upstream pull requests. pynixd alone takes the anyio fork; every other source gets nixpkgs' anyio.
 - No gate runs kr8s' own suite (it needs a pip venv and a kind cluster). Run it before landing a change to the kr8s pin. Its 568 tests are a floor: a change that passed them still broke server-side apply.
 - Shared tool configuration lives in `nix/shared/`. Edit it there, then `nix run --file . shared-config-update`; never edit `<source>/nix/shared/` or `<source>/nix/sources.nix` by hand (the template is `nix/shared/sources.nix.in`).
 - Nix is formatted with nixfmt: `nix run --file . nixfmt-update`. `checks.nixfmt` fails on an unformatted tracked `.nix` file.

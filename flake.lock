@@ -16,6 +16,23 @@
         "type": "github"
       }
     },
+    "anyio": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1795161517,
+        "narHash": "sha256-C0OBb/3mKDXAZseYUBVwTywsmA8V7iAzXGYtcWhihNw=",
+        "owner": "Lillecarl",
+        "repo": "anyio",
+        "rev": "6978cc1b638ce2e041d597cf73a4f229aee38180",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Lillecarl",
+        "ref": "fixes-4.14.2",
+        "repo": "anyio",
+        "type": "github"
+      }
+    },
     "bdwgc-determinate": {
       "flake": false,
       "locked": {
@@ -200,6 +217,7 @@
     "root": {
       "inputs": {
         "adios": "adios",
+        "anyio": "anyio",
         "bdwgc-determinate": "bdwgc-determinate",
         "containerd": "containerd",
         "deferimport": "deferimport",

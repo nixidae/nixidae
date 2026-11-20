@@ -46,6 +46,7 @@ let
   # it counts, as for a member. A clone or a fetched tree has none, and the
   # lock answers.
   checkouts = [
+    "anyio"
     "containerd"
     "flake-compatish"
     "kr8s"
