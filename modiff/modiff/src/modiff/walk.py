@@ -222,7 +222,13 @@ class Walker:
         kind = old.type_name()
         if kind in UNEVALUATED or not quiet_force(self.state, new) or new.type_name() != kind:
             return
-        if kind not in {"attrs", "list"} or is_derivation(old):
+        if kind not in {"attrs", "list"}:
+            return
+        if is_derivation(old):
+            # One level: below are drvAttrs and passthru, into nixpkgs.
+            for name in old.names():
+                if old.get(name).type_name() not in UNEVALUATED and new.has(name):
+                    quiet_force(self.state, new.get(name))
             return
         ident = old.identity()
         if ident in above:

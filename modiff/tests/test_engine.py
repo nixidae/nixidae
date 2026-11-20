@@ -289,7 +289,8 @@ def test_unforced_children_are_not_the_same_value(engine: EngineThread) -> None:
     edit = Edit(
         ("checks",),
         'lib.mkForce (map (n: { name = n; ok = true; msg = "other"; }) [ "first" "second" "third" ]'
-        ' ++ [ { name = "fourth"; ok = true; msg = "always"; } ])',
+        ' ++ [ { name = "fourth"; ok = true; msg = "always";'
+        ' tool = derivation { name = "tool"; system = "x86_64-linux"; builder = "/bin/sh"; }; } ])',
     )
     assert quiet(cascade(engine, edit)) == {"checks": Quiet.PARTIAL}
 

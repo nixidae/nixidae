@@ -55,7 +55,13 @@ in lib.evalModules {
             { name = "second"; ok = true; msg = "b is ${toString config.b}"; }
             { name = "third"; ok = true; msg = "c is ${config.c}"; }
             # A literal `msg` is a value with no forcing; the others stay thunks.
-            { name = "fourth"; ok = true; msg = "always"; }
+            {
+              name = "fourth";
+              ok = true;
+              msg = "always";
+              # Forced to its `drvPath`: a derivation the base keyed.
+              tool = derivation { name = "tool"; system = "x86_64-linux"; builder = "/bin/sh"; };
+            }
           ]
         ];
         many = lib.genList (i: i) 250;
@@ -129,6 +135,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "checks", 1, "ok"),
     ("config", "checks", 2, "ok"),
     ("config", "checks", 3, "ok"),
+    ("config", "checks", 3, "tool", "drvPath"),
     ("config", "many"),
     ("config", "tried", "ok"),
     ("config", "people", 0, "name"),
