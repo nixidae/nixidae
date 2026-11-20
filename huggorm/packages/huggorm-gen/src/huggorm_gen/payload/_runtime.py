@@ -36,11 +36,15 @@ import threading
 import types
 import weakref
 from collections.abc import Awaitable, Callable, Iterable, Iterator
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import anyio
 
 from ._callspec import Call, Local, Wire, WireKind
+
+# What a `run` function answers. A TypeVar, not `run[T]`: what ships
+# parses on Python 3.11.
+T = TypeVar("T")
 
 _POOL: _Pool | None = None
 _POOL_LOCK = threading.Lock()
@@ -1289,6 +1293,71 @@ class Remote:
 # Where a generated object's calls run. A closed set, so a check of
 # the location is an `isinstance`, not a probe for an attribute.
 Backend = BaseRunner | Remote
+
+
+class _Raised:
+    """What a `run` function raised that no declaration names. It
+    crosses as itself, not as an `InternalError`: it is the caller's
+    own code that raised it."""
+
+    __slots__ = ("error",)
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+
+def _sync_object(result: Any, bindings: types.ModuleType, seen: set[int]) -> str | None:
+    """The declared name of a sync binding object inside `result`, or
+    None. Only through the containers Python builds data from."""
+    kind = type(result)
+    if kind.__name__ in _classes().CLASSES and getattr(bindings, kind.__name__, None) is kind:
+        return kind.__name__
+    if not isinstance(result, list | tuple | set | frozenset | dict) or id(result) in seen:
+        return None
+    seen.add(id(result))
+    parts: Iterable[Any] = [*result.keys(), *result.values()] if isinstance(result, dict) else result
+    return next((n for p in parts if (n := _sync_object(p, bindings, seen)) is not None), None)
+
+
+async def run_on(backend: Backend, fn: Callable[[Any], T]) -> T:
+    """`fn` against the object, on the object's own thread, as one
+    call. Each Nix call `fn` makes costs what the sync binding costs,
+    not a thread handover.
+
+    In process only: a function cannot cross to a server. A cancel
+    stops `fn` at its next Nix call, because the call runs under one
+    request. A sync object in the result is refused, and dropped on
+    its own thread: on the caller's thread it would break the rule
+    that one `EvalState`'s objects stay on its thread."""
+    if not isinstance(backend, BaseRunner):
+        raise TypeError(
+            "run takes a function, and a function cannot cross to a server. "
+            "Use the client's realize or value, or the declared calls."
+        )
+
+    import huggorm_bindings
+
+    def checked(obj: Any) -> T | _Raised:
+        try:
+            result = fn(obj)
+        except Exception as e:
+            if isinstance(e, TypedError):
+                raise
+            return _Raised(e)
+        name = _sync_object(result, huggorm_bindings, set())
+        if name is None:
+            return result
+        return _Raised(
+            TypeError(
+                f"run returned a sync {name}, which belongs to the thread that made it. "
+                f"Return data, or take the async object from a declared call."
+            )
+        )
+
+    outcome: T | _Raised = await backend.run(checked)
+    if isinstance(outcome, _Raised):
+        raise outcome.error
+    return outcome
 
 
 async def call_function(spec: Call | Local, fn: Callable[..., Any], args: list[Any]) -> Any:

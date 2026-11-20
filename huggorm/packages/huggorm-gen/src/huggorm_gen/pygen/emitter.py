@@ -643,6 +643,23 @@ def _async_module(
     )
     for m in c.methods:
         _hop_method(cls, model, spell, m, c.name)
+    affine = c.execution is ir.Execution.AFFINE
+    if affine:
+        if any(m.name == "run" for m in c.methods):
+            raise ValueError(f"{c.name} declares a method `run`, which the async class keeps for `run_on`")
+        cls.body.append(
+            _code(
+                '''
+            async def run(self, fn: Callable[[$svc], T]) -> T:
+                """Run `fn` on this object's own thread, as one call: each
+                Nix call it makes costs what the sync binding costs. In
+                process only. A cancel stops it at its next Nix call. It
+                may not return a sync object."""
+                return await run_on(self._backend, fn)
+            ''',
+                svc=c.name,
+            )
+        )
     cls.body.append(
         _code("""
         async def aclose(self) -> None:
@@ -661,8 +678,15 @@ def _async_module(
         body=[
             ast.Expr(value=ast.Constant(value=doc)),
             _future_annotations(),
+            *([import_from("collections.abc", "Callable")] if affine else []),
             import_from("typing", "Self", *typing_names),
-            import_from("_runtime", "Backend", "BaseRunner", *sorted({RUNNER[c.execution], *runtime_names}), level=1),
+            import_from(
+                "_runtime",
+                "Backend",
+                "BaseRunner",
+                *sorted({RUNNER[c.execution], *runtime_names, *(["T", "run_on"] if affine else [])}),
+                level=1,
+            ),
             *([import_from("_policy", *(_spec_name(c.name, m.name) for m in c.methods), level=1)] if c.methods else []),
             # A value that produces values names its OWN async class, which
             # is defined right here: importing it would be a self-import.
