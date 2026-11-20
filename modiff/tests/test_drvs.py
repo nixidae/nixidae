@@ -37,3 +37,16 @@ def test_same_name_wins_over_same_package() -> None:
         DrvChange(S + "b-openssh-9.8p1", S + "c-openssh-9.8p1"),
         DrvChange(S + "a-openssh-9.8p1-man", None),
     )
+
+
+def test_paths_of_one_name_pair_most_alike_first() -> None:
+    removed = (S + "a-unit", S + "b-unit")
+    added = (S + "c-unit", S + "d-unit")
+    alike = {(S + "a-unit", S + "d-unit"), (S + "b-unit", S + "c-unit")}
+    got = pair_drvs(added, removed, lambda old, new: 5 if (old, new) in alike else 1)
+    assert set(got) == {DrvChange(S + "a-unit", S + "d-unit"), DrvChange(S + "b-unit", S + "c-unit")}
+    # Without a likeness, path order decides.
+    assert set(pair_drvs(added, removed)) == {
+        DrvChange(S + "a-unit", S + "c-unit"),
+        DrvChange(S + "b-unit", S + "d-unit"),
+    }

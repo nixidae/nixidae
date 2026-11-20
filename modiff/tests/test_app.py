@@ -62,7 +62,7 @@ async def test_start_edit_shows_its_cascade_first(tmp_path: Path) -> None:
     async with app.run_test(size=(160, 50)) as pilot:
         await settled(app, pilot)
         assert options(app) == ["a", "b", "drv", "top"]
-        assert drv_rows(app) == ["~ dep-10 → dep-20", "~ top"]
+        assert drv_rows(app) == ["~ dep-10 → dep-20", "~ top", "~ unit", "~ unit"]
 
 
 async def test_a_rebuilt_derivation_names_its_changed_input(tmp_path: Path) -> None:
@@ -98,7 +98,12 @@ async def test_enter_on_a_changed_input_goes_to_its_row(tmp_path: Path) -> None:
         await drained(app, pilot)
         top.expand()
         await pilot.pause()
-        assert [str(n.label) for n in top.children] == ["~ dep-10 → dep-20  ⏎ its row", "~ hidden-10 → hidden-20"]
+        assert [str(n.label) for n in top.children] == [
+            "~ dep-10 → dep-20  ⏎ its row",
+            "~ hidden-10 → hidden-20",
+            "~ unit  ⏎ its row",
+            "~ unit  ⏎ its row",
+        ]
         hidden, dep = top.children[1], top.children[0]
         tree.move_cursor(hidden)
         await drained(app, pilot)

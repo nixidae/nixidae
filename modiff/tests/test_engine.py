@@ -66,8 +66,8 @@ def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> 
     """`top` is forced by its drvPath alone, as NixOS forces the toplevel:
     no coercion records it, only its input `dep`."""
     c = cascade(engine, Edit(("a",), "2"))
-    assert sorted(store_name(p) for p in c.drvs_added) == ["dep-20", "top"]
-    assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top"]
+    assert sorted(store_name(p) for p in c.drvs_added) == ["dep-20", "top", "unit", "unit"]
+    assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top", "unit", "unit"]
 
 
 def test_listing_rebuilds_forces_nothing_in_the_base(engine: EngineThread) -> None:
@@ -88,8 +88,29 @@ def test_drv_diff_names_the_input_that_changed(engine: EngineThread) -> None:
 
     diff = run(engine, job)
     assert diff.error is None, diff.error
-    assert [(d.kind, d.name) for d in diff.inputs] == [(Rebuild.VERSION, "dep-20"), (Rebuild.VERSION, "hidden-20")]
+    assert [(d.kind, d.name) for d in diff.inputs] == [
+        (Rebuild.VERSION, "dep-20"),
+        (Rebuild.VERSION, "hidden-20"),
+        (Rebuild.REBUILT, "unit"),
+        (Rebuild.REBUILT, "unit"),
+    ]
     assert [a.name for a in diff.attrs] == ["env.hidden", "env.inputs"]
+
+
+def test_derivations_of_one_name_pair_most_alike(engine: EngineThread) -> None:
+    """Paired wrongly, each `unit` would differ in `which` as well."""
+
+    def job(e: Engine) -> list[list[str]]:
+        c = e.apply([Edit(("a",), "2")])
+        units = [d for d in c.drvs if d.name == "unit"]
+        assert len(units) == 2
+        found = []
+        for unit in units:
+            assert unit.old is not None and unit.new is not None
+            found.append([a.name for a in e.drv_diff(unit.old, unit.new).attrs])
+        return found
+
+    assert run(engine, job) == [["env.b"], ["env.b"]]
 
 
 def test_drv_diff_reads_an_input_by_its_drv_file(engine: EngineThread) -> None:

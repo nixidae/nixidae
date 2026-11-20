@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Final
@@ -82,6 +83,8 @@ class Cascade:
     visited: int = 0
     drvs_added: tuple[str, ...] = ()
     drvs_removed: tuple[str, ...] = ()
+    # The two above, paired.
+    drvs: tuple[DrvChange, ...] = ()
     # Output path -> `.drv` path, both sides: output paths never collide.
     derivers: dict[str, str] = field(default_factory=dict)
     error: str | None = None
@@ -143,26 +146,34 @@ def package_name(name: str) -> str:
     return name if found is None else name[: found.start()]
 
 
-def pair_drvs(added: tuple[str, ...], removed: tuple[str, ...]) -> tuple[DrvChange, ...]:
+def pair_drvs(
+    added: tuple[str, ...], removed: tuple[str, ...], likeness: Callable[[str, str], int] | None = None
+) -> tuple[DrvChange, ...]:
     """Pair each new path with the old one of the same name, then of the
-    same package name: `openssh-9.8p1` replaces `openssh-9.7p1`."""
+    same package name: `openssh-9.8p1` replaces `openssh-9.7p1`. Several
+    paths of one name (two `unit-dbus-broker.service`) pair most alike
+    first, by `likeness(old, new)`."""
     pairs: list[DrvChange] = []
     new_left = list(added)
     old_left = list(removed)
     for key in (store_name, lambda p: package_name(store_name(p))):
-        by_key: dict[str, list[str]] = {}
+        olds_by: dict[str, list[str]] = {}
+        news_by: dict[str, list[str]] = {}
         for path in old_left:
-            by_key.setdefault(key(path), []).append(path)
-        unpaired: list[str] = []
+            olds_by.setdefault(key(path), []).append(path)
         for path in new_left:
-            olds = by_key.get(key(path))
-            if olds:
-                old = olds.pop(0)
-                old_left.remove(old)
-                pairs.append(DrvChange(old, path))
-            else:
-                unpaired.append(path)
-        new_left = unpaired
+            news_by.setdefault(key(path), []).append(path)
+        for name, news in news_by.items():
+            olds = olds_by.get(name, [])
+            candidates = [(o, n) for n in news for o in olds]
+            if likeness is not None and len(candidates) > 1:
+                # Stable: equal likeness keeps the order of the paths.
+                candidates.sort(key=lambda c: -likeness(*c))
+            for old, new in candidates:
+                if old in old_left and new in new_left:
+                    old_left.remove(old)
+                    new_left.remove(new)
+                    pairs.append(DrvChange(old, new))
     pairs += [DrvChange(None, p) for p in new_left]
     pairs += [DrvChange(p, None) for p in old_left]
     return tuple(sorted(pairs, key=lambda c: (c.name, c.kind)))
@@ -190,8 +201,10 @@ class DrvDiff:
     error: str | None = None
 
 
-def changed_paths(old: set[str], new: set[str]) -> tuple[DrvChange, ...]:
-    return pair_drvs(tuple(sorted(new - old)), tuple(sorted(old - new)))
+def changed_paths(
+    old: set[str], new: set[str], likeness: Callable[[str, str], int] | None = None
+) -> tuple[DrvChange, ...]:
+    return pair_drvs(tuple(sorted(new - old)), tuple(sorted(old - new)), likeness)
 
 
 def changed_attrs(old: dict[str, str], new: dict[str, str]) -> tuple[AttrChange, ...]:

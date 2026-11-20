@@ -60,6 +60,23 @@ in lib.evalModules {
               system = "x86_64-linux";
               builder = "/bin/sh";
             })
+            # Two of one name, as NixOS has a system and a user
+            # `unit-dbus-broker.service`. With these values the store
+            # paths sort so that pairing in path order pairs them wrongly.
+            (derivation {
+              name = "unit";
+              system = "x86_64-linux";
+              builder = "/bin/sh";
+              which = "system";
+              b = toString config.b;
+            })
+            (derivation {
+              name = "unit";
+              system = "x86_64-linux";
+              builder = "/bin/sh";
+              which = "user-unit";
+              b = toString config.b;
+            })
           ];
           # A path read off a derivation coerces no derivation, so nothing
           # records `hidden`: an input with no row of its own.

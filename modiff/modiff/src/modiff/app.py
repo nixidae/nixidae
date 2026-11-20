@@ -44,7 +44,6 @@ from .model import (
     Rebuild,
     drv_file,
     format_path,
-    pair_drvs,
     parse_option_path,
     priority_text,
     store_name,
@@ -864,7 +863,7 @@ class ModiffApp(App[None]):
         ):
             unchanged = Group(self.browsed, ())
             tree.root.add(group_label(unchanged, False, browsed=True), data=(unchanged, None), before=0)
-        if drv_changes := pair_drvs(cascade.drvs_added, cascade.drvs_removed):
+        if drv_changes := cascade.drvs:
             drv_node = tree.root.add(drv_summary(drv_changes), data=DrvRow(drv_changes))
             for drv in drv_changes:
                 # Expandable once its diff names changed inputs.

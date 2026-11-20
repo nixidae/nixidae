@@ -38,6 +38,7 @@ from .model import (
     is_drv_file,
     nix_string,
     overlaps,
+    pair_drvs,
 )
 from .walk import (
     SKIP,
@@ -209,14 +210,31 @@ class Engine:
         changes = walker.result()
         clean = not walker.failures
         quiet = self._quiet(enabled, changes) if clean else ()
+        added = tuple(sorted(drvs - base_drvs)) if clean else ()
+        removed = tuple(sorted(base_drvs - drvs)) if clean else ()
         return Cascade(
             groups=self._group(changes) + quiet,
             seconds=time.monotonic() - start,
             visited=walker.visited,
-            drvs_added=tuple(sorted(drvs - base_drvs)) if clean else (),
-            drvs_removed=tuple(sorted(base_drvs - drvs)) if clean else (),
+            drvs_added=added,
+            drvs_removed=removed,
+            drvs=pair_drvs(added, removed, self._likeness),
             derivers=self.base_derivers | self.ext_derivers,
         )
+
+    def _likeness(self, old_key: str, new_key: str) -> int:
+        """How many attributes and inputs two derivations share."""
+        old_path = drv_file(old_key, self.base_derivers)
+        new_path = drv_file(new_key, self.ext_derivers)
+        if old_path is None or new_path is None:
+            return 0
+        try:
+            old = self.store.read_derivation(self.store.parse_store_path(old_path))
+            new = self.store.read_derivation(self.store.parse_store_path(new_path))
+        except NixError:
+            return 0
+        shared_attrs = self._drv_attrs(old).items() & self._drv_attrs(new).items()
+        return len(shared_attrs) + len(set(old.input_drvs()) & set(new.input_drvs()))
 
     def _derivers(self, outs: Iterable[str]) -> dict[str, str]:
         """The `.drv` of each recorded output path. Recording coerced each
@@ -258,7 +276,7 @@ class Engine:
         return DrvDiff(
             old_path,
             new_path,
-            inputs=changed_paths(self._full(old.input_drvs()), self._full(new.input_drvs())),
+            inputs=changed_paths(self._full(old.input_drvs()), self._full(new.input_drvs()), self._likeness),
             sources=changed_paths(
                 {str(p.to_string()) for p in old.input_srcs()}, {str(p.to_string()) for p in new.input_srcs()}
             ),
