@@ -23,6 +23,7 @@ in lib.evalModules {
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
         checks = lib.mkOption { type = lib.types.listOf lib.types.attrs; };
+        ports = lib.mkOption { type = lib.types.listOf lib.types.port; default = [ 22 ]; };
       };
       config = {
         # Shaped like NixOS `assertions`: the base forces `ok` and never

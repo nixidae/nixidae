@@ -149,6 +149,19 @@ def test_lazy_value_shows_thunks(engine: EngineThread) -> None:
     assert view.default == '"untouched"'
 
 
+def test_default_is_evaluated_in_the_extended_configuration(engine: EngineThread) -> None:
+    """A list literal is a thunk until something reads it. With no edit,
+    only the base exists, and forcing there would widen later cascades."""
+
+    def job(e: Engine) -> tuple[str, str]:
+        e.apply([])
+        lazy = e.explain(("ports",)).default
+        e.apply([Edit(("c",), '"x"')])
+        return lazy, e.explain(("ports",)).default
+
+    assert run(engine, job) == ("«thunk»", "[ 22 ]")
+
+
 def test_explain_evaluates_nothing(engine: EngineThread) -> None:
     """Each `msg` reads another option. Showing `checks` must not evaluate
     them, or `c` counts as evaluated in every later cascade."""

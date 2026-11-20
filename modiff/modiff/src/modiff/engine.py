@@ -305,8 +305,15 @@ class Engine:
         if node.has("defaultText"):
             default = text(("defaultText",))
         elif node.has("default"):
-            # The default is a definition: forcing it here forces config.
+            # The default is a definition, so forcing it forces config. That
+            # is safe only in the extended evaluation, which the next apply
+            # replaces; the base must stay as its evaluation left it.
             default = show_lazy(node.get("default"))
+            if self.ext is not None:
+                try:
+                    default = show_forced(self._sel(node, ("default",)))
+                except NixError as err:
+                    errors.append(error_text(err))
 
         def current(root: Value | None) -> str:
             if root is None:
