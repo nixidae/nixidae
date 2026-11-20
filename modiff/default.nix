@@ -42,7 +42,10 @@ in
 {
   packages = {
     inherit (pythonSet) modiff;
-    default = pythonSet.mkVirtualEnv "modiff-env" { modiff = [ ]; };
+    # `nix run` reads `mainProgram`; without it, it runs `bin/modiff-env`.
+    default = pkgs.lib.addMetaAttrs { mainProgram = "modiff"; } (
+      pythonSet.mkVirtualEnv "modiff-env" { modiff = [ ]; }
+    );
   };
   lib = { inherit projectRoot overlay; };
   checks = pkgs.callPackages ./nix/checks.nix {
