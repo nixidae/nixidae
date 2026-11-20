@@ -236,8 +236,8 @@ class Engine:
         clean = not walker.failures
         self._walk_failed = not clean
         quiet = self._quiet(enabled, changes) if clean else ()
-        added = tuple(sorted(drvs - base_drvs)) if clean else ()
-        removed = tuple(sorted(self._unreached(base_drvs - drvs, walker.kept))) if clean else ()
+        added = self._named(drvs - base_drvs, self.ext_derivers) if clean else ()
+        removed = self._named(self._unreached(base_drvs - drvs, walker.kept), self.base_derivers) if clean else ()
         return Cascade(
             groups=self._group(changes) + quiet,
             seconds=time.monotonic() - start,
@@ -263,6 +263,13 @@ class Engine:
         closure = self.store.compute_fs_closure([self.store.parse_store_path(r) for r in roots])
         reached = {self.store.print_store_path(p) for p in closure}
         return {key for key in gone if drv_file(key, self.base_derivers) not in reached}
+
+    def _named(self, keys: set[str], derivers: dict[str, str]) -> tuple[str, ...]:
+        """A content-addressed derivation's output is a placeholder until it
+        is built, such as `/0z17…`: no store path and no name, so its old
+        and new outputs never pair. Its `.drv` has both."""
+        store = self.store.store_dir() + "/"
+        return tuple(sorted(k if k.startswith(store) else derivers.get(k, k) for k in keys))
 
     def syntax_error(self, expr: str) -> str | None:
         """Nix's message if `expr` does not parse. Parsed alone, so the

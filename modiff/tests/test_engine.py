@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Final
 
+import huggorm
 import pytest
 from toy import SOURCE, TOY
 
@@ -73,6 +74,49 @@ def test_rebuilds_include_a_derivation_nothing_coerced(engine: EngineThread) -> 
     c = cascade(engine, Edit(("a",), "2"))
     assert sorted(store_name(p) for p in c.drvs_added) == ["dep-20", "top", "unit", "unit"]
     assert sorted(store_name(p) for p in c.drvs_removed) == ["dep-10", "top", "unit", "unit"]
+
+
+CA: Final = Source(
+    """
+    let lib = import <nixpkgs/lib>; in lib.evalModules {
+      modules = [ ({ config, ... }: {
+        options.v = lib.mkOption { type = lib.types.int; default = 1; };
+        options.top = lib.mkOption { type = lib.types.package; };
+        config.top = derivation {
+          name = "top";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          inputs = [
+            (derivation {
+              name = "cav";
+              system = "x86_64-linux";
+              builder = "/bin/sh";
+              v = config.v;
+              __contentAddressed = true;
+              outputHashMode = "recursive";
+              outputHashAlgo = "sha256";
+            })
+          ];
+        };
+      }) ];
+    }
+    """,
+    (("config", "top", "drvPath"),),
+)
+
+
+def test_a_content_addressed_derivation_pairs_by_its_name(tmp_path: Path) -> None:
+    """Its output path is a placeholder until it is built: `/0z17…`, no name."""
+    features = huggorm.get_setting("experimental-features") or ""
+    huggorm.set_setting("experimental-features", f"{features} ca-derivations")
+    thread = EngineThread(CA, store=f"local?root={tmp_path}")
+    try:
+        run(thread, Engine.load)
+        c = run(thread, lambda e: e.apply([Edit(("v",), "2")]))
+    finally:
+        thread.shutdown()
+        huggorm.set_setting("experimental-features", features)
+    assert [(d.kind, d.name) for d in c.drvs] == [(Rebuild.REBUILT, "cav"), (Rebuild.REBUILT, "top")]
 
 
 def test_a_derivation_the_edit_drops_is_removed(engine: EngineThread) -> None:
