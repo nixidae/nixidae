@@ -101,6 +101,11 @@ class Walker:
     rebuilt: list[tuple[Value, Value]] = field(default_factory=list)
     # The `outPath` or `.drv` of each derivation both sides share.
     kept: list[str] = field(default_factory=list)
+    # Pairs of sets or lists, by identity, that compared with nothing to
+    # report. A full NixOS system reaches some sets by so many paths that
+    # comparing each again ran for minutes.
+    clean: set[tuple[int, int]] = field(default_factory=set)
+    failed: int = 0
 
     def force(self, v: Value, path: Path) -> bool:
         """Force a value of the new evaluation. A failure is a result: it
@@ -110,8 +115,12 @@ class Walker:
             self.state.force(v)
         except NixError as err:
             self.failures.setdefault(error_text(err), []).append(path)
+            self.failed += 1
             return False
         return True
+
+    def reported(self) -> tuple[int, int, int]:
+        return len(self.changes), self.failed, len(self.rebuilt)
 
     def result(self) -> list[Change]:
         failed = [
@@ -139,13 +148,20 @@ class Walker:
             self._compare(old, new, kind, path, above)
             return
         ident = old.identity()
-        if ident in above:
+        # The same value on both sides, as `pkgs` through `specialArgs`.
+        if ident in above or ident == new.identity():
             return
+        pair = (ident, new.identity())
+        if pair in self.clean:
+            return
+        before = self.reported()
         above.add(ident)
         try:
             self._compare(old, new, kind, path, above)
         finally:
             above.discard(ident)
+        if self.reported() == before:
+            self.clean.add(pair)
 
     def _compare(self, old: Value, new: Value, kind: str, path: Path, above: set[int]) -> None:
         self.visited += 1

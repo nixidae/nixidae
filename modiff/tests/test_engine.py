@@ -381,6 +381,12 @@ def test_a_definition_wrapper_prints_as_its_lib_call(engine: EngineThread) -> No
     )
 
 
+def test_the_walk_compares_a_set_reached_by_many_paths_once(engine: EngineThread) -> None:
+    """The toy's `wide` has 2^22 paths and 23 sets."""
+    c = cascade(engine, Edit(("a",), "2"))
+    assert c.visited < 1000
+
+
 def test_count_forced_counts_a_shared_set_once(engine: EngineThread) -> None:
     """Each level holds the one below twice: 2^20 paths to the last."""
     expr = "builtins.foldl' (s: _: builtins.deepSeq s { a = s; b = s; }) { x = 1; } (builtins.genList (i: i) 20)"
@@ -683,10 +689,10 @@ def test_the_written_module_means_what_the_edits_meant(engine: EngineThread, tmp
 
     def job(e: Engine) -> tuple[str, str]:
         def config(modules: str) -> str:
-            # `tried.bad` throws by design.
+            # `tried.bad` throws by design; `wide` is 2^22 values as JSON.
             expr = (
                 f"builtins.toJSON (removeAttrs (({TOY}).extendModules {{ modules = [ {modules} ]; }}).config"
-                ' [ "tried" ])'
+                ' [ "tried" "wide" ])'
             )
             return str(e.state.eval_expr(expr, "/").string_value())
 

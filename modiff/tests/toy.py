@@ -51,6 +51,16 @@ in lib.evalModules {
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
         steady = lib.mkOption { type = lib.types.package; default = steady; };
+        # Each level holds the one below twice: 2^22 paths to the last. The
+        # edited evaluation builds it again, so no value is shared.
+        wide = lib.mkOption {
+          type = lib.types.raw;
+          default =
+            let
+              chain = builtins.foldl' (s: _: { a = s; b = s; }) { x = 1; } (builtins.genList (i: i) 22);
+            in
+            builtins.deepSeq chain chain;
+        };
         # An edit to `[ ]` removes a derivation and adds none.
         extras = lib.mkOption {
           type = lib.types.listOf lib.types.package;
@@ -163,6 +173,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "drv", "name"),
     ("config", "top", "drvPath"),
     ("config", "steady", "drvPath"),
+    ("config", "wide"),
     ("config", "flags", "p"),
     ("config", "flags", "q"),
     ("config", "lines", 0),
