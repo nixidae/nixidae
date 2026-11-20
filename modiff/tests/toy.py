@@ -30,6 +30,8 @@ in lib.evalModules {
         top = lib.mkOption { type = lib.types.package; };
         checks = lib.mkOption { type = lib.types.listOf lib.types.attrs; };
         ports = lib.mkOption { type = lib.types.listOf lib.types.port; default = [ 22 ]; };
+        # Longer than Nix's default print budget: a change at the end elides.
+        many = lib.mkOption { type = lib.types.listOf lib.types.int; };
         # A submodule merges each field into a thunk: on the new side no
         # field is a value until something forces it.
         people = lib.mkOption {
@@ -51,6 +53,7 @@ in lib.evalModules {
             { name = "fourth"; ok = true; msg = "always"; }
           ]
         ];
+        many = lib.genList (i: i) 250;
         people = [
           { name = "alice"; uid = 1; }
           { name = "bob"; uid = 2; }
@@ -119,6 +122,7 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "checks", 1, "ok"),
     ("config", "checks", 2, "ok"),
     ("config", "checks", 3, "ok"),
+    ("config", "many"),
     ("config", "people", 0, "name"),
     ("config", "people", 0, "uid"),
     ("config", "people", 1, "name"),

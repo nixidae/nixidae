@@ -29,6 +29,11 @@ SCALARS: Final = frozenset({"int", "float", "bool", "string", "null", "path"})
 # Above this many element pairs, a stretch between anchors pairs by index:
 # the match is quadratic in Python.
 MATCH_CELLS: Final = 40_000
+# Nix's print budget counts items across the whole value, not per list. At
+# 200 the openssh edit's change to `assertions` from users-groups.nix
+# printed the same on both sides. At 2000 the largest NixOS view
+# (`environment.etc`, about 1 MB) renders in 0.07 s.
+PRINT_ITEMS: Final = 2000
 
 
 def error_text(err: NixError) -> str:
@@ -425,7 +430,9 @@ def show_lazy(v: Value) -> str:
             if child is not None and child.type_name() == "string":
                 return f"«derivation {child.string_value()}»"
         return "«derivation»"
-    return v.print_value(max_depth=6, max_attrs=200, max_list_items=200, max_string_length=4000, pretty_indent=2)
+    return v.print_value(
+        max_depth=6, max_attrs=PRINT_ITEMS, max_list_items=PRINT_ITEMS, max_string_length=4000, pretty_indent=2
+    )
 
 
 def show_forced(v: Value) -> str:

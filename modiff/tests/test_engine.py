@@ -323,6 +323,15 @@ def test_explain_evaluates_nothing(engine: EngineThread) -> None:
     assert "c" not in changes(cascade(engine, Edit(("c",), '"edited"')))
 
 
+def test_a_change_past_two_hundred_items_shows(engine: EngineThread) -> None:
+    """Nix's print budget counts items across the whole value: at 200,
+    the element the edit appends prints as «… items elided»."""
+    cascade(engine, Edit(("many",), "lib.mkAfter [ 999 ]"))
+    view = run(engine, lambda e: e.explain(("many",)))
+    assert "999" in view.new
+    assert "elided" not in view.new
+
+
 def test_definitions_print_derivations_by_what_was_evaluated(engine: EngineThread) -> None:
     """The toy forces `drv.name` and no path."""
     view = run(engine, lambda e: e.explain(("drv",)))
