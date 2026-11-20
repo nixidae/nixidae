@@ -103,7 +103,26 @@ class OptionView:
     # False when the base never evaluated the option: then `defs_old` is
     # empty, because listing definitions evaluates them.
     base_read: bool = True
+    # `highestPrio`: the priority every surviving definition shares.
+    prio_old: int | None = None
+    prio_new: int | None = None
     errors: tuple[str, ...] = field(default=())
+
+
+# `lib/modules.nix`: what a priority is called where a module sets it.
+PRIORITY_NAMES: Final = {
+    10: "lib.mkVMOverride",
+    50: "lib.mkForce",
+    60: "lib.mkImageMediaOverride",
+    100: "a plain definition",
+    1000: "lib.mkDefault",
+    1500: "the option's default",
+}
+
+
+def priority_text(prio: int) -> str:
+    name = PRIORITY_NAMES.get(prio)
+    return f"{prio}, {name}" if name else f"{prio}, lib.mkOverride {prio}"
 
 
 def edit_file(path: OptionPath) -> str:

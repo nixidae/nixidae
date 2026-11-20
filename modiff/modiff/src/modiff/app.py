@@ -38,6 +38,7 @@ from .model import (
     Quiet,
     format_path,
     parse_option_path,
+    priority_text,
 )
 
 SHORT: Final = 60
@@ -210,10 +211,16 @@ def option_detail(view: OptionView, changes: tuple[Change, ...], note: Text | No
     parts.append(section("Definitions"))
     parts.append(
         Text(
-            "Every module that sets this option. The module system merges them, highest priority first.",
+            "The definitions that win. Each has a priority, and the lowest number wins; the module "
+            "system drops the rest and merges the winners.",
             style="dim italic",
         )
     )
+    if view.prio_old is not None or view.prio_new is not None:
+        old = None if view.prio_old is None else priority_text(view.prio_old)
+        new = None if view.prio_new is None else priority_text(view.prio_new)
+        shown = f"{old} → {new}" if old and new and old != new else (new or old or "")
+        parts.append(Text.assemble(("winning priority: ", "dim"), shown))
     parts.extend(definitions(view))
 
     parts.append(section("Value"))

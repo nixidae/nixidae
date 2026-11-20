@@ -6,7 +6,17 @@ import pytest
 from toy import SOURCE
 
 from modiff.engine import Crash, Engine, EngineThread
-from modiff.model import Cascade, Change, Edit, Kind, OptionView, Quiet, format_path, parse_option_path
+from modiff.model import (
+    Cascade,
+    Change,
+    Edit,
+    Kind,
+    OptionView,
+    Quiet,
+    format_path,
+    parse_option_path,
+    priority_text,
+)
 
 
 @pytest.fixture(scope="module")
@@ -158,6 +168,22 @@ def test_explain_shows_the_edit_as_a_definition(engine: EngineThread) -> None:
     # only one before the edit, and the edit outranks it after.
     assert [d.value for d in view.defs_old] == ["1"]
     assert [d.file for d in view.defs_new] == ["modiff edit: a"]
+
+
+def test_explain_shows_the_winning_priority(engine: EngineThread) -> None:
+    """`a` has only its default, 1500; the edit is a plain definition, then
+    mkForce."""
+
+    def job(e: Engine, expr: str) -> OptionView:
+        e.apply([Edit(("a",), expr)])
+        return e.explain(("a",))
+
+    plain = run(engine, lambda e: job(e, "2"))
+    assert (plain.prio_old, plain.prio_new) == (1500, 100)
+    forced = run(engine, lambda e: job(e, "lib.mkForce 2"))
+    assert forced.prio_new == 50
+    assert priority_text(50) == "50, lib.mkForce"
+    assert priority_text(75) == "75, lib.mkOverride 75"
 
 
 def test_lazy_value_shows_thunks(engine: EngineThread) -> None:

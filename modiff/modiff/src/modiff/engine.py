@@ -280,6 +280,15 @@ class Engine:
             out.append(Definition(str(file.string_value()), value))
         return tuple(out)
 
+    def _priority(self, root: Value | None, option: OptionPath) -> int | None:
+        if root is None:
+            return None
+        node = self._sel(root, ("options", *option))
+        if not node.has("highestPrio"):
+            return None
+        prio = self._sel(node, ("highestPrio",))
+        return prio.integer() if prio.type_name() == "int" else None
+
     def explain(self, option: OptionPath) -> OptionView:
         errors: list[str] = []
         node = self._sel(self._options_root(), option)
@@ -333,10 +342,13 @@ class Engine:
         base_read = base_value is not None and base_value.type_name() != "thunk"
         defs_old: tuple[Definition, ...] = ()
         defs_new: tuple[Definition, ...] = ()
+        prio_old = prio_new = None
         try:
             if base_read:
                 defs_old = self._definitions(self.base, option)
+                prio_old = self._priority(self.base, option)
             defs_new = self._definitions(self.ext, option)
+            prio_new = self._priority(self.ext, option)
         except NixError as err:
             errors.append(error_text(err))
         return OptionView(
@@ -350,6 +362,8 @@ class Engine:
             defs_old=defs_old,
             defs_new=defs_new,
             base_read=base_read,
+            prio_old=prio_old,
+            prio_new=prio_new,
             errors=tuple(errors),
         )
 
