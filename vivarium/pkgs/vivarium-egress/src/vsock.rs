@@ -53,9 +53,10 @@ const QUEUES: usize = 3;
 const BACKEND_EVENT: u16 = 4;
 const WAKE: u64 = u64::MAX;
 
-/// What the guest may send before it hears our fwd_cnt again. A full
-/// host socket spills up to this much per connection.
-const BUF_ALLOC: u32 = 1 << 20;
+/// What the guest may send before it hears our fwd_cnt again: the
+/// guest-to-host window, as the relay's `RELAY_VSOCK_BUFFER` is the
+/// other way. A full host socket spills up to this much per connection.
+const BUF_ALLOC: u32 = 4 << 20;
 const MAX_PKT: usize = 64 << 10;
 
 /// A service gets the far end of each guest connection to its port.
