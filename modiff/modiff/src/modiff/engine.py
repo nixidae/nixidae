@@ -49,6 +49,7 @@ from .walk import (
     drv_string,
     error_text,
     fully_forced,
+    has_failed,
     instantiated,
     show_forced,
     show_lazy,
@@ -325,7 +326,9 @@ class Engine:
         if change.kind is not Kind.FAILED:
             return change
         blamed = blamed_path(change.new)
-        if not blamed or blamed == change.path or not self.option_of(blamed):
+        # Inside one option a message names merge positions, such as
+        # `checks."[definition 3-entry 1]"`, which are no path.
+        if not blamed or self.option_of(blamed) in {(), self.option_of(change.path)}:
             return change
         return replace(change, path=blamed, via=change.path)
 
@@ -402,17 +405,36 @@ class Engine:
         walk(self._options_root(), ())
         return found
 
-    def _definitions(self, root: Value | None, option: OptionPath) -> tuple[Definition, ...]:
+    def _definitions(self, root: Value | None, option: OptionPath) -> list[tuple[str, Value]]:
+        """Each definition's file and value, the value as far as it is
+        evaluated."""
         if root is None:
-            return ()
+            return []
         defs = self._sel(root, ("options", *option, "definitionsWithLocations"))
-        out: list[Definition] = []
+        out: list[tuple[str, Value]] = []
         for i in range(defs.length()):
             item = self._sel(defs, (i,))
             file = self._sel(item, ("file",))
-            value = show_lazy(item.get("value"))
-            out.append(Definition(str(file.string_value()), value))
-        return tuple(out)
+            out.append((str(file.string_value()), item.get("value")))
+        return out
+
+    def _shown_new(self, v: Value) -> str:
+        """A new value that the base evaluated: a thunk left here failed,
+        and forcing it again raises its error."""
+        if v.type_name() in {"thunk", "failed"}:
+            self.state.force(v)
+        return show_lazy(v)
+
+    def _force_like_base(self, olds: list[tuple[str, Value]], news: list[tuple[str, Value]]) -> None:
+        """Force each new definition as far as the base forced the old one
+        from the same file."""
+        walker = Walker(self.state)
+        left = list(olds)
+        for file, new in news:
+            match = next((pair for pair in left if pair[0] == file), None)
+            if match is not None:
+                left.remove(match)
+                walker.force_like(match[1], new)
 
     def _priority(self, root: Value | None, option: OptionPath) -> int | None:
         if root is None:
@@ -474,17 +496,30 @@ class Engine:
         # the base is safe to read only where its value was evaluated.
         base_value = None if self.base is None else self._peek(self._sel(self.base, ("config",)), option)
         base_read = base_value is not None and base_value.type_name() != "thunk"
-        defs_old: tuple[Definition, ...] = ()
-        defs_new: tuple[Definition, ...] = ()
+        olds: list[tuple[str, Value]] = []
+        news: list[tuple[str, Value]] = []
         prio_old = prio_new = None
+        new = current(self.ext)
+        new_failed = False
         try:
             if base_read:
-                defs_old = self._definitions(self.base, option)
+                olds = self._definitions(self.base, option)
                 prio_old = self._priority(self.base, option)
-            defs_new = self._definitions(self.ext, option)
+            news = self._definitions(self.ext, option)
             prio_new = self._priority(self.ext, option)
         except NixError as err:
             errors.append(error_text(err))
+        if base_read and base_value is not None and self.ext is not None:
+            self._force_like_base(olds, news)
+            new_value = self._peek(self._sel(self.ext, ("config",)), option)
+            if new_value is not None:
+                Walker(self.state).force_like(base_value, new_value)
+                new_failed = has_failed(new_value)
+            new_failed = new_failed or any(has_failed(v) for _, v in news)
+            try:
+                new = current(self.ext) if new_value is None else self._shown_new(new_value)
+            except NixError as err:
+                new = f"«error: {error_text(err).splitlines()[0]}»"
         return OptionView(
             path=option,
             type_description=text(("type", "description")),
@@ -492,12 +527,13 @@ class Engine:
             declarations=tuple(declarations),
             default=default,
             old=current(self.base),
-            new=current(self.ext),
-            defs_old=defs_old,
-            defs_new=defs_new,
+            new=new,
+            defs_old=tuple(Definition(file, show_lazy(v)) for file, v in olds),
+            defs_new=tuple(Definition(file, show_lazy(v)) for file, v in news),
             base_read=base_read,
             prio_old=prio_old,
             prio_new=prio_new,
+            new_failed=new_failed,
             errors=tuple(errors),
         )
 

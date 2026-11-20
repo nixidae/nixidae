@@ -209,6 +209,36 @@ class Walker:
             elif j is not None:
                 self.changes.append(Change(Kind.ADDED, (*path, j), "", describe(b_keys[j])))
 
+    def force_like(self, old: Value, new: Value, above: set[int] | None = None) -> None:
+        """Force `new` as far as `old` is forced, and record nothing. A walk
+        that met a failure stops early, and its new side then prints
+        «thunk» where the base prints a value: a change that is not one.
+        Only for the new side, which every apply replaces."""
+        above = set() if above is None else above
+        kind = old.type_name()
+        if kind == "thunk" or not quiet_force(self.state, new) or new.type_name() != kind:
+            return
+        if kind not in {"attrs", "list"} or is_derivation(old):
+            return
+        ident = old.identity()
+        if ident in above:
+            return
+        above.add(ident)
+        try:
+            if kind == "attrs":
+                for name in sorted((set(old.names()) & set(new.names())) - SKIP):
+                    self.force_like(old.get(name), new.get(name), above)
+                return
+            olds = [old.at(i) for i in range(old.length())]
+            news = [new.at(i) for i in range(new.length())]
+            a_keys = [{} if v.type_name() == "thunk" else self.element_key(v) for v in olds]
+            b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
+            for i, j in align(a_keys, b_keys):
+                if i is not None and j is not None:
+                    self.force_like(olds[i], news[j], above)
+        finally:
+            above.discard(ident)
+
 
 def drv_string(state: EvalState, drv: Value, name: str) -> str | None:
     """`outPath` or `drvPath` of a derivation that was instantiated: one
@@ -412,6 +442,27 @@ def fully_forced(v: Value, above: set[int] | None = None) -> bool:
         if kind == "attrs":
             return all(fully_forced(v.value_at(i), above) for i in range(v.size()) if v.name_at(i) not in SKIP)
         return all(fully_forced(v.at(i), above) for i in range(v.length()))
+    finally:
+        above.discard(ident)
+
+
+def has_failed(v: Value, above: set[int] | None = None) -> bool:
+    """A value under `v` whose evaluation threw. Nix prints one as
+    «thunk» (`print.cc`, `printFailed`), the same as a value nothing read."""
+    above = set() if above is None else above
+    kind = v.type_name()
+    if kind == "failed":
+        return True
+    if kind not in {"attrs", "list"} or is_derivation(v):
+        return False
+    ident = v.identity()
+    if ident in above:
+        return False
+    above.add(ident)
+    try:
+        if kind == "attrs":
+            return any(has_failed(v.value_at(i), above) for i in range(v.size()) if v.name_at(i) not in SKIP)
+        return any(has_failed(v.at(i), above) for i in range(v.length()))
     finally:
         above.discard(ident)
 

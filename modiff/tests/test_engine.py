@@ -213,6 +213,27 @@ def test_a_conflict_fails_under_the_option_it_names(engine: EngineThread) -> Non
     assert "conflicting definition values" in change.new
 
 
+def test_a_failed_merge_leaves_the_other_definitions_alone(engine: EngineThread) -> None:
+    """`1` fails the merge of all of `checks`, so the walk forces nothing
+    in it; the base's definitions still compare equal. (`[ 1 ]` fails only
+    its element: `listOf` merges each element lazily.)"""
+    c = cascade(engine, Edit(("checks",), "1"))
+    failed = [(g.option, ch) for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
+    assert [(option, ch.path) for option, ch in failed] == [(("checks",), ("checks",))]
+    view = run(engine, lambda e: e.explain(("checks",)))
+    assert set(view.defs_old) <= set(view.defs_new)
+    assert [d.file for d in view.defs_new if d not in view.defs_old] == ["modiff edit: checks"]
+    assert view.new.startswith("«error: ")
+
+
+def test_a_failed_part_is_flagged(engine: EngineThread) -> None:
+    cascade(engine, Edit(("z",), "4"))
+    view = run(engine, lambda e: e.explain(("checks",)))
+    assert view.new_failed
+    view = run(engine, lambda e: e.explain(("lines",)))
+    assert not view.new_failed
+
+
 def test_blamed_path_reads_the_module_system_messages() -> None:
     assert blamed_path("The option `a.b' has conflicting definition values:") == ("a", "b")
     assert blamed_path('A definition for option `users.users."x.y".uid\' is not of type') == (
