@@ -30,6 +30,14 @@ in lib.evalModules {
         top = lib.mkOption { type = lib.types.package; };
         checks = lib.mkOption { type = lib.types.listOf lib.types.attrs; };
         ports = lib.mkOption { type = lib.types.listOf lib.types.port; default = [ 22 ]; };
+        # A submodule merges each field into a thunk: on the new side no
+        # field is a value until something forces it.
+        people = lib.mkOption {
+          type = lib.types.listOf (lib.types.submodule {
+            options.name = lib.mkOption { type = lib.types.str; };
+            options.uid = lib.mkOption { type = lib.types.int; };
+          });
+        };
       };
       config = {
         # Shaped like NixOS `assertions`: the base forces `ok` and never
@@ -39,7 +47,14 @@ in lib.evalModules {
           [
             { name = "second"; ok = true; msg = "b is ${toString config.b}"; }
             { name = "third"; ok = true; msg = "c is ${config.c}"; }
+            # A literal `msg` is a value with no forcing; the others stay thunks.
+            { name = "fourth"; ok = true; msg = "always"; }
           ]
+        ];
+        people = [
+          { name = "alice"; uid = 1; }
+          { name = "bob"; uid = 2; }
+          { name = "carol"; uid = 3; }
         ];
         b = config.a * 10;
         flags = { p = true; q = true; };
@@ -103,6 +118,13 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "checks", 0, "ok"),
     ("config", "checks", 1, "ok"),
     ("config", "checks", 2, "ok"),
+    ("config", "checks", 3, "ok"),
+    ("config", "people", 0, "name"),
+    ("config", "people", 0, "uid"),
+    ("config", "people", 1, "name"),
+    ("config", "people", 1, "uid"),
+    ("config", "people", 2, "name"),
+    ("config", "people", 2, "uid"),
 )
 
 SOURCE: Final = Source(TOY, FORCE)

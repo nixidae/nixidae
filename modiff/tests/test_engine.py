@@ -164,6 +164,26 @@ def test_attrset_insert_aligns_on_literal_fields(engine: EngineThread) -> None:
     assert 'name = "inserted";' in got["checks[1]"].new
 
 
+def test_submodule_insert_aligns_on_the_fields_the_base_forced(engine: EngineThread) -> None:
+    """A submodule's fields are thunks on the new side, so no field is
+    known there: by position, every person shifted onto the next."""
+    c = cascade(engine, Edit(("people",), 'lib.mkBefore [ { name = "zed"; uid = 9; } ]'))
+    assert c.error is None
+    got = changes(c)
+    assert set(got) == {"people[0]"}
+    assert got["people[0]"].kind is Kind.ADDED
+    assert 'name = "zed";' in got["people[0]"].new
+
+
+def test_aligning_forces_no_field_the_base_left_a_thunk(engine: EngineThread) -> None:
+    """`fourth` has a literal `msg`; the other `msg`s are thunks the base
+    never forced. Forcing them on the new side makes every base definition
+    differ from itself."""
+    cascade(engine, Edit(("checks",), INSERTED_CHECK))
+    view = run(engine, lambda e: e.explain(("checks",)))
+    assert set(view.defs_old) <= set(view.defs_new)
+
+
 def test_aligning_leaves_unforced_fields_unforced(engine: EngineThread) -> None:
     c = cascade(engine, Edit(("checks",), INSERTED_CHECK))
     assert not [ch for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
@@ -216,7 +236,8 @@ def test_unforced_children_are_not_the_same_value(engine: EngineThread) -> None:
     nothing about the rest."""
     edit = Edit(
         ("checks",),
-        'lib.mkForce (map (n: { name = n; ok = true; msg = "other"; }) [ "first" "second" "third" ])',
+        'lib.mkForce (map (n: { name = n; ok = true; msg = "other"; }) [ "first" "second" "third" ]'
+        ' ++ [ { name = "fourth"; ok = true; msg = "always"; } ])',
     )
     assert quiet(cascade(engine, edit)) == {"checks": Quiet.PARTIAL}
 

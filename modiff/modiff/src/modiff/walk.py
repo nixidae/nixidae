@@ -169,10 +169,11 @@ class Walker:
         for name in sorted(old_names & new_names):
             self.compare(old.get(name), new.get(name), (*path, name), above)
 
-    def element_key(self, v: Value) -> Key:
-        """What a list element is matched on. Forces the element and a
-        derivation's name, nothing deeper, and records no failure: an
-        inserted element may be one nothing evaluates."""
+    def element_key(self, v: Value, fields: frozenset[str] = frozenset()) -> Key:
+        """What a list element is matched on. Forces the element, a
+        derivation's name and the attributes in `fields`, nothing deeper,
+        and records no failure: an inserted element may be one nothing
+        evaluates."""
         if v.type_name() == "thunk" and not quiet_force(self.state, v):
             return {SELF: "«error»"}
         kind = v.type_name()
@@ -182,6 +183,9 @@ class Walker:
                 return {SELF: "«derivation»"}
             return {SELF: f"«name {scalar(name)}»"}
         if kind == "attrs":
+            for field in fields:
+                if v.has(field):
+                    quiet_force(self.state, v.get(field))
             return {SELF: "«attrs»"} | known_fields(v)
         if kind == "list":
             return {SELF: "«list»"}
@@ -191,7 +195,7 @@ class Walker:
         olds = [old.at(i) for i in range(old.length())]
         news = [new.at(i) for i in range(new.length())]
         a_keys = [{} if v.type_name() == "thunk" else self.element_key(v) for v in olds]
-        b_keys = [self.element_key(v) for v in news]
+        b_keys = [self.element_key(v, common_fields(a_keys)) for v in news]
         for i, j in align(a_keys, b_keys):
             if i is not None and j is not None:
                 self.compare(olds[i], news[j], (*path, j), above)
@@ -248,6 +252,17 @@ def known_fields(v: Value) -> Key:
         if name not in SKIP and child.type_name() in SCALARS:
             out[name] = literal(child)
     return out
+
+
+def common_fields(keys: list[Key]) -> frozenset[str]:
+    """The fields known in every old attrset element: the ones to force
+    on the new side, where a submodule's fields are all thunks. Forcing
+    there is safe, as every apply replaces the new configuration. A field
+    known in only some elements may be a literal there and a thunk the
+    base never forced elsewhere (NixOS `assertions` `message`): forcing
+    it prints a value where the base prints «thunk»."""
+    attrs = [set(key) - {SELF} for key in keys if key.get(SELF) == "«attrs»"]
+    return frozenset(set.intersection(*attrs)) if attrs else frozenset()
 
 
 def describe(key: Key) -> str:
