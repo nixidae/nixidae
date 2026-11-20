@@ -391,8 +391,15 @@ def test_blamed_path_reads_the_module_system_messages() -> None:
 
 
 def test_parse_error_names_the_edit(engine: EngineThread) -> None:
-    c = cascade(engine, Edit(("a",), "1 +"))
+    c = cascade(engine, Edit(("a",), "lib.mkForce ("))
     assert c.error is not None and c.error.startswith("a: ")
+    # Nix's frame shows the edit, not the module modiff wraps it in.
+    assert "lib.mkForce (" in c.error
+    assert "setAttrByPath" not in c.error
+
+
+def test_a_free_name_is_no_parse_error(engine: EngineThread) -> None:
+    assert cascade(engine, Edit(("a",), "lib.mkForce (lib.max 1 2)")).error is None
 
 
 def quiet(c: Cascade) -> dict[str, Quiet | None]:
