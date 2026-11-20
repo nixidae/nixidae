@@ -833,7 +833,8 @@ public:
     ~Bridge()
     {
         gc_register_thread();
-        live_roots().fetch_sub(1, std::memory_order_relaxed);
+        if (root_)
+            live_roots().fetch_sub(1, std::memory_order_relaxed);
     }
 
     // A copy is a second root over the same value, and it counts as
@@ -844,6 +845,17 @@ public:
           staged_attrs_(other.staged_attrs_)
     {
         live_roots().fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // A move hands the root over, so the count stays and the moved-from
+    // Bridge, with no root, does not count down. Without it nanobind
+    // copies every Bridge a method returns: two more atomic writes to
+    // the shared core and root counts per value (nixidae/nixidae#1557).
+    Bridge(Bridge && other) noexcept
+        : built_(other.built_), core_(std::move(other.core_)), root_(std::move(other.root_)),
+          by_name_(std::move(other.by_name_)), staged_(std::move(other.staged_)),
+          staged_attrs_(std::move(other.staged_attrs_))
+    {
     }
 
     Bridge & operator=(const Bridge &) = default;
