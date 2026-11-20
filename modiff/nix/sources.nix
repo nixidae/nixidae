@@ -1,8 +1,8 @@
-# Where every dependency of pynix-review lives: nixidae
+# Where every dependency of modiff lives: nixidae
 # (https://github.com/nixidae/nixidae), the repository this one is exported
-# from. Work on pynix-review happens there.
+# from. Work on modiff happens there.
 #
-# Inside nixidae this directory is `<nixidae>/pynix-review`, and nixidae's own
+# Inside nixidae this directory is `<nixidae>/modiff`, and nixidae's own
 # nix/wire.nix answers. On its own, `flake.lock` names the nixidae commit to
 # build against, and this tree takes the place of its copy there: what git
 # tracks of it, as a store path named `source`, the way nixidae copies each
@@ -26,4 +26,4 @@ in
 if inNixidae then
   import ../../nix/wire.nix { }
 else
-  import "${nixidae}/nix/wire.nix" { overrides.pynix-review = self; }
+  import "${nixidae}/nix/wire.nix" { overrides.modiff = self; }
