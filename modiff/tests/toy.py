@@ -78,6 +78,11 @@ in lib.evalModules {
         # `wide` with a leaf that reads `seed`: an edit to `seed` changes
         # every level, so no pair compares clean.
         seed = lib.mkOption { type = lib.types.int; default = 0; };
+        # One set at two paths, and the base forces `x` through each.
+        twice = lib.mkOption {
+          type = lib.types.raw;
+          default = let s = { x = config.seed; }; in { a = s; b = s; };
+        };
         half = lib.mkOption { type = lib.types.raw; default = half; };
         pick = lib.mkOption { type = lib.types.str; default = "p"; };
         picked = lib.mkOption { type = lib.types.int; default = half.${config.pick}; };
@@ -209,6 +214,8 @@ FORCE: Final[tuple[Path, ...]] = (
     ("config", "steady", "drvPath"),
     ("config", "wide"),
     ("config", "fan"),
+    ("config", "twice", "a", "x"),
+    ("config", "twice", "b", "x"),
     ("config", "half", "p"),
     ("config", "picked"),
     ("config", "isLone"),

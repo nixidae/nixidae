@@ -93,6 +93,13 @@ def scalar(v: Value) -> str:
             return f"«{kind}»"
 
 
+@dataclass(frozen=True, slots=True)
+class Dirty:
+    path: Path
+    changed: bool
+    failures: tuple[int, int]
+
+
 @dataclass(slots=True)
 class Walker:
     state: EvalState
@@ -110,9 +117,12 @@ class Walker:
     # report. A full NixOS system reaches some sets by so many paths that
     # comparing each again ran for minutes.
     clean: set[tuple[int, int]] = field(default_factory=set)
-    # Pairs that did report, and the path where they did. A changed set
-    # reached by 2^22 paths reported 4 million rows.
-    dirty: dict[tuple[int, int], Path] = field(default_factory=dict)
+    # Pairs that did report: where, whether with changes, and their span
+    # of `failure_log`. A changed set reached by 2^22 paths reported 4
+    # million rows.
+    dirty: dict[tuple[int, int], Dirty] = field(default_factory=dict)
+    # Every failure in walk order, so a pair met again repeats its own.
+    failure_log: list[tuple[str, Path]] = field(default_factory=list)
     failed: int = 0
     # The children of the walk's two roots, by name.
     root: tuple[dict[str, int], dict[str, int]] | None = None
@@ -124,10 +134,23 @@ class Walker:
         try:
             self.state.force(v)
         except NixError as err:
-            self.failures.setdefault(error_text(err), []).append(path)
-            self.failed += 1
+            self.fail(error_text(err), path)
             return False
         return True
+
+    def fail(self, message: str, path: Path) -> None:
+        self.failures.setdefault(message, []).append(path)
+        self.failure_log.append((message, path))
+        self.failed += 1
+
+    def again(self, seen: Dirty, path: Path) -> None:
+        """A pair compared at `seen.path` before. Its changes show there,
+        so this path gets one `=` row. A failure may move to the option
+        its message names, so each one counts at this path too."""
+        if seen.changed:
+            self.changes.append(Change(Kind.SAME, path, via=seen.path))
+        for message, failed in self.failure_log[seen.failures[0] : seen.failures[1]]:
+            self.fail(message, (*path, *failed[len(seen.path) :]))
 
     def is_root(self, old: Value, new: Value) -> bool:
         """`config` again, as home-manager's `nixosConfig`: each change
@@ -181,10 +204,11 @@ class Walker:
             self.root = (children(old), children(new))
         if pair in self.clean:
             return
-        if (first := self.dirty.get(pair)) is not None:
-            self.changes.append(Change(Kind.SAME, path, via=first))
+        if (seen := self.dirty.get(pair)) is not None:
+            self.again(seen, path)
             return
         before = self.reported()
+        logged = len(self.failure_log)
         above.add(ident)
         try:
             self._compare(old, new, kind, path, above)
@@ -193,7 +217,8 @@ class Walker:
         if self.reported() == before:
             self.clean.add(pair)
         else:
-            self.dirty[pair] = path
+            changed = len(self.changes) > before[0] or len(self.rebuilt) > before[2]
+            self.dirty[pair] = Dirty(path, changed, (logged, len(self.failure_log)))
 
     def _compare(self, old: Value, new: Value, kind: str, path: Path, above: set[int]) -> None:
         self.visited += 1

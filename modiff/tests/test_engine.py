@@ -497,6 +497,16 @@ def test_a_changed_set_reached_by_many_paths_shows_once(engine: EngineThread) ->
     assert Change(Kind.SAME, ("fan", "b"), via=("fan", "a")) in fan
 
 
+def test_a_failure_in_a_set_at_two_paths_counts_both(engine: EngineThread) -> None:
+    """`twice.b` is `twice.a`. The failure moves to `seed`, which the
+    message names, so an `=` row at `twice.b` would point at nothing."""
+    c = cascade(engine, Edit(("seed",), '"x"'))
+    rows = [ch for g in c.groups for ch in g.changes]
+    assert [(ch.kind, ch.path) for ch in rows] == [(Kind.FAILED, ("seed",))]
+    # `fan`, `seed`, `twice.a.x`, `twice.b.x`.
+    assert rows[0].old == "3 other paths"
+
+
 def test_count_forced_counts_a_shared_set_once(engine: EngineThread) -> None:
     """Each level holds the one below twice: 2^20 paths to the last."""
     expr = "builtins.foldl' (s: _: builtins.deepSeq s { a = s; b = s; }) { x = 1; } (builtins.genList (i: i) 20)"
