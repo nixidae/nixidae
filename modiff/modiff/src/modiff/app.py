@@ -833,6 +833,7 @@ class ModiffApp(App[None]):
         # An option found with `/`: listed first, changed or not.
         self.browsed: OptionPath | None = None
         self.all_definitions = False
+        self.status_line = ""
         # Set when the cascade on screen matches the edits; tests wait on it.
         self.settled = anyio.Event()
 
@@ -883,7 +884,13 @@ class ModiffApp(App[None]):
         done(result)
 
     def status(self, text: str) -> None:
+        """What modiff is doing or did last: the base and the cascade."""
+        self.status_line = text
         self.query_one("#status", Static).update(text)
+
+    def note(self, text: str) -> None:
+        """The answer to a key, after the status line, until the next status."""
+        self.query_one("#status", Static).update(f"{self.status_line} · {text}")
 
     def detail(self, renderable: RenderableType) -> None:
         self.query_one("#detail", Static).update(renderable)
@@ -1134,7 +1141,7 @@ class ModiffApp(App[None]):
 
     def action_write_module(self) -> None:
         if not any(e.enabled for e in self.edits):
-            self.status(self.base_status() + " · no edit is on: nothing to write")
+            self.note("no edit is on: nothing to write")
             return
         module = edits_module(self.edits)
 
@@ -1144,16 +1151,16 @@ class ModiffApp(App[None]):
             try:
                 path.write_text(module)
             except OSError as err:
-                self.status(self.base_status() + f" · cannot write {path}: {err.strerror}")
+                self.note(f"cannot write {path}: {err.strerror}")
                 return
-            self.status(self.base_status() + f" · wrote {path}")
+            self.note(f"wrote {path}")
 
         self.push_screen(WriteScreen(module), chosen)
 
     def action_all_definitions(self) -> None:
         self.all_definitions = not self.all_definitions
         shown = "every definition" if self.all_definitions else "the definitions the edits touch first"
-        self.status(self.base_status() + f" · showing {shown}")
+        self.note(f"showing {shown}")
         self.show_node(self.query_one("#cascade", Tree).cursor_node)
 
     def action_help(self) -> None:
