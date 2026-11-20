@@ -417,7 +417,7 @@ def test_a_failing_force_path_is_named(tmp_path: Path) -> None:
     finally:
         thread.shutdown()
     assert loaded.error is not None
-    assert loaded.error.startswith("config.nope: attribute 'nope' missing")
+    assert loaded.error.startswith("evaluating config.nope: attribute 'nope' missing")
 
 
 def test_a_free_name_is_no_parse_error(engine: EngineThread) -> None:

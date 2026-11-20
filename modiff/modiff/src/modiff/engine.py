@@ -155,7 +155,7 @@ class Engine:
             for forcing in self.source.force:
                 self._sel(base, forcing)
         except NixError as err:
-            where = f"{format_path(forcing)}: " if forcing else ""
+            where = f"evaluating {format_path(forcing)}: " if forcing else ""
             return Loaded(time.monotonic() - start, 0, where + error_text(err))
         finally:
             self.state.set_record_derivations(False)
