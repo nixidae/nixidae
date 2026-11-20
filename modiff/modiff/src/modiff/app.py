@@ -45,6 +45,7 @@ from .model import (
     Rebuild,
     drv_file,
     edits_module,
+    expand_strings,
     format_path,
     parse_option_path,
     priority_text,
@@ -185,7 +186,8 @@ def section(title: str) -> Text:
 
 
 def definition(mark: str, file: str, value: str, style: str) -> list[RenderableType]:
-    return [Text(f"{mark} {short_file(file)}", style=style), Text(_indent(value), style=style or "dim")]
+    shown = _indent(expand_strings(value))
+    return [Text(f"{mark} {short_file(file)}", style=style), Text(shown, style=style or "dim")]
 
 
 def definitions(view: OptionView) -> list[RenderableType]:
@@ -248,9 +250,9 @@ def option_detail(view: OptionView, changes: tuple[Change, ...], note: Text | No
     if "«thunk»" in view.old or "«thunk»" in view.new:
         parts.append(Text("«thunk» is a part nothing evaluated yet: Nix is lazy.", style="dim italic"))
     if view.new and view.new != view.old:
-        parts.append(diff_text(view.old, view.new))
+        parts.append(diff_text(expand_strings(view.old), expand_strings(view.new)))
     else:
-        parts.append(Text(view.old))
+        parts.append(Text(expand_strings(view.old)))
 
     if changes:
         parts.append(section("What changed under it"))

@@ -300,6 +300,55 @@ def nix_string(s: str) -> str:
     return f'"{escaped}"'
 
 
+_UNESCAPE: Final = {"n": "\n", "r": "\r", "t": "\t"}
+
+
+def expand_strings(printed: str) -> str:
+    """Printed Nix with each string that holds a newline as an indented
+    `''` string, a line per line, so a line diff shows the lines that
+    changed. For reading: a string whose lines all share leading spaces
+    reads with them stripped, as Nix strips them."""
+    out: list[str] = []
+    # The indentation of the output line being written.
+    indent = ""
+    at_line_start = True
+    i = 0
+    while i < len(printed):
+        char = printed[i]
+        if char != '"':
+            out.append(char)
+            if char == "\n":
+                indent, at_line_start = "", True
+            elif char == " " and at_line_start:
+                indent += " "
+            else:
+                at_line_start = False
+            i += 1
+            continue
+        at_line_start = False
+        start = i
+        i += 1
+        decoded: list[str] = []
+        while i < len(printed) and printed[i] != '"':
+            if printed[i] == "\\" and i + 1 < len(printed):
+                decoded.append(_UNESCAPE.get(printed[i + 1], printed[i + 1]))
+                i += 2
+            else:
+                decoded.append(printed[i])
+                i += 1
+        i += 1
+        text = "".join(decoded)
+        if "\n" not in text:
+            out.append(printed[start:i])
+            continue
+        body = text.replace("''", "'''").replace("${", "''${").replace("\r", "''\\r")
+        lines = body.split("\n")
+        shown = [f"{indent}  {line}" if line else "" for line in lines[:-1]]
+        shown.append(f"{indent}  {lines[-1]}''" if lines[-1] else f"{indent}''")
+        out.append("''\n" + "\n".join(shown))
+    return "".join(out)
+
+
 def format_path(path: Path) -> str:
     out = ""
     for segment in path:

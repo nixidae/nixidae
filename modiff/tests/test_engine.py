@@ -18,6 +18,7 @@ from modiff.model import (
     Quiet,
     Rebuild,
     edits_module,
+    expand_strings,
     format_path,
     pair_drvs,
     parse_option_path,
@@ -372,3 +373,17 @@ def test_the_written_module_means_what_the_edits_meant(engine: EngineThread, tmp
 
     written, applied = run(engine, job)
     assert written == applied
+
+
+def test_expanded_strings_evaluate_to_the_printed_value(engine: EngineThread) -> None:
+    value = r"""{ a = "one\n  two\n"; b = [ "x\ty\r\n" "q \"''\" \${v} \\\n" ]; c.d = "last\nline"; }"""
+
+    def job(e: Engine) -> tuple[str, bool]:
+        printed = e.state.eval_expr(value, "/").print_value(force=True, pretty_indent=2)
+        expanded = expand_strings(printed)
+        same = e.state.eval_expr(f"({expanded}) == ({value})", "/")
+        return expanded, bool(same.print_value() == "true")
+
+    expanded, same = run(engine, job)
+    assert "''" in expanded
+    assert same, expanded
