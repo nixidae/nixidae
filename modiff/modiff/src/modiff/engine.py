@@ -187,11 +187,9 @@ class Engine:
             return Cascade()
         modules = self.state.make_list()
         for edit in enabled:
+            if (problem := self.syntax_error(edit.expr)) is not None:
+                return Cascade(error=f"{format_path(edit.path)}: {problem}")
             try:
-                # Alone, so a syntax error points into the edit and not into
-                # the module around it. `with` defers each free name; Nix's
-                # frame shows the line above the error, so that one is blank.
-                self.state.parse_expr(f"with {{ }};\n\n{edit.expr}", "/")
                 self.state.list_append(modules, self.state.eval_expr(edit_module(edit), "/"))
             except NixError as err:
                 return Cascade(error=f"{format_path(edit.path)}: {error_text(err)}")
@@ -264,6 +262,17 @@ class Engine:
         closure = self.store.compute_fs_closure([self.store.parse_store_path(r) for r in roots])
         reached = {self.store.print_store_path(p) for p in closure}
         return {key for key in gone if drv_file(key, self.base_derivers) not in reached}
+
+    def syntax_error(self, expr: str) -> str | None:
+        """Nix's message if `expr` does not parse. Parsed alone, so the
+        error points into the edit and not into the module around it.
+        `with` defers each free name; Nix's frame shows the line above the
+        error, so that one is blank."""
+        try:
+            self.state.parse_expr(f"with {{ }};\n\n{expr}", "/")
+        except NixError as err:
+            return error_text(err)
+        return None
 
     def _fold(self, changes: tuple[DrvChange, ...]) -> tuple[DrvChange, ...]:
         """Removing nginx from dinix removed 793 derivations, nearly all

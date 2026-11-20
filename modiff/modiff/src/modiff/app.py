@@ -416,6 +416,8 @@ TARGET_NOTE: Final = {
 FREEFORM_NOTE: Final = Text("no option has this path; the freeform type takes it", style="dim")
 
 type Explain = Callable[[OptionPath, Callable[[OptionView], None]], None]
+# Nix's message, or None, for an expression that may not parse.
+type Check = Callable[[str, Callable[[str | None], None]], None]
 
 SUMMARY_LINES: Final = 3
 
@@ -452,6 +454,7 @@ class EditScreen(ModalScreen[Edit | None]):
         options: list[str],
         paths: frozenset[OptionPath],
         explain: Explain,
+        check: Check,
         freeform: bool = False,
     ) -> None:
         super().__init__()
@@ -460,6 +463,7 @@ class EditScreen(ModalScreen[Edit | None]):
         # Empty until the engine has listed the options: then nothing is refused.
         self.paths = paths
         self.explain = explain
+        self.check = check
         self.freeform = freeform
         self.about_path: OptionPath | None = None
 
@@ -475,6 +479,7 @@ class EditScreen(ModalScreen[Edit | None]):
             yield Static("", id="about")
             yield Label("Value, a Nix expression (lib, config, pkgs in scope)")
             yield Input(self.request.expr, placeholder="true", id="expr")
+            yield Static("", id="problem")
             yield Label("enter: apply   escape: cancel", classes="dim")
 
     def on_mount(self) -> None:
@@ -517,7 +522,21 @@ class EditScreen(ModalScreen[Edit | None]):
             # Evaluating would only say "option does not exist", seconds later.
             path_input.focus()
             return
-        self.dismiss(Edit(path, expr) if path and expr else None)
+        if not path or not expr:
+            self.dismiss(None)
+            return
+        problem = self.query_one("#problem", Static)
+        problem.update(Text("checking the value…", style="dim"))
+
+        def checked(error: str | None) -> None:
+            if not self.is_attached:
+                return
+            if error is None:
+                self.dismiss(Edit(path, expr))
+            else:
+                problem.update(Text(error, style="red"))
+
+        self.check(expr, checked)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -1183,7 +1202,12 @@ class ModiffApp(App[None]):
             self.refresh_edits()
             self.recompute()
 
-        self.push_screen(EditScreen(request, self.options, self.paths, self.explain, self.freeform), saved)
+        self.push_screen(
+            EditScreen(request, self.options, self.paths, self.explain, self.check_expr, self.freeform), saved
+        )
+
+    def check_expr(self, expr: str, done: Callable[[str | None], None]) -> None:
+        self.run_job(lambda engine: engine.syntax_error(expr), done)
 
     def explain(self, option: OptionPath, done: Callable[[OptionView], None]) -> None:
         if (view := self.views.get(option)) is not None:

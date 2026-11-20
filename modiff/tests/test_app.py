@@ -312,6 +312,22 @@ async def test_edit_modal_refuses_an_unknown_path(tmp_path: Path) -> None:
         assert app.screen.query_one("#path", Input).has_focus
 
 
+async def test_edit_modal_refuses_a_value_that_does_not_parse(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        await pilot.press("a", "a", "enter", "(", "enter")
+        await drained(app, pilot)
+        await pilot.pause()
+        assert isinstance(app.screen, EditScreen)
+        assert "syntax error" in str(app.screen.query_one("#problem", Static).content)
+        assert app.edits == []
+        await pilot.press("backspace", "2", "enter")
+        await drained(app, pilot)
+        await pilot.pause()
+        assert app.edits == [Edit(("a",), "2")]
+
+
 def test_find_options_ranks_the_last_segment_first() -> None:
     options = ["services.openssh.ports", "services.openssh.enable", "networking.firewall.allowedTCPPorts", "ports"]
     assert find_options(options, "ports") == [
