@@ -119,6 +119,9 @@ class Engine:
         self.ext_derivers: dict[str, str] = {}
         self.base_recorded_drvs: frozenset[str] = frozenset()
         self._options: dict[OptionPath, bool] = {}
+        # The last walk met a failure, so it left parts of the new side
+        # unforced that the base forced.
+        self._walk_failed = False
 
     def _sel(self, v: Value, path: Path) -> Value:
         self.state.force(v)
@@ -212,6 +215,7 @@ class Engine:
                 self.ext_derivers[new_key] = new_drv
         changes = [self._blame(c) for c in walker.result()]
         clean = not walker.failures
+        self._walk_failed = not clean
         quiet = self._quiet(enabled, changes) if clean else ()
         added = tuple(sorted(drvs - base_drvs)) if clean else ()
         removed = tuple(sorted(base_drvs - drvs)) if clean else ()
@@ -508,7 +512,9 @@ class Engine:
             prio_new = self._priority(self.ext, option)
         except NixError as err:
             errors.append(error_text(err))
-        if base_read and base_value is not None and self.ext is not None:
+        if base_read and base_value is not None and self.ext is not None and self._walk_failed:
+            # 0.8 s for the 954 definitions of NixOS `assertions`: only
+            # where a failure stopped the walk.
             self._force_like_base(olds, news)
             new_value = self._peek(self._sel(self.ext, ("config",)), option)
             if new_value is not None:
