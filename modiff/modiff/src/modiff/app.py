@@ -21,7 +21,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.suggester import SuggestFromList
-from textual.widgets import Footer, Input, Label, ListItem, ListView, Static, Tree
+from textual.widgets import Footer, Input, Label, ListItem, ListView, OptionList, Static, Tree
 from textual.widgets.tree import TreeNode
 
 from .engine import Crash, Engine, EngineThread
@@ -125,13 +125,19 @@ def quiet_note(group: Group) -> Text:
     return Text(body, style="magenta")
 
 
-def group_label(group: Group, edited: bool) -> Text:
+def group_label(group: Group, edited: bool, browsed: bool = False) -> Text:
     name = format_path(group.option) if group.option else "(no option)"
     # Text(..., style=) styles everything appended later too.
     label = Text()
+    if browsed:
+        label.append("» ", style="bold cyan")
     if edited:
         label.append("✎ ", style="bold magenta")
     label.append(name, style="bold")
+    if not group.changes and group.quiet is None:
+        # Not in the cascade, which says nothing of a value the base never read.
+        label.append("  browsing", style="dim cyan")
+        return label
     if group.quiet is not None:
         label.append(f"  {QUIET_LABEL[group.quiet]}", style="dim magenta")
         return label
@@ -308,6 +314,78 @@ class EditScreen(ModalScreen[Edit | None]):
         self.dismiss(None)
 
 
+BROWSE_LIMIT: Final = 200
+
+
+def find_options(options: list[str], query: str, limit: int = BROWSE_LIMIT) -> list[str]:
+    """The option paths holding every word of `query`. A path whose last
+    segment holds the first word ranks first, then shorter paths."""
+    words = query.lower().split()
+    if not words:
+        return options[:limit]
+    found = [o for o in options if all(w in o.lower() for w in words)]
+    found.sort(key=lambda o: (words[0] not in o.lower().rsplit(".", 1)[-1], len(o), o))
+    return found[:limit]
+
+
+class BrowseScreen(ModalScreen[OptionPath | None]):
+    AUTO_FOCUS = "#query"
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("down", "move(1)", "Next", show=False),
+        Binding("up", "move(-1)", "Previous", show=False),
+    ]
+    DEFAULT_CSS = """
+    BrowseScreen { align: center middle; }
+    BrowseScreen > Vertical { width: 90%; height: 80%; border: thick $accent; padding: 1 2; background: $surface; }
+    BrowseScreen OptionList { height: 1fr; }
+    """
+
+    def __init__(self, options: list[str]) -> None:
+        super().__init__()
+        self.options = options
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Find an option: type words of its path")
+            yield Input(placeholder="openssh port", id="query")
+            yield OptionList(*find_options(self.options, ""), id="matches", markup=False)
+            yield Label("enter: show it   up/down: move   escape: cancel", classes="dim")
+
+    def on_mount(self) -> None:
+        self.query_one("#matches", OptionList).highlighted = 0
+
+    @on(Input.Changed, "#query")
+    def _filter(self, event: Input.Changed) -> None:
+        matches = self.query_one("#matches", OptionList)
+        matches.set_options(find_options(self.options, event.value))
+        matches.highlighted = 0 if matches.option_count else None
+
+    def action_move(self, step: int) -> None:
+        matches = self.query_one("#matches", OptionList)
+        if matches.option_count:
+            current = matches.highlighted or 0
+            matches.highlighted = max(0, min(matches.option_count - 1, current + step))
+
+    @on(Input.Submitted, "#query")
+    def _submit(self) -> None:
+        matches = self.query_one("#matches", OptionList)
+        if matches.highlighted is None:
+            self.dismiss(None)
+            return
+        self._choose(str(matches.get_option_at_index(matches.highlighted).prompt))
+
+    @on(OptionList.OptionSelected, "#matches")
+    def _selected(self, event: OptionList.OptionSelected) -> None:
+        self._choose(str(event.option.prompt))
+
+    def _choose(self, path: str) -> None:
+        self.dismiss(parse_option_path(path))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 type TreeData = tuple[Group, Change | None]
 
 
@@ -321,6 +399,7 @@ class ModiffApp(App[None]):
     #status { height: 1; background: $boost; padding: 0 1; }
     """
     BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("slash", "browse", "Find option"),
         Binding("a", "add_edit", "Add edit"),
         Binding("e", "edit_here", "Edit this option"),
         Binding("space", "toggle_edit", "Toggle edit"),
@@ -340,6 +419,8 @@ class ModiffApp(App[None]):
         self.generation = 0
         self.views: dict[OptionPath, OptionView] = {}
         self.showing: TreeData | None = None
+        # An option found with `/`: listed first, changed or not.
+        self.browsed: OptionPath | None = None
         # Set when the cascade on screen matches the edits; tests wait on it.
         self.settled = anyio.Event()
 
@@ -451,11 +532,19 @@ class ModiffApp(App[None]):
         def is_edited(group: Group) -> bool:
             return any(group.option == e[: len(group.option)] for e in edited) and bool(group.option)
 
-        for group in sorted(cascade.groups, key=lambda g: not is_edited(g)):
-            node = tree.root.add(group_label(group, is_edited(group)), data=(group, None))
+        first: TreeNode[TreeData] | None = None
+        for group in sorted(cascade.groups, key=lambda g: (g.option != self.browsed, not is_edited(g))):
+            node = tree.root.add(
+                group_label(group, is_edited(group), browsed=group.option == self.browsed), data=(group, None)
+            )
+            if first is None:
+                first = node
             if not is_root_change(group):
                 for change in group.changes:
                     node.add_leaf(change_line(change, group.option), data=(group, change))
+        if self.browsed is not None and (first is None or first.data is None or first.data[0].option != self.browsed):
+            unchanged = Group(self.browsed, ())
+            tree.root.add(group_label(unchanged, False, browsed=True), data=(unchanged, None), before=0)
         total = sum(len(g.changes) for g in cascade.groups)
         drvs = (
             f", derivations +{len(cascade.drvs_added)} -{len(cascade.drvs_removed)}"
@@ -465,11 +554,16 @@ class ModiffApp(App[None]):
         changed = sum(1 for g in cascade.groups if g.quiet is None)
         tree.border_title = f"Cascade: {changed} options, {total} changes"
         self.status(self.base_status() + f" · edits {cascade.seconds:.1f}s{drvs}")
-        if not cascade.groups:
+        if not tree.root.children:
             self.detail(HELP)
         else:
-            # Moving the cursor highlights the row, which shows its detail.
-            self.call_after_refresh(lambda: tree.move_cursor_to_line(0))
+            # A cursor already on line 0 does not move, so no highlight event
+            # shows the new row: show it here.
+            def first_row() -> None:
+                tree.move_cursor_to_line(0)
+                self.show_node(tree.cursor_node)
+
+            self.call_after_refresh(first_row)
         if self.generation == 1 or self.focused is not self.query_one("#edits", ListView):
             tree.focus()
 
@@ -530,6 +624,17 @@ class ModiffApp(App[None]):
             self.recompute()
 
         self.push_screen(EditScreen(request, self.options), saved)
+
+    def action_browse(self) -> None:
+        def found(option: OptionPath | None) -> None:
+            if option is None:
+                return
+            self.browsed = option
+            # Rebuilds the tree from the cascade on screen; nothing evaluates.
+            self.show_cascade(self.cascade)
+            self.query_one("#cascade", Tree).focus()
+
+        self.push_screen(BrowseScreen(self.options), found)
 
     def action_add_edit(self) -> None:
         self.open_editor(EditRequest("", ""))

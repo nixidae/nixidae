@@ -28,6 +28,7 @@ With no arguments modiff loads a minimal NixOS configuration. Other sources:
 
 | key | does |
 | --- | --- |
+| `/` | find any option by words of its path, and show it first in the cascade |
 | `a` | add an edit: an option path (tab completes) and a Nix expression |
 | `e` | edit the option under the cursor |
 | `space` | turn the selected edit on or off |

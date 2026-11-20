@@ -9,7 +9,7 @@ from textual.pilot import Pilot
 from textual.widgets import ListView, Tree
 from toy import SOURCE
 
-from modiff.app import ModiffApp, TreeData
+from modiff.app import ModiffApp, TreeData, find_options
 from modiff.engine import EngineThread
 from modiff.model import Edit
 
@@ -49,6 +49,34 @@ async def test_edit_through_the_modal(tmp_path: Path) -> None:
         await pilot.press("a", *"a", "enter", *"3", "enter")
         await settled(app, pilot)
         assert options(app) == ["a", "b", "drv"]
+
+
+def test_find_options_ranks_the_last_segment_first() -> None:
+    options = ["services.openssh.ports", "services.openssh.enable", "networking.firewall.allowedTCPPorts", "ports"]
+    assert find_options(options, "ports") == [
+        "ports",
+        "services.openssh.ports",
+        "networking.firewall.allowedTCPPorts",
+    ]
+    assert find_options(options, "openssh port") == ["services.openssh.ports"]
+    assert find_options(options, "", limit=2) == options[:2]
+
+
+async def test_browse_shows_an_unchanged_option_and_edits_it(tmp_path: Path) -> None:
+    app = app_for(tmp_path, [Edit(("a",), "2")])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        await pilot.press("slash", *"ports", "enter")
+        await pilot.pause()
+        assert options(app) == ["ports", "a", "b", "drv"]
+        # The cursor was on line 0 already, so no highlight event shows the
+        # new row there.
+        assert app.showing is not None and app.showing[0].option == ("ports",)
+        await pilot.press("e", *"[ 2222 ]", "enter")
+        await settled(app, pilot)
+        assert app.edits == [Edit(("a",), "2"), Edit(("ports",), "[ 2222 ]")]
+        # The toy never reads `ports`: the browsed row is the quiet one.
+        assert options(app) == ["ports", "a", "b", "drv"]
 
 
 async def test_toggling_an_edit_off_clears_its_cascade(tmp_path: Path) -> None:
