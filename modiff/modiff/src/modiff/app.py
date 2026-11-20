@@ -33,6 +33,7 @@ from .model import (
     MODULE_ATTR,
     Cascade,
     Change,
+    Definition,
     DrvChange,
     DrvDiff,
     Edit,
@@ -54,6 +55,8 @@ from .model import (
 
 SHORT: Final = 60
 ATTR_LIMIT: Final = 2000
+# NixOS `assertions` has a definition from every module that sets one.
+UNCHANGED_SHOWN: Final = 3
 MARK: Final = {Kind.CHANGED: "~", Kind.ADDED: "+", Kind.REMOVED: "-", Kind.FAILED: "!"}
 STYLE: Final = {Kind.CHANGED: "yellow", Kind.ADDED: "green", Kind.REMOVED: "red", Kind.FAILED: "bold red"}
 
@@ -190,35 +193,77 @@ def definition(mark: str, file: str, value: str, style: str) -> list[RenderableT
     return [Text(f"{mark} {short_file(file)}", style=style), Text(shown, style=style or "dim")]
 
 
-def definitions(view: OptionView) -> list[RenderableType]:
-    """Each definition, marked `-` where the edits removed it and `+`
-    where they added it."""
+def pair_definitions(
+    removed: list[Definition], added: list[Definition]
+) -> tuple[list[tuple[Definition, Definition]], list[Definition], list[Definition]]:
+    """A removed and an added definition from one file are one definition
+    whose value changed: the edits act through `config`, not on modules."""
+    pairs: list[tuple[Definition, Definition]] = []
+    added_left = list(added)
+    removed_left: list[Definition] = []
+    for before in removed:
+        after = next((d for d in added_left if d.file == before.file), None)
+        if after is None:
+            removed_left.append(before)
+        else:
+            added_left.remove(after)
+            pairs.append((before, after))
+    return pairs, removed_left, added_left
+
+
+def definitions(view: OptionView, all_shown: bool = False) -> list[RenderableType]:
+    """The definitions the edits changed (`~`), removed (`-`) and added
+    (`+`) first, then the rest. Past `UNCHANGED_SHOWN` of the rest, only the files
+    show, unless `all_shown`."""
+    out: list[RenderableType] = []
     if not view.base_read:
-        out: list[RenderableType] = [
+        out.append(
             Text(
                 "The configuration never evaluated this option. These are the definitions with "
                 "the edits: listing the ones before would evaluate them, and change what the "
                 "next cascade compares.",
                 style="dim italic",
             )
-        ]
-        for d in view.defs_new:
-            edit = d.file.startswith(EDIT_FILE)
-            out += definition("+" if edit else " ", d.file, d.value, "green" if edit else "")
-        return out
-    out = []
-    old = {(d.file, d.value) for d in view.defs_old}
-    new = {(d.file, d.value) for d in view.defs_new}
-    for d in view.defs_old:
-        gone = (d.file, d.value) not in new and bool(view.defs_new or view.new)
-        out += definition("-" if gone else " ", d.file, d.value, "red" if gone else "")
-    for d in view.defs_new:
-        if (d.file, d.value) not in old:
-            out += definition("+", d.file, d.value, "green")
+        )
+        removed: list[Definition] = []
+        added = [d for d in view.defs_new if d.file.startswith(EDIT_FILE)]
+        same = [d for d in view.defs_new if not d.file.startswith(EDIT_FILE)]
+    else:
+        old = {(d.file, d.value) for d in view.defs_old}
+        new = {(d.file, d.value) for d in view.defs_new}
+        # No new side yet: nothing is gone, the edits were not applied.
+        compared = bool(view.defs_new or view.new)
+        removed = [d for d in view.defs_old if compared and (d.file, d.value) not in new]
+        added = [d for d in view.defs_new if (d.file, d.value) not in old]
+        same = [d for d in view.defs_old if not compared or (d.file, d.value) in new]
+    changed, removed, added = pair_definitions(removed, added)
+    for before, after in changed:
+        out.append(Text(f"~ {short_file(after.file)}", style="yellow"))
+        out.append(diff_text(expand_strings(before.value), expand_strings(after.value)))
+    for d in removed:
+        out += definition("-", d.file, d.value, "red")
+    for d in added:
+        out += definition("+", d.file, d.value, "green")
+    shown = same if all_shown else same[:UNCHANGED_SHOWN]
+    for d in shown:
+        out += definition(" ", d.file, d.value, "")
+    rest = same[len(shown) :]
+    if rest:
+        # NixOS `assertions`: 949 more from hundreds of files; naming them floods too.
+        files = len({d.file for d in rest})
+        out.append(
+            Text.assemble(
+                (f"… {len(rest)} more the edits left alone, from {files} files: ", "dim italic"),
+                ("D", "bold"),
+                (" shows them", "dim italic"),
+            )
+        )
     return out
 
 
-def option_detail(view: OptionView, changes: tuple[Change, ...], note: Text | None = None) -> RenderableType:
+def option_detail(
+    view: OptionView, changes: tuple[Change, ...], note: Text | None = None, all_definitions: bool = False
+) -> RenderableType:
     parts: list[RenderableType] = [Text(format_path(view.path), style="bold reverse")]
     if note is not None:
         parts.append(note)
@@ -244,7 +289,7 @@ def option_detail(view: OptionView, changes: tuple[Change, ...], note: Text | No
         new = None if view.prio_new is None else priority_text(view.prio_new)
         shown = f"{old} → {new}" if old and new and old != new else (new or old or "")
         parts.append(Text.assemble(("winning priority: ", "dim"), shown))
-    parts.extend(definitions(view))
+    parts.extend(definitions(view, all_definitions))
 
     parts.append(section("Value"))
     if "«thunk»" in view.old or "«thunk»" in view.new:
@@ -760,6 +805,7 @@ class ModiffApp(App[None]):
         Binding("space", "toggle_edit", "Toggle edit"),
         Binding("x", "delete_edit", "Delete edit"),
         Binding("w", "write_module", "Write module"),
+        Binding("D", "all_definitions", "All definitions"),
         Binding("question_mark", "help", "Help"),
         Binding("q", "quit", "Quit"),
     ]
@@ -783,6 +829,7 @@ class ModiffApp(App[None]):
         self.showing: TreeData | None = None
         # An option found with `/`: listed first, changed or not.
         self.browsed: OptionPath | None = None
+        self.all_definitions = False
         # Set when the cascade on screen matches the edits; tests wait on it.
         self.settled = anyio.Event()
 
@@ -978,7 +1025,7 @@ class ModiffApp(App[None]):
         def shown(view: OptionView) -> None:
             # Jobs finish in any order; only the row still highlighted shows.
             if generation == self.generation and self.showing is data:
-                self.detail(option_detail(view, changes, note))
+                self.detail(option_detail(view, changes, note, self.all_definitions))
 
         self.explain(group.option, shown)
 
@@ -1099,6 +1146,12 @@ class ModiffApp(App[None]):
             self.status(self.base_status() + f" · wrote {path}")
 
         self.push_screen(WriteScreen(module), chosen)
+
+    def action_all_definitions(self) -> None:
+        self.all_definitions = not self.all_definitions
+        shown = "every definition" if self.all_definitions else "the definitions the edits touch first"
+        self.status(self.base_status() + f" · showing {shown}")
+        self.show_node(self.query_one("#cascade", Tree).cursor_node)
 
     def action_help(self) -> None:
         keys = [(self.get_key_display(b), b.description) for b in self.BINDINGS if isinstance(b, Binding)]

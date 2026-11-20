@@ -38,6 +38,7 @@ With no arguments modiff loads a minimal NixOS configuration. Other sources:
 | `space` | turn the selected edit on or off |
 | `x` | delete the selected edit |
 | `w` | write the edits that are on to a file, as a module to import |
+| `D` | show every definition of an option; by default the ones the edits left alone fold after three |
 | `tab` | move between the edits and the cascade |
 | `enter` | open or close a row; on a changed input of a derivation, go to its row |
 | `?` | show the keys and what each mark in the cascade means |

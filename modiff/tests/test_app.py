@@ -6,11 +6,13 @@ import io
 from pathlib import Path
 
 import anyio
+import pytest
 from rich.console import Console
 from textual.pilot import Pilot
 from textual.widgets import Input, ListView, Static, Tree
 from toy import SOURCE
 
+from modiff import app as app_module
 from modiff.app import DrvRow, EditScreen, HelpScreen, ModiffApp, Target, TreeData, WriteScreen, find_options, target
 from modiff.engine import EngineThread
 from modiff.model import Edit, edits_module
@@ -134,6 +136,24 @@ async def test_question_mark_opens_the_help(tmp_path: Path) -> None:
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, HelpScreen)
+
+
+async def test_shift_d_unfolds_the_definitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The toy defines `checks` twice; a limit of one folds the second.
+    monkeypatch.setattr(app_module, "UNCHANGED_SHOWN", 1)
+    edit = Edit(("checks",), '[ { name = "fourth"; ok = true; msg = "x"; } ]')
+    app = app_for(tmp_path, [edit])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        await drained(app, pilot)
+        assert options(app)[0] == "checks"
+        assert "… 1 more the edits left alone" in detail_text(app)
+        await pilot.press("D")
+        await drained(app, pilot)
+        assert "more the edits left alone" not in detail_text(app)
+        await pilot.press("D")
+        await drained(app, pilot)
+        assert "… 1 more the edits left alone" in detail_text(app)
 
 
 async def test_w_writes_the_edits_as_a_module(tmp_path: Path) -> None:
