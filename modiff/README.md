@@ -9,6 +9,10 @@ option it shows the type, the declaration, every module that defines it, and
 the value before and after. A value that nothing evaluated shows as
 `«thunk»`.
 
+The last row of the cascade lists the derivations the edit rebuilds. Select
+one to see why: the inputs that changed and the attributes of its `.drv`
+that differ.
+
 It is a tool to learn the module system with: set one option and watch it
 reach the firewall, the systemd units and `/etc`.
 

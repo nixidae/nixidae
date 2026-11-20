@@ -270,7 +270,8 @@ HELP: Final = Text.assemble(
     "  boot.loader.grub.enable = lib.mkForce true\n\n",
     "The cascade on the left lists every option whose value changed, as far as the "
     "configuration was evaluated. Move onto one to see its type, every module that "
-    "defines it, and its value before and after.\n\n",
+    "defines it, and its value before and after. The last row lists the derivations "
+    "the edit rebuilds, and why each one rebuilds.\n\n",
     "Inside an edit, ",
     ("lib", "bold"),
     ", ",
