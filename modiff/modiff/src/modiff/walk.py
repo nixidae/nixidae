@@ -483,6 +483,17 @@ PRINT_INDENT: Final = "  "
 IMPORTANT_ATTRS: Final = frozenset({"type", "_type"})
 # `print.cc`, `shouldPrettyPrintAttrs`: one item spans lines if it is one of these.
 NESTED: Final = frozenset({"attrs", "list"}) | UNEVALUATED
+# `lib/modules.nix`: the wrappers a definition carries, by their `_type`,
+# printed as the `lib` call that makes each.
+WRAPPERS: Final = frozenset({"override", "order", "if", "merge"})
+OVERRIDE_NAMES: Final = {
+    "10": "lib.mkVMOverride",
+    "50": "lib.mkForce",
+    "60": "lib.mkImageMediaOverride",
+    "1000": "lib.mkDefault",
+    "1500": "lib.mkOptionDefault",
+}
+ORDER_NAMES: Final = {"500": "lib.mkBefore", "1500": "lib.mkAfter"}
 _VAR_NAME: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
 _RESERVED: Final = frozenset({"if", "then", "else", "assert", "with", "let", "in", "rec", "inherit"})
 
@@ -496,6 +507,24 @@ def print_literal(s: str) -> str:
 def print_attr_name(name: str) -> str:
     """`print.cc`, `printAttributeName`."""
     return name if _VAR_NAME.fullmatch(name) and name not in _RESERVED else print_literal(name)
+
+
+def wrapper_kind(v: Value) -> str | None:
+    """`override`, `order`, `if` or `merge`, if `v` is one already evaluated."""
+    if v.type_name() != "attrs":
+        return None
+    tag = forced_attr(v, "_type")
+    if tag is None or tag.type_name() != "string":
+        return None
+    kind = str(tag.string_value())
+    return kind if kind in WRAPPERS else None
+
+
+def argument(text: str) -> str:
+    """`text` as one argument of a function call."""
+    if text.startswith(("{", "[", '"', "''", "«")) or (" " not in text and not text.startswith("-")):
+        return text
+    return f"({text})"
 
 
 def elided(count: int, single: str, plural: str) -> str:
@@ -522,7 +551,8 @@ class LazyPrinter:
     the budget before the part that changed (`systemd.services`). It prints
     a value that threw as «thunk». It prints any set it printed before as
     «repeated», so the side of a diff that says so depends on attribute
-    order: here only a cycle does."""
+    order: here only a cycle does. A definition wrapper such as
+    `{ _type = "override"; ... }` prints as the `lib` call that makes it."""
 
     max_items: int
     max_depth: int = PRINT_DEPTH
@@ -538,6 +568,8 @@ class LazyPrinter:
             return v.print_value(max_string_length=PRINT_STRING)
         if kind == "attrs" and is_derivation(v):
             return derivation_name(v)
+        if (wrapped := wrapper_kind(v)) is not None:
+            return self.wrapper(v, wrapped, depth, indent, above)
         ident = v.identity()
         if ident in above:
             return "«repeated»"
@@ -565,10 +597,27 @@ class LazyPrinter:
                 if self.items >= self.max_items:
                     out += elided(len(children) - n, "item", "items")
                     break
-                out += self.show(child, depth + 1, inner, above)
+                shown = self.show(child, depth + 1, inner, above)
+                out += argument(shown) if wrapper_kind(child) else shown
                 self.items += 1
         close = "}" if kind == "attrs" else "]"
         return out + (f"\n{indent}" if pretty else " ") + close
+
+    def wrapper(self, v: Value, kind: str, depth: int, indent: str, above: frozenset[int]) -> str:
+        """`lib.mkForce "x"`, not `{ _type = "override"; content = "x"; priority = 50; }`."""
+
+        def part(name: str) -> str:
+            return argument(self.show(v.get(name), depth, indent, above)) if v.has(name) else "«missing»"
+
+        if kind == "if":
+            return f"lib.mkIf {part('condition')} {part('content')}"
+        if kind == "merge":
+            return f"lib.mkMerge {part('contents')}"
+        prio = forced_attr(v, "priority")
+        number = "«thunk»" if prio is None else scalar(prio)
+        names, generic = (OVERRIDE_NAMES, "lib.mkOverride") if kind == "override" else (ORDER_NAMES, "lib.mkOrder")
+        head = names.get(number, f"{generic} {number}")
+        return f"{head} {part('content')}"
 
 
 def show_lazy(v: Value) -> str:

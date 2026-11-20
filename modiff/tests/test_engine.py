@@ -348,6 +348,39 @@ def test_the_printer_lays_out_values_as_nix_does(engine: EngineThread, items: in
     assert ours == nix
 
 
+WRAPPED: Final = r"""let lib = import <nixpkgs/lib>; v = {
+  a = lib.mkForce "x";
+  b = lib.mkOverride 70 1;
+  c = lib.mkBefore [ 1 ];
+  d = lib.mkIf true { e = 1; };
+  f = lib.mkMerge [ (lib.mkDefault (-3)) 2 ];
+  g = lib.mkForce (lib.mkDefault 1);
+}; in builtins.deepSeq v v"""
+
+
+def test_a_definition_wrapper_prints_as_its_lib_call(engine: EngineThread) -> None:
+    def job(e: Engine) -> str:
+        v = e.state.eval_expr(WRAPPED, "/")
+        e.state.force(v)
+        return LazyPrinter(PRINT_ITEMS).show(v)
+
+    assert run(engine, job) == "\n".join(
+        [
+            "{",
+            '  a = lib.mkForce "x";',
+            "  b = lib.mkOverride 70 1;",
+            "  c = lib.mkBefore [ 1 ];",
+            "  d = lib.mkIf true { e = 1; };",
+            "  f = lib.mkMerge [",
+            "    (lib.mkDefault (-3))",
+            "    2",
+            "  ];",
+            "  g = lib.mkForce (lib.mkDefault 1);",
+            "}",
+        ]
+    )
+
+
 def test_a_shared_value_prints_in_full_each_time(engine: EngineThread) -> None:
     """Nix prints a set it printed before as «repeated», so which side of a
     diff says «repeated» depends on attribute order."""
