@@ -256,8 +256,7 @@ phase that fails pauses the run with the guests up, as
 The way in is in `--out`, written before any guest boots:
 
 - `access.json`: each guest's ssh address and forwards. The runner picks
-  each guest's forward address when the run starts (`127.0.0.2`
-  upwards), so read it from here.
+  each forward's host port when the guest boots, so read it from here.
 - `ssh_config`: `ssh -F <out>/ssh_config <guest>`, for a guest whose
   `vivarium.inbound` lists `{ guest = config.vivarium.sshPort; }`; no
   guest forwards ssh unless it asks. The root password is

@@ -6,8 +6,8 @@ hands the socket over (nixidae/nixidae#1546). gvproxy binds its own when
 it starts, so for it the runner picks a free port and checks a fixed
 one, both before the guest boots.
 
-Each guest gets a loopback address of its own on Linux. macOS has
-127.0.0.1 alone, where the guests share it and a taken port fails.
+Every guest's forwards share one host address, `LOOPBACK`: the bind is
+the claim, and a taken fixed port fails the boot by name.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ import errno
 import ipaddress
 import os
 import socket
-import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, TypedDict
@@ -27,12 +26,10 @@ _UNPRIVILEGED_START = Path("/proc/sys/net/ipv4/ip_unprivileged_port_start")
 
 _DEFAULT_UNPRIVILEGED_START = 1024
 
-_LOOPBACK_FIRST = 2
-_LOOPBACK_LAST = 254
-"""``127.0.0.2`` through ``127.0.0.254``.  All of ``127.0.0.0/8`` is on
-``lo`` without anyone having to configure it, so a guest can be given an
-address of its own with no privileges and no setup -- and 127.0.0.1 is
-left alone, because the host's own services are there."""
+LOOPBACK: Final = "127.0.0.1"
+"""Where a forward with no address listens, for every guest of every run.
+One address, so two runs that want one fixed port meet: the first bind
+keeps it (nixidae/nixidae#1546). macOS has no other on ``lo0``."""
 
 
 class ForwardError(Exception):
@@ -207,43 +204,9 @@ def claim(rules: list[Rule], *, random: bool) -> tuple[list[Rule], list[Claim]]:
     return bound, claims
 
 
-def _probe(address: str, ports: list[int]) -> int | None:
-    """The first of *ports* that will not bind on *address*, if any."""
-    held: list[socket.socket] = []
-    try:
-        for port in ports:
-            try:
-                held.append(_bind(address, port))
-            except OSError:
-                return port
-        return None
-    finally:
-        for sock in held:
-            sock.close()
-
-
-def _assign(rules: list[Rule], taken: set[str]) -> str:
-    """Find a loopback address free for every rule that wants one."""
-    wanted = sorted({port for rule in rules for port in rule.host_ports()})
-    for octet in range(_LOOPBACK_FIRST, _LOOPBACK_LAST + 1):
-        address = f"127.0.0.{octet}"
-        if address in taken:
-            continue
-        if _probe(address, wanted) is None:
-            return address
-    raise ForwardError(
-        f"no free address in 127.0.0.{_LOOPBACK_FIRST}-{_LOOPBACK_LAST} "
-        f"for ports {', '.join(str(port) for port in wanted)}"
-    )
-
-
-def resolve(rules: list[Rule], *, taken: set[str], start: int | None = None) -> list[Rule]:
-    """Give every rule a concrete address; refuse a privileged host port.
-
-    *taken* is the addresses already handed to other guests in this run;
-    it is updated in place.  Callers must resolve every guest before
-    booting any of them, or two guests race for the same address.
-    """
+def resolve(rules: list[Rule], *, start: int | None = None) -> list[Rule]:
+    """Give every rule a concrete address, `LOOPBACK` where it named none;
+    refuse a privileged host port."""
     if start is None:
         start = unprivileged_start()
     for rule in rules:
@@ -254,20 +217,7 @@ def resolve(rules: list[Rule], *, taken: set[str], start: int | None = None) -> 
                     f"ask for {start} or above, or for none to take any free port"
                 )
 
-    unaddressed = [rule for rule in rules if rule.address is None]
-    if not unaddressed:
-        return rules
-    if sys.platform == "darwin":
-        address = SHARED_LOOPBACK
-    else:
-        address = _assign(unaddressed, taken)
-        taken.add(address)
-    return [replace(rule, address=address) if rule.address is None else rule for rule in rules]
-
-
-SHARED_LOOPBACK = "127.0.0.1"
-"""Every guest's forwards on macOS, where lo0 has 127.0.0.1 alone and an
-alias needs root. The guests then share one port space."""
+    return [replace(rule, address=LOOPBACK) if rule.address is None else rule for rule in rules]
 
 
 def pick(rules: list[Rule], *, taken: set[str], random: bool) -> list[Rule]:
@@ -277,8 +227,7 @@ def pick(rules: list[Rule], *, taken: set[str], random: bool) -> list[Rule]:
 
     The choice is a bind that closes again, so another process can take
     the port before gvproxy binds it. *taken* holds ``address:port`` for
-    each port this run picked, so two guests on one address never get the
-    same one.
+    each port this run picked, so two guests never get the same one.
     """
     picked: list[Rule] = []
     for rule in rules:

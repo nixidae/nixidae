@@ -410,9 +410,9 @@ An entry with no `host` takes any free host port when the guest boots.
 `<out>/access.json`, `ssh_config` and `Machine.reachable(port, protocol)`
 name it. A test asks `reachable`; it never writes a host port.
 
-`address = null` — the default — means the runner gives this guest an address
-out of `127.0.0.2` upwards and keeps it for the guest's lifetime. macOS has
-only 127.0.0.1 on `lo0`, and there every guest's forwards share it.
+`address = null` — the default — means 127.0.0.1. Every guest of every
+run shares it, so a bind is the claim: two runs that ask for one fixed
+port meet there, and the second fails by name.
 
 Four things to know:
 

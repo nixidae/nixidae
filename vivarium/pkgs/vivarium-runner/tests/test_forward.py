@@ -3,7 +3,6 @@ from __future__ import annotations
 import functools
 import re
 import socket
-import sys
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -15,12 +14,8 @@ from vivarium_runner import Machine, MachineError, forward
 from vivarium_runner.forward import ForwardError, PortMap, Rule, UplinkNetwork
 from vivarium_runner.machine_spec import MachineSpec
 
-FIRST = "127.0.0.2" if sys.platform == "linux" else forward.SHARED_LOOPBACK
-"""The address `resolve` gives a run's first guest."""
-
-linux_loopback = pytest.mark.skipif(
-    sys.platform != "linux", reason="macOS: one loopback address, and a port free on it beside a wildcard holder"
-)
+FIRST = forward.LOOPBACK
+"""The address `resolve` gives every guest."""
 
 
 def free_port_above(address: str, start: int) -> int:
@@ -43,7 +38,7 @@ def test_an_inbound_entry_comes_from_json() -> None:
 def test_an_unset_host_port_is_any_free_one_that_binds_again() -> None:
     """gvproxy binds the pick itself, so the pick lets go of it."""
     taken: set[str] = set()
-    [rule] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 80),))], taken=taken), taken=taken, random=False)
+    [rule] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 80),))]), taken=taken, random=False)
     [picked] = rule.ports
     assert picked.guest == 80
     assert picked.host is not None
@@ -65,12 +60,12 @@ def test_reachable_tells_the_protocols_apart() -> None:
 
 def test_a_privileged_fixed_host_port_fails_by_name() -> None:
     with pytest.raises(ForwardError, match=r"^host port 80 for guest port 8080 needs privileges"):
-        forward.resolve([Rule(address="127.0.0.3", ports=(PortMap(80, 8080),))], taken=set(), start=1024)
+        forward.resolve([Rule(address="127.0.0.3", ports=(PortMap(80, 8080),))], start=1024)
 
 
 def test_random_picks_ignore_a_fixed_port() -> None:
     port = free_port_above(FIRST, 20000)
-    [rule] = forward.resolve([Rule(ports=(PortMap(port, 22),))], taken=set(), start=1024)
+    [rule] = forward.resolve([Rule(ports=(PortMap(port, 22),))], start=1024)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
         holder.bind((FIRST, port))
         holder.listen()
@@ -78,16 +73,13 @@ def test_random_picks_ignore_a_fixed_port() -> None:
     assert picked.ports[0].host != port
 
 
-@linux_loopback
-def test_each_guest_gets_a_loopback_address_no_other_guest_has() -> None:
-    port = free_port_above("127.0.0.3", 25000)
-    taken = {"127.0.0.2"}
-    [first] = forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken, start=1024)
-    [second] = forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken, start=1024)
-    assert first.address == "127.0.0.3"
-    assert second.address not in {None, "127.0.0.2", "127.0.0.3"}
-    assert taken == {"127.0.0.2", "127.0.0.3", second.address}
-    assert first.ports == second.ports == (PortMap(port, port),)
+def test_every_guest_gets_the_one_loopback_address() -> None:
+    port = free_port_above(FIRST, 25000)
+    [first] = forward.resolve([Rule(ports=(PortMap(port, port),))], start=1024)
+    [second] = forward.resolve([Rule(ports=(PortMap(port, port),))], start=1024)
+    assert first == second == Rule(address=FIRST, ports=(PortMap(port, port),))
+    [named] = forward.resolve([Rule(address="0.0.0.0", ports=(PortMap(port, port),))], start=1024)
+    assert named.address == "0.0.0.0"
 
 
 @dataclass(frozen=True)
@@ -180,27 +172,17 @@ def test_the_egress_line_names_the_guest_port() -> None:
         assert [one.line() for one in add] == [b"add udp 10.0.2.16:53 vsock:5001\n"]
 
 
-@pytest.fixture
-def one_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`resolve` as on macOS, on any host."""
-    # The sys module forward reads; it exports no name `sys`.
-    monkeypatch.setattr(sys, "platform", "darwin")
-
-
-@pytest.mark.usefixtures("one_loopback")
 def test_two_guests_on_one_loopback_never_share_a_port() -> None:
     """A fixed port a second guest asks for fails; the evaluation refuses
     that run first. Two unset ports get two numbers."""
-    port = free_port_above(forward.SHARED_LOOPBACK, 24000)
+    port = free_port_above(FIRST, 24000)
     taken: set[str] = set()
-    [first] = forward.pick(
-        forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken), taken=taken, random=False
-    )
-    assert (first.address, first.ports) == (forward.SHARED_LOOPBACK, (PortMap(port, port),))
+    [first] = forward.pick(forward.resolve([Rule(ports=(PortMap(port, port),))]), taken=taken, random=False)
+    assert (first.address, first.ports) == (FIRST, (PortMap(port, port),))
     with pytest.raises(ForwardError, match="another guest of this run has it"):
-        forward.pick(forward.resolve([Rule(ports=(PortMap(port, port),))], taken=taken), taken=taken, random=False)
-    [one] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))], taken=taken), taken=taken, random=False)
-    [two] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))], taken=taken), taken=taken, random=False)
+        forward.pick(forward.resolve([Rule(ports=(PortMap(port, port),))]), taken=taken, random=False)
+    [one] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))]), taken=taken, random=False)
+    [two] = forward.pick(forward.resolve([Rule(ports=(PortMap(None, 1),))]), taken=taken, random=False)
     assert len({port, one.ports[0].host, two.ports[0].host}) == 3
 
 
@@ -227,8 +209,6 @@ class Runtime(Machine):
         self.egress_relay = "/r"
         self.egress_control = control
         self._egress_lock = anyio.Lock()
-        self._taken = set()
-        self._loopback = FIRST
 
     @property
     def name(self) -> str:

@@ -4,9 +4,9 @@
     ssh_config   `ssh -F <out>/ssh_config <guest>`
     access/      what a phase writes for the host: a kubeconfig, a token
 
-The runner picks a guest's forward address when the run starts
-(`127.0.0.2` upwards), so Nix cannot write these; the session writes them
-once the forwards are settled, before any guest boots.
+The runner picks a forward's host port when the run starts, so Nix
+cannot write these; the session writes them once the forwards are
+settled, before any guest boots.
 """
 
 from __future__ import annotations

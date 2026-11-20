@@ -1235,10 +1235,9 @@ in
     ) "/etc/kubernetes/admin.conf";
 
     # The API server on the host, for `<out>/access/kubeconfig`
-    # (`vivarium_k8s.host_kubeconfig`), on the guest's own forward address.
-    # The runner picks the host port: a host that runs a cluster of its
-    # own listens on *:6443, which takes 6443 on every loopback address
-    # (measured on dynhetz: "no free address in 127.0.0.2-254").
+    # (`vivarium_k8s.host_kubeconfig`). The runner picks the host port: a
+    # host that runs a cluster of its own listens on *:6443, which takes
+    # 6443 on every loopback address (measured on dynhetz).
     vivarium.inbound = lib.mkIf (cfg.role == "control-plane") (
       lib.mkDefault [
         { guest = config.vivarium.sshPort; }

@@ -191,8 +191,6 @@ class Machine:
         self.egress_relay: str | None = None
         """Where the egress this guest's boot started reaches the guests' relay."""
         self._egress_lock = anyio.Lock()
-        self._taken: set[str] = set()
-        self._loopback: str | None = None
         self.claims: list[forward.Claim] = []
         """The host sockets of this guest's forwards through an egress, bound
         before it boots and kept until it is gone: a reboot's egress gets them again."""
@@ -268,7 +266,7 @@ class Machine:
         """Settle this guest's forwards, before anything is spawned.
 
         Every guest in a run must go through here before any of them
-        starts, or two of them pick the same address: the check is a
+        starts, or two gvproxy guests pick the same port: the pick is a
         bind that is released again immediately, so it only means
         anything while nothing else is racing it.  *taken* carries what
         earlier guests were given and is added to here.
@@ -276,19 +274,14 @@ class Machine:
         A forward that cannot be set up is a `MachineError` naming the
         guest: the run reports it as a failed boot, not as a traceback.
         """
-        self._taken = taken
         try:
-            rules = forward.resolve(self.forward, taken=taken)
+            rules = forward.resolve(self.forward)
             if self.spec.forwards_through_egress:
                 self.forward, self.claims = forward.claim(rules, random=self.random_ports)
             else:
                 self.forward = forward.pick(rules, taken=taken, random=self.random_ports)
         except forward.ForwardError as error:
             raise MachineError(f"[{self.name}] forward: {error}") from error
-        self._loopback = next(
-            (bound.address for asked, bound in zip(self.declared, self.forward, strict=True) if asked.address is None),
-            None,
-        )
         for rule in self.forward:
             self._log(f"forwarding {', '.join(str(port) for port in rule.ports)} on {rule.address}")
 
@@ -323,7 +316,7 @@ class Machine:
     ) -> list[str]:
         """Forward *guest* from the host while the guest runs, as a
         `vivarium.inbound` entry would: *host* or any free port, on
-        *address* or the guest's own. Where it answers, as `reachable`."""
+        *address* or `forward.LOOPBACK`. Where it answers, as `reachable`."""
         owner = self._runtime_inbound()
         if any(
             port.guest == guest and set(protocols) & set(rule.protocols) for rule in self.forward for port in rule.ports
@@ -331,15 +324,10 @@ class Machine:
             raise MachineError(f"[{self.name}] inbound: guest port {guest} is forwarded already")
         asked = forward.Rule(address=address, ports=(forward.PortMap(host, guest),), protocols=protocols)
         try:
-            [rule] = forward.resolve(
-                [forward.Rule(address=address or self._loopback, ports=asked.ports, protocols=protocols)],
-                taken=self._taken,
-            )
+            [rule] = forward.resolve([asked])
             [bound], claims = forward.claim([rule], random=self.random_ports)
         except forward.ForwardError as error:
             raise MachineError(f"[{self.name}] inbound: {error}") from error
-        if address is None:
-            self._loopback = bound.address
         relay, guest_ip = owner.egress_relay, self.uplink_ip
         try:
             if owner.egress_control is not None and (relay is None or guest_ip is None):

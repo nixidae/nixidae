@@ -59,9 +59,8 @@ let
         default = null;
         example = "0.0.0.0";
         description = ''
-          The host address to listen on. `null`: on Linux, a free
-          address of `127.0.0.2` upwards that the guest keeps for its
-          life; on macOS, 127.0.0.1. Anything else is taken literally,
+          The host address to listen on. `null`: 127.0.0.1, which every
+          guest of every run shares. Anything else is taken literally,
           so `0.0.0.0` reaches the guest from off the machine.
         '';
       };
