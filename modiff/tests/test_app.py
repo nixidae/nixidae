@@ -267,6 +267,18 @@ async def test_a_change_past_the_print_says_so(tmp_path: Path, monkeypatch: pyte
         assert "Before and after print the same" in detail_text(app)
 
 
+async def test_a_value_at_many_paths_counts_once(tmp_path: Path) -> None:
+    """`fan` changes at one leaf, reached by 2^22 paths."""
+    app = app_for(tmp_path, [Edit(("seed",), "1")])
+    async with app.run_test(size=(160, 50)) as pilot:
+        await settled(app, pilot)
+        tree: Tree[TreeData] = app.query_one("#cascade", Tree)
+        assert str(tree.border_title) == "Cascade: 2 options, 2 changes"
+        fan = next(n for n in tree.root.children if isinstance(n.data, tuple) and n.data[0].option == ("fan",))
+        assert str(fan.label).endswith("~1  =22")
+        assert "= b  same as fan.a" in [str(n.label) for n in fan.children]
+
+
 async def test_a_failure_shows_in_the_title_and_the_status(tmp_path: Path) -> None:
     app = app_for(tmp_path, [Edit(("z",), "4")])
     async with app.run_test(size=(160, 50)) as pilot:

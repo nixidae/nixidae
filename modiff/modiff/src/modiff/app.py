@@ -1082,7 +1082,8 @@ class ModiffApp(App[None]):
                     for path in (shown.new, shown.old):
                         if path is not None and (file := drv_file(path, cascade.derivers)) is not None:
                             self.drv_nodes.setdefault(file, row)
-        total = sum(len(g.changes) for g in cascade.groups)
+        # An `=` row points at changes counted where they show.
+        total = sum(1 for g in cascade.groups for c in g.changes if c.kind is not Kind.SAME)
         drvs = f", derivations: {drv_counts(cascade.drvs)}" if cascade.drvs else ""
         failed = sum(1 for g in cascade.groups for c in g.changes if c.kind is Kind.FAILED)
         if failed and not drvs:
