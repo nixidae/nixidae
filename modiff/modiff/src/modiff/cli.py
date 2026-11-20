@@ -31,7 +31,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="a path under the --expr result to evaluate first, such as config.system.build.toplevel.drvPath",
     )
     parser.add_argument("--set", action="append", default=[], metavar="OPTION=EXPR", help="an edit to start with")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.nixos is not None and not args.nixos.is_file():
+        parser.error(f"--nixos {args.nixos}: no such file")
+    return args
 
 
 def source_of(args: argparse.Namespace) -> Source:
