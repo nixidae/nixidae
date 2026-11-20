@@ -307,6 +307,8 @@ def option_detail(
             parts.append(change_line(change, view.path))
             if change.kind is Kind.FAILED:
                 parts.append(Text(_indent(short_file(change.new)), style="red"))
+                if change.via:
+                    parts.append(Text(f"  The walk met it first at {format_path(change.via)}.", style="dim"))
                 if change.old:
                     parts.append(Text(f"  (and {change.old} more)", style="dim"))
             elif change.text and ("\n" in change.old or "\n" in change.new):

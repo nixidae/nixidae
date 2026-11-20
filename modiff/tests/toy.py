@@ -22,6 +22,9 @@ in lib.evalModules {
         a = lib.mkOption { type = lib.types.int; default = 1; description = "The input."; };
         b = lib.mkOption { type = lib.types.int; };
         c = lib.mkOption { type = lib.types.str; default = "untouched"; };
+        # Sorts after `checks`, which reads it: the walk meets a conflict
+        # on `z` first in `checks`, as NixOS meets one in `assertions`.
+        z = lib.mkOption { type = lib.types.int; };
         flags = lib.mkOption { type = lib.types.attrs; };
         lines = lib.mkOption { type = lib.types.listOf lib.types.str; };
         drv = lib.mkOption { type = lib.types.package; };
@@ -45,7 +48,7 @@ in lib.evalModules {
         # Shaped like NixOS `assertions`: the base forces `ok` and never
         # `msg`; `name` is a literal, so a value with no forcing.
         checks = lib.mkMerge [
-          (lib.mkBefore [ { name = "first"; ok = config.a > 0; msg = "a is ${toString config.a}"; } ])
+          (lib.mkBefore [ { name = "first"; ok = config.a > 0 && config.z > 0; msg = "a is ${toString config.a}"; } ])
           [
             { name = "second"; ok = true; msg = "b is ${toString config.b}"; }
             { name = "third"; ok = true; msg = "c is ${config.c}"; }
@@ -60,6 +63,7 @@ in lib.evalModules {
           { name = "carol"; uid = 3; }
         ];
         b = config.a * 10;
+        z = 3;
         flags = { p = true; q = true; };
         lines = [ "one" "two" ];
         drv = derivation {

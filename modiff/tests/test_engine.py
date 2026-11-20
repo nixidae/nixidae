@@ -17,6 +17,7 @@ from modiff.model import (
     OptionView,
     Quiet,
     Rebuild,
+    blamed_path,
     edits_module,
     expand_strings,
     format_path,
@@ -198,6 +199,30 @@ def test_type_error_is_a_failed_row(engine: EngineThread) -> None:
     failed = [ch for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
     assert len(failed) == 1, failed
     assert "modiff edit: a" in failed[0].new
+
+
+def test_a_conflict_fails_under_the_option_it_names(engine: EngineThread) -> None:
+    c = cascade(engine, Edit(("z",), "4"))
+    assert c.error is None
+    failed = [(g.option, ch) for g in c.groups for ch in g.changes if ch.kind is Kind.FAILED]
+    assert len(failed) == 1, failed
+    option, change = failed[0]
+    assert option == ("z",)
+    assert change.path == ("z",)
+    assert change.via == ("checks", 0, "ok")
+    assert "conflicting definition values" in change.new
+
+
+def test_blamed_path_reads_the_module_system_messages() -> None:
+    assert blamed_path("The option `a.b' has conflicting definition values:") == ("a", "b")
+    assert blamed_path('A definition for option `users.users."x.y".uid\' is not of type') == (
+        "users",
+        "users",
+        "x.y",
+        "uid",
+    )
+    assert blamed_path("The option `a.b` is defined both as `x` and `y`") == ("a", "b")
+    assert blamed_path("attribute 'x' missing") is None
 
 
 def test_parse_error_names_the_edit(engine: EngineThread) -> None:

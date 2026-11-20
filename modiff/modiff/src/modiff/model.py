@@ -29,13 +29,15 @@ class Kind(StrEnum):
 class Change:
     """One difference under `config`. `old` and `new` are Nix-like text,
     except when `text` is set: then both are the raw strings, for a line
-    diff."""
+    diff. `via` is where the walk met a failure that the message blames
+    on another path."""
 
     kind: Kind
     path: Path
     old: str = ""
     new: str = ""
     text: bool = False
+    via: Path = ()
 
 
 class Quiet(StrEnum):
@@ -377,3 +379,15 @@ def parse_option_path(text: str) -> OptionPath:
             parts.append(text[i:end])
             i = end + 1
     return tuple(p for p in parts if p)
+
+
+# `lib/modules.nix`, `lib/options.nix`, `lib/types.nix`: "The option `a.b'
+# has conflicting definition values", "A definition for option `a.b' is not
+# of type". Some messages close the quote with a backtick.
+_BLAMED: Final = re.compile(r"option `([^`'\n]+)[`']")
+
+
+def blamed_path(message: str) -> OptionPath | None:
+    """The option path a module system error names first, if any."""
+    found = _BLAMED.search(message)
+    return None if found is None else parse_option_path(found.group(1))

@@ -12,7 +12,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final
 
 from huggorm import Derivation, EvalState, Store, Value
@@ -25,11 +25,13 @@ from .model import (
     DrvDiff,
     Edit,
     Group,
+    Kind,
     Loaded,
     OptionPath,
     OptionView,
     Path,
     Quiet,
+    blamed_path,
     changed_attrs,
     changed_paths,
     drv_file,
@@ -207,7 +209,7 @@ class Engine:
             if old_drv and new_drv:
                 self.base_derivers.setdefault(old_key, old_drv)
                 self.ext_derivers[new_key] = new_drv
-        changes = walker.result()
+        changes = [self._blame(c) for c in walker.result()]
         clean = not walker.failures
         quiet = self._quiet(enabled, changes) if clean else ()
         added = tuple(sorted(drvs - base_drvs)) if clean else ()
@@ -315,6 +317,17 @@ class Engine:
             if self._is_option(node):
                 return prefix
         return ()
+
+    def _blame(self, change: Change) -> Change:
+        """A failure under the option its message names. The walk meets a
+        conflict on `system.stateVersion` first in `assertions`, which
+        sorts first and reads nearly every option."""
+        if change.kind is not Kind.FAILED:
+            return change
+        blamed = blamed_path(change.new)
+        if not blamed or blamed == change.path or not self.option_of(blamed):
+            return change
+        return replace(change, path=blamed, via=change.path)
 
     def _group(self, changes: list[Change]) -> tuple[Group, ...]:
         by_option: dict[OptionPath, list[Change]] = {}
