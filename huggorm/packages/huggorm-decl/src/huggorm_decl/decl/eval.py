@@ -190,20 +190,26 @@ class Value:
         `{ p = true; q = true; }` both attributes answer the same
         identity: a walk that skips every value it has seen skips `q`."""
 
+    @blocks
     def _force(self) -> None:
         """Force this value to weak head normal form, in place.
 
         Private, for the tree walk. A throw leaves the value failed
-        (`tFailed`), so a later read raises the same error again."""
+        (`tFailed`), so a later read raises the same error again.
+
+        BLOCKS: holding the GIL here stalls the caller's event loop for
+        the whole evaluation, so a cancel never fires and a server
+        answers no ping."""
         Cxx("""
             huggorm::gc_register_thread();
             self.state().forceValue(*self.get(), nix::noPos);
         """)
 
+    @blocks
     @guard("attrs")
     def _is_derivation(self) -> Bint:
         """Whether this attribute set is a derivation, by libexpr's
-        test. It forces the `type` attribute.
+        test. BLOCKS: it forces the `type` attribute.
 
         Private, for the tree walk."""
         Cxx("""
