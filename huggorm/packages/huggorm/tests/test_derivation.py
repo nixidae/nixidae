@@ -324,3 +324,28 @@ def test_a_derivation_a_primop_makes_is_written_when_the_evaluation_returns(
     path = store.parse_store_path(drv.string_value())
     assert store.is_valid_path(path)
     assert store.read_derivation(path).name() == "made"
+
+
+def test_a_call_on_another_state_inside_a_primop_waits_for_its_own_writes(
+    store: Any, tmp_path: pathlib.Path
+) -> None:
+    """The outer evaluation waits only for its own state's writes, so a
+    call on a second state inside a primop is outermost for that state,
+    and its `.drv` is in the store when it returns."""
+    from huggorm_bindings import EvalState
+
+    outer = EvalState(store)
+    other = EvalState(store)
+    seen: list[bool] = []
+
+    def make(name: Any) -> Any:
+        drv = other.eval_expr(
+            f'(derivation {{ name = "{name.string_value()}"; system = "x86_64-linux"; builder = "/bin/sh"; }}).drvPath',
+            str(tmp_path),
+        )
+        seen.append(store.is_valid_path(store.parse_store_path(drv.string_value())))
+        return drv
+
+    outer.register_primop("pyother", 1, make)
+    outer.eval_expr('builtins.pyother "other"').string_value()
+    assert seen == [True]

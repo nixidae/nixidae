@@ -141,15 +141,23 @@ nix::ValueType value_type(const V & v)
  * (`async-path-writer.cc:161`), so eight threads reading one state
  * spent 17 % of their cycles on that lock (nixidae/nixidae#1557).
  *
- * Only the outermost call on a thread waits. A Python primop runs
- * inside an evaluation, and a call it makes waited for the write that
- * call queued, so every derivation a primop made was written before the
- * evaluation went on: 10.9 ms per derivation against 0.36 ms for Nix's
- * own `derivation`. The outer call waits for all of them when it ends.
- * So inside a primop, a `.drv` written by a call that primop made may
- * not be in the store yet, as for Nix's own primops.
+ * Only the outermost call on a state, per thread, waits. A Python
+ * primop runs inside an evaluation, and a call it makes waited for the
+ * write that call queued, so every derivation a primop made was written
+ * before the evaluation went on: 10.9 ms per derivation against 0.36 ms
+ * for Nix's own `derivation`. The outer call waits for all of them when
+ * it ends. So inside a primop, a `.drv` written by a call that primop
+ * made may not be in the store yet, as for Nix's own primops. A call on
+ * another state inside that primop is outermost for its own state, and
+ * waits: the outer call waits only for its own state's writes.
  */
-inline thread_local unsigned settling_depth = 0;
+struct Settling
+{
+    const void * state;
+    const Settling * outer;
+};
+
+inline thread_local const Settling * settling = nullptr;
 
 template <bool Evaluates = false, typename Self, typename Body>
 std::invoke_result_t<Body> settled(Self & self, Body && body)
@@ -158,13 +166,22 @@ std::invoke_result_t<Body> settled(Self & self, Body && body)
     if constexpr (Evaluates)
         self.eval_core().mark_evaluated();
     if constexpr (Evaluates && requires { self.state().waitForAllPaths(); }) {
-        struct Depth
+        struct Inside
         {
-            Depth() { ++settling_depth; }
-            ~Depth() { --settling_depth; }
+            Settling frame;
+            explicit Inside(const void * state)
+                : frame{state, settling}
+            {
+                settling = &frame;
+            }
+            ~Inside() { settling = frame.outer; }
         };
-        const bool outermost = settling_depth == 0;
-        Depth inside;
+        const void * const state = &self.state();
+        bool outermost = true;
+        for (const Settling * f = settling; f; f = f->outer)
+            if (f->state == state)
+                outermost = false;
+        Inside inside{state};
         if constexpr (std::is_void_v<std::invoke_result_t<Body>>) {
             body();
             if (outermost)
