@@ -317,6 +317,38 @@ def test_a_pool_thread_that_waits_does_not_count() -> None:
         pool.shutdown()
 
 
+def test_a_job_posted_to_a_pool_thread_runs_on_it() -> None:
+    """The close of a pool object drops it on the thread that made it,
+    which is the thread that frees it on a free-threaded build
+    (nixidae/nixidae#1395). A thread the pool does not hold takes any."""
+    from huggorm_generated import _runtime
+
+    pool = _runtime._Pool(2, name="huggorm-test-pool")
+    both = threading.Barrier(2, timeout=5)
+
+    def meet() -> threading.Thread:
+        both.wait()
+        return threading.current_thread()
+
+    try:
+        first, second = (pool.submit(meet) for _ in range(2))
+        threads = {first.result(5), second.result(5)}
+        assert len(threads) == 2
+        for target in threads:
+            ran: list[threading.Thread] = []
+            for _ in range(20):
+                job = _runtime._Job(lambda: ran.append(threading.current_thread()))
+                pool.post_to(target, job)
+                job.future.result(5)
+            assert set(ran) == {target}
+        stranger = threading.Thread(target=lambda: None)
+        job = _runtime._Job(threading.current_thread)
+        pool.post_to(stranger, job)
+        assert job.future.result(5) in threads
+    finally:
+        pool.shutdown()
+
+
 def _own(name: str) -> Any:
     """The spec of a function a test defines, which no declaration names."""
     from huggorm_generated._callspec import Local

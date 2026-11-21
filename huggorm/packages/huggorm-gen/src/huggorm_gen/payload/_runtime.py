@@ -238,16 +238,24 @@ class _Pool(concurrent.futures.Executor):
     and would run deep inside this call's Nix stack.
 
     A thread over the count retires after its job. Its Boehm
-    registration ends with it (`ThreadExit` in `gc.hpp`)."""
+    registration ends with it (`ThreadExit` in `gc.hpp`).
+
+    `post_to` gives a job to one thread: on a free-threaded build only
+    the thread that made an object frees it, so a pool object's last
+    reference is dropped on the thread that made it."""
 
     def __init__(self, size: int, name: str = "huggorm-pool") -> None:
         self._size = size
         self._name = name
-        self._queue: queue.SimpleQueue[_Runnable | None] = queue.SimpleQueue()
         self._lock = threading.Lock()
+        # Each thread waits on its own queue, so a job can go to one
+        # thread. `_idle` is the threads parked on theirs, last parked
+        # first; `_backlog` holds shared work while none is idle.
+        self._queues: dict[threading.Thread, queue.SimpleQueue[_Runnable | None]] = {}
+        self._idle: list[threading.Thread] = []
+        self._backlog: collections.deque[_Runnable] = collections.deque()
         self._threads: set[threading.Thread] = set()
         self._started = 0
-        self._idle = 0
         self._waiting = 0
         self._shutdown = False
         _POOLS.add(self)
@@ -261,44 +269,84 @@ class _Pool(concurrent.futures.Executor):
         with self._lock:
             if self._shutdown:
                 raise RuntimeError("cannot schedule new futures after shutdown")
-            self._queue.put(job)
+            self._give(job)
+
+    def post_to(self, thread: threading.Thread | None, job: _Runnable) -> None:
+        """Run `job` on `thread`, or on any thread once that one has
+        left the pool."""
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("cannot schedule new futures after shutdown")
+            mine = self._queues.get(thread) if thread is not None else None
+            if mine is None:
+                self._give(job)
+            else:
+                mine.put(job)
+
+    def _give(self, job: _Runnable) -> None:
+        """Under the lock: `job` to an idle thread, else to the backlog."""
+        if self._idle:
+            self._queues[self._idle.pop()].put(job)
+        else:
+            self._backlog.append(job)
             self._grow()
 
     def _grow(self) -> None:
         """Under the lock: one more thread, when none is idle and fewer
         run than the size and the waiting threads allow."""
-        if self._idle == 0 and len(self._threads) < self._size + self._waiting:
+        if not self._idle and len(self._threads) < self._size + self._waiting:
             thread = threading.Thread(target=self._work, name=f"{self._name}_{self._started}")
             self._started += 1
             self._threads.add(thread)
+            self._queues[thread] = queue.SimpleQueue()
             thread.start()
 
     def _work(self) -> None:
         me = threading.current_thread()
+        mine = self._queues[me]
         while True:
             with self._lock:
-                if len(self._threads) > self._size + self._waiting:
-                    self._threads.discard(me)
-                    return
-                self._idle += 1
-            job = self._queue.get()
-            with self._lock:
-                self._idle -= 1
+                try:
+                    job = mine.get_nowait()
+                except queue.Empty:
+                    job = None
+                if job is None:
+                    if len(self._threads) > self._size + self._waiting or (self._shutdown and not self._backlog):
+                        self._leave(me)
+                        return
+                    if self._backlog:
+                        job = self._backlog.popleft()
+                    else:
+                        self._idle.append(me)
             if job is None:
-                # Pass the stop on to the next thread.
-                self._queue.put(None)
+                job = mine.get()
                 with self._lock:
-                    self._threads.discard(me)
-                return
+                    if me in self._idle:
+                        self._idle.remove(me)
+                if job is None:
+                    continue
             job.run()
             del job
+
+    def _leave(self, me: threading.Thread) -> None:
+        """Under the lock: `me` stops. A job posted to it after it
+        decided to stop goes to the other threads."""
+        self._threads.discard(me)
+        mine = self._queues.pop(me)
+        while True:
+            try:
+                left = mine.get_nowait()
+            except queue.Empty:
+                return
+            if left is not None:
+                self._give(left)
 
     def wait(self, done: concurrent.futures.Future[Any], start: Callable[[], None] = lambda: None) -> None:
         """Wait for `done` on a thread of this pool, which counts as
         not running meanwhile. `start` begins what completes `done`."""
         with self._lock:
             self._waiting += 1
-            if not self._queue.empty():
+            if self._backlog:
                 self._grow()
         try:
             start()
@@ -311,7 +359,9 @@ class _Pool(concurrent.futures.Executor):
         with self._lock:
             self._shutdown = True
             threads = list(self._threads)
-        self._queue.put(None)
+            for thread in self._idle:
+                self._queues[thread].put(None)
+            self._idle.clear()
         if wait:
             for thread in threads:
                 if thread is not threading.current_thread():
@@ -980,6 +1030,8 @@ class BaseRunner:
         self.last_worker_name: str | None = None
         self.last_worker_ident: int | None = None
         self.born_thread_name: str | None = None
+        # The thread the factory ran on; None for an adopted object.
+        self._made_on: threading.Thread | None = None
         self.workers_seen: set[str] = set()
 
     @classmethod
@@ -1008,6 +1060,7 @@ class BaseRunner:
                     self._construct_error = e
                     raise
                 self.born_thread_name = threading.current_thread().name
+                self._made_on = threading.current_thread()
         return self._obj
 
     def ensure(self) -> Any:
@@ -1194,19 +1247,21 @@ class PoolRunner(BaseRunner):
         # `RemoteStore::shutdownConnections` closes no descriptor. Kept until
         # a collection, each closed store left its sockets open, and pynixd's
         # `tests/client` ran out of descriptors (nixidae/nixidae#1249).
-        obj: Any = self._obj
-        self._obj = None
+        #
+        #
+        # The thread that made the object drops it, and the loop never
+        # holds it. On a free-threaded build only the thread that made an
+        # object frees it: a reference another thread drops waits until
+        # that thread next runs Python, which an idle pool thread does not
+        # (nixidae/nixidae#1395). An adopted object's maker is not known,
+        # so any pool thread drops it.
         self._factory = None
-        if obj is None:
-            return
-        # The last reference goes on a pool thread, where the C++ destructor runs.
-        done = asyncio.get_running_loop().run_in_executor(self._executor(), _drop, obj)
-        del obj
-        await done
+        job = _Job(self._retire)
+        _shared_pool().post_to(self._made_on, job)
+        await asyncio.wrap_future(job.future)
 
-
-def _drop(obj: object) -> None:
-    del obj
+    def _retire(self) -> None:
+        self._obj = None
 
 
 class InlineRunner(BaseRunner):
