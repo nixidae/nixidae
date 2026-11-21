@@ -359,6 +359,52 @@ def test_a_primop_closing_over_a_value_of_its_state_does_not_leak_it() -> None:
     assert died == ["collected"], "the closure and the Value it holds survived a full collection"
 
 
+def test_a_primop_closing_over_a_value_read_off_another_does_not_leak_it() -> None:
+    """As above, with a Value a parent Value made. Such a Value takes its
+    state reference from the parent (nixidae/nixidae#1557), and the
+    collector must still see the edge."""
+    from huggorm_bindings import EvalState, Store
+
+    died: list[str] = []
+
+    def build() -> None:
+        state = EvalState(Store(URI))
+        held: list[Any] = []
+        canary = _Canary(died)
+
+        def keep(v: Any) -> Any:
+            assert canary is not None
+            return held[0]
+
+        # Before anything evaluates: `register_primop` refuses after.
+        state.register_primop("keep", 1, keep)
+        parent = state.eval_expr("{ a = 5; }")
+        parent.to_json()
+        held.append(parent.value_at(0))
+        assert state.eval_expr("builtins.keep 1").integer() == 5
+
+    build()
+    gc.collect()
+    gc.collect()
+
+    assert died == ["collected"], "the closure and the Value it holds survived a full collection"
+
+
+def test_a_value_read_off_another_keeps_the_state_alive() -> None:
+    """The parent and the Python state can go first: the child holds
+    the state reference it took from the parent."""
+    from huggorm_bindings import EvalState, Store
+
+    state = EvalState(Store(URI))
+    parent = state.eval_expr("{ a = { b = 7; }; }")
+    parent.to_json()
+    child = parent.value_at(0)
+    del parent, state
+    gc.collect()
+    assert child.value_at(0).integer() == 7
+    assert child.type_name() == "attrs"
+
+
 def test_a_primop_closing_over_a_value_a_repl_made_does_not_leak_it() -> None:
     """As above, with the Value made through a `Repl` that outlives the
     `EvalState` object. A Value finds its state through that object, so

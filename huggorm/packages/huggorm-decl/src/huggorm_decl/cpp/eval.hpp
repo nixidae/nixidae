@@ -750,10 +750,24 @@ struct PyStateRef
     PyStateRef & operator=(const PyStateRef &) { return *this; }
     ~PyStateRef() { Py_XDECREF(ptr); }
 
-    void take(const EvalCore & core)
+    /**
+     * `parent` is the state a live parent holds, when there is one: the
+     * reference is then an incref. `nb::find` locks a shard of
+     * nanobind's instance registry, and eight threads making values
+     * spent most of the cost of this reference there
+     * (nixidae/nixidae#1557).
+     */
+    void take(const EvalCore & core, PyObject * parent = nullptr)
     {
+        if (ptr)
+            return;
+        if (parent) {
+            Py_INCREF(parent);
+            ptr = parent;
+            return;
+        }
         const Evaluator * owner = core.owner();
-        if (ptr || !owner)
+        if (!owner)
             return;
         nb::object state = nb::find(*owner);
         if (state.is_valid())
@@ -854,7 +868,7 @@ public:
     Bridge(Bridge && other) noexcept
         : built_(other.built_), core_(std::move(other.core_)), root_(std::move(other.root_)),
           by_name_(std::move(other.by_name_)), staged_(std::move(other.staged_)),
-          staged_attrs_(std::move(other.staged_attrs_))
+          staged_attrs_(std::move(other.staged_attrs_)), state_hint_(std::move(other.state_hint_))
     {
     }
 
@@ -1037,10 +1051,26 @@ public:
         return state().symbols.create(name);
     }
 
-    /** A sibling value, sharing this one's root and state. */
-    Bridge wrap(nix::Value * v) const { return Bridge(core_, v); }
+    /**
+     * A sibling value, sharing this one's root and state.
+     *
+     * It borrows this value's state reference as a hint, which the
+     * caster increfs while the method that called `wrap` is still on
+     * the stack, so `self` keeps the state alive until then. A copy
+     * drops the hint: a stored copy could reach Python after `self`
+     * has gone.
+     */
+    Bridge wrap(nix::Value * v) const
+    {
+        Bridge sibling(core_, v);
+        sibling.state_hint_.ptr = state_.ptr;
+        return sibling;
+    }
 
-    void hold_state() { state_.take(*core_); }
+    void hold_state()
+    {
+        state_.take(*core_, std::exchange(state_hint_.ptr, nullptr));
+    }
     const PyStateRef & state_ref() const { return state_; }
 
 private:
@@ -1091,6 +1121,21 @@ private:
     // Attributes of a set still being built. See `stage_attr`.
     mutable std::map<std::string, Root> staged_attrs_;
     PyStateRef state_;
+    // Borrowed, never counted, and valid only until `hold_state`. See
+    // `wrap`. A move keeps it and a copy drops it.
+    struct Hint
+    {
+        PyObject * ptr = nullptr;
+        Hint() = default;
+        Hint(const Hint &) {}
+        Hint & operator=(const Hint &)
+        {
+            ptr = nullptr;
+            return *this;
+        }
+        Hint(Hint && other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
+    };
+    Hint state_hint_;
 };
 
 inline PyType_Slot value_slots[] = {
