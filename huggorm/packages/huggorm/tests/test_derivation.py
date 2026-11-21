@@ -298,3 +298,29 @@ def test_the_package_carries_nix_s_get_env_script() -> None:
     """`nix develop`'s builder script, which no Nix library holds."""
     script = importlib.resources.files("huggorm_bindings") / "get-env.sh"
     assert "__dumpEnv() {" in script.read_text()
+
+
+def test_a_derivation_a_primop_makes_is_written_when_the_evaluation_returns(
+    store: Any, tmp_path: pathlib.Path
+) -> None:
+    """A call a primop makes does not wait for the store write it
+    queues; the evaluation that called the primop waits, so the `.drv`
+    is in the store when that returns (nixidae/nixidae#1557)."""
+    from huggorm_bindings import EvalState
+
+    state = EvalState(store)
+    strict: list[Any] = []
+
+    def make(attrs: Any) -> Any:
+        made = strict[0](attrs)
+        state.force(made)
+        return made.get("drvPath")
+
+    state.register_primop("pymake", 1, make)
+    strict.append(state.eval_expr("builtins.derivationStrict"))
+    drv = state.eval_expr(
+        'builtins.pymake { name = "made"; system = "x86_64-linux"; builder = "/bin/sh"; }', str(tmp_path)
+    )
+    path = store.parse_store_path(drv.string_value())
+    assert store.is_valid_path(path)
+    assert store.read_derivation(path).name() == "made"

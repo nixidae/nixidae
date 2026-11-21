@@ -140,7 +140,17 @@ nix::ValueType value_type(const V & v)
  * wait locks the writer's state even when nothing is queued
  * (`async-path-writer.cc:161`), so eight threads reading one state
  * spent 17 % of their cycles on that lock (nixidae/nixidae#1557).
+ *
+ * Only the outermost call on a thread waits. A Python primop runs
+ * inside an evaluation, and a call it makes waited for the write that
+ * call queued, so every derivation a primop made was written before the
+ * evaluation went on: 10.9 ms per derivation against 0.36 ms for Nix's
+ * own `derivation`. The outer call waits for all of them when it ends.
+ * So inside a primop, a `.drv` written by a call that primop made may
+ * not be in the store yet, as for Nix's own primops.
  */
+inline thread_local unsigned settling_depth = 0;
+
 template <bool Evaluates = false, typename Self, typename Body>
 std::invoke_result_t<Body> settled(Self & self, Body && body)
 {
@@ -148,12 +158,21 @@ std::invoke_result_t<Body> settled(Self & self, Body && body)
     if constexpr (Evaluates)
         self.eval_core().mark_evaluated();
     if constexpr (Evaluates && requires { self.state().waitForAllPaths(); }) {
+        struct Depth
+        {
+            Depth() { ++settling_depth; }
+            ~Depth() { --settling_depth; }
+        };
+        const bool outermost = settling_depth == 0;
+        Depth inside;
         if constexpr (std::is_void_v<std::invoke_result_t<Body>>) {
             body();
-            self.state().waitForAllPaths();
+            if (outermost)
+                self.state().waitForAllPaths();
         } else {
             std::invoke_result_t<Body> answer = body();
-            self.state().waitForAllPaths();
+            if (outermost)
+                self.state().waitForAllPaths();
             return answer;
         }
     } else {
