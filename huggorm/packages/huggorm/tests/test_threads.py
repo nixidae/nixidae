@@ -10,8 +10,6 @@ import sys
 import pytest
 from nixversion import needs_collector
 
-from huggorm_dsl.declare import DETERMINATE
-
 PROBE = """
 import os
 
@@ -73,31 +71,24 @@ def test_the_collector_s_owner_is_the_importing_thread() -> None:
 
 
 @needs_collector
-def test_a_held_root_shows_in_the_uncollectable_bytes() -> None:
-    """Every root is one uncollectable block, so `non_gc_bytes` moves
-    with the roots a caller holds and falls back when it drops them."""
+def test_a_dropped_root_returns_to_its_slab() -> None:
+    """A root is a cell in an uncollectable slab of 4096, and a dropped
+    one returns to a free list, on every lane: Determinate Nix's own
+    slabs, and nix-thread-local-root-cells on the others
+    (nixidae/nixidae#1557). So the slab stays, and holding as many again
+    takes nothing new."""
     import gc
 
     from huggorm_bindings import EvalState, Store, collect_garbage, gc_stats
 
     state = EvalState(Store("dummy://"))
-    collect_garbage()
-    before = gc_stats()["non_gc_bytes"]
     held = [state.eval_expr(str(i)) for i in range(500)]
     collect_garbage()
     holding = gc_stats()["non_gc_bytes"]
     del held
     gc.collect()
     collect_garbage()
-    after = gc_stats()["non_gc_bytes"]
-    if DETERMINATE:
-        # A root is a slot in an uncollectable slab of 4096, and a
-        # dropped one returns to a free list. So the slab stays, and
-        # holding as many again takes nothing new.
-        assert after == holding
-        _held_again = [state.eval_expr(str(i)) for i in range(500)]
-        collect_garbage()
-        assert gc_stats()["non_gc_bytes"] == holding
-        return
-    assert holding - before > 500 * 16
-    assert after - before < (holding - before) // 10
+    assert gc_stats()["non_gc_bytes"] == holding
+    _held_again = [state.eval_expr(str(i)) for i in range(500)]
+    collect_garbage()
+    assert gc_stats()["non_gc_bytes"] == holding

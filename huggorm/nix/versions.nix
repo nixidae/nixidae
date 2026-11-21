@@ -95,6 +95,9 @@ let
   # (nixidae/nixidae#1198). 2.35 builds its handshake features in a variable.
   setOptionsByName = patch "nix-set-options-by-name";
   setOptionsByName235 = patch "nix-2.35-set-options-by-name";
+  # Root values took the collector's global lock to allocate and to free
+  # (nixidae/nixidae#1557). Last: it applies after every `eval.cc` patch.
+  rootCells = patch "nix-thread-local-root-cells";
 
   determinate = import ./determinate.nix { inherit pkgs sources; };
 in
@@ -123,6 +126,7 @@ in
       addSignatures
       recordDerivations
       setOptionsByName
+      rootCells
     ];
   };
   nix_2_35 = {
@@ -146,6 +150,7 @@ in
       addSignatures
       recordDerivations
       setOptionsByName235
+      rootCells
     ];
   };
   # Unpinned on purpose: it follows nixpkgs' `nixComponents_git`, so a
@@ -173,6 +178,7 @@ in
       developOutputChecks
       recordDerivations236
       setOptionsByName235
+      rootCells
     ];
     # Nix master uses `#embed`, which needs GCC 15. Every PyPA image
     # ships gcc-toolset-14 (nixidae/nixidae#660).

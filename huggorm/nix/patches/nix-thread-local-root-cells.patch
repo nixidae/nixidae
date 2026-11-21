@@ -1,0 +1,207 @@
+Allocate root values from per-thread cells in uncollectable slabs.
+
+`allocRootValue` allocated each root's `shared_ptr` control block with
+`traceable_allocator`: `GC_MALLOC_UNCOLLECTABLE` to make it and
+`GC_FREE` to free it, each under the collector's global lock. huggorm
+roots every Python `Value`, so threads walking one state's values took
+that lock twice per value (nixidae/nixidae#1557).
+
+The block now lives in a 32-byte cell carved from a 4096-cell slab that
+the collector always scans. Each thread keeps up to 128 free cells and
+moves 64 at a time to or from a shared list, which a mutex guards. A
+thread's cells go back to the shared list when it exits. `RootValue`
+keeps its type, so no caller changes. Determinate Nix has the same
+slabs in `root-value.cc`; nix-determinate-thread-local-root-slots adds
+the per-thread cache there.
+
+--- a/src/libexpr/eval.cc
++++ b/src/libexpr/eval.cc
+@@ -104,11 +104,188 @@
+     return res;
+ }
+ 
++#if NIX_USE_BOEHMGC
++
++namespace {
++
++/**
++ * One root: the `shared_ptr` control block that holds the rooted
++ * `Value *`. Cells are carved from uncollectable slabs, which the
++ * collector always scans, so a cell in use keeps its value alive. A
++ * free cell holds the next free cell, a pointer into a slab, which
++ * keeps nothing alive. Slabs are never freed.
++ *
++ * `traceable_allocator` takes the collector's global lock twice per
++ * root, to allocate and to free. A thread here takes the shared list's
++ * lock once per `rootBatch` roots.
++ */
++union RootCell
++{
++    RootCell * nextFree;
++    alignas(std::max_align_t) unsigned char bytes[32];
++};
++
++constexpr size_t rootBatch = 64;
++constexpr size_t rootSlab = 4096;
++
++/* Never destroyed: a static may release its root during shutdown. */
++std::mutex & rootLock = *new std::mutex;
++RootCell * rootShared = nullptr;
++
++/**
++ * This thread's free cells. Trivially destructible, so it is still
++ * readable while other thread-locals are destroyed at thread exit.
++ */
++struct RootCells
++{
++    RootCell * head = nullptr;
++    size_t count = 0;
++    /* Set once this thread's cells went back to the shared list. */
++    bool closed = false;
++};
++
++thread_local RootCells rootCells;
++
++/** A new slab on the shared list, which is empty. Holds `rootLock`. */
++void carveRootSlab()
++{
++    auto slab = (RootCell *) GC_MALLOC_UNCOLLECTABLE(rootSlab * sizeof(RootCell));
++    if (!slab)
++        throw std::bad_alloc();
++    for (size_t i = 0; i + 1 < rootSlab; ++i)
++        slab[i].nextFree = &slab[i + 1];
++    slab[rootSlab - 1].nextFree = nullptr;
++    rootShared = slab;
++}
++
++/** Moves up to `n` cells from the front of `local` to the shared list. */
++void spillRootCells(RootCells & local, size_t n)
++{
++    if (!local.head || n == 0)
++        return;
++    RootCell * first = local.head;
++    RootCell * last = first;
++    size_t moved = 1;
++    while (moved < n && last->nextFree) {
++        last = last->nextFree;
++        ++moved;
++    }
++    local.head = last->nextFree;
++    local.count -= moved;
++    std::lock_guard lock(rootLock);
++    last->nextFree = rootShared;
++    rootShared = first;
++}
++
++/** Gives a thread's cells back when it exits. */
++struct RootCellsFlush
++{
++    ~RootCellsFlush()
++    {
++        spillRootCells(rootCells, rootCells.count);
++        rootCells.closed = true;
++    }
++};
++
++thread_local RootCellsFlush rootCellsFlush;
++
++RootCell * takeRootCell()
++{
++    auto & local = rootCells;
++    if (local.closed) {
++        std::lock_guard lock(rootLock);
++        if (!rootShared)
++            carveRootSlab();
++        RootCell * cell = rootShared;
++        rootShared = cell->nextFree;
++        return cell;
++    }
++    /* Constructs the flush on this thread's first root. */
++    (void) &rootCellsFlush;
++    if (!local.head) {
++        std::lock_guard lock(rootLock);
++        if (!rootShared)
++            carveRootSlab();
++        while (rootShared && local.count < rootBatch) {
++            RootCell * cell = rootShared;
++            rootShared = cell->nextFree;
++            cell->nextFree = local.head;
++            local.head = cell;
++            ++local.count;
++        }
++    }
++    RootCell * cell = local.head;
++    local.head = cell->nextFree;
++    --local.count;
++    return cell;
++}
++
++/* Writing `nextFree` overwrites the `Value *`, so the cell stops
++   rooting its value. */
++void giveRootCell(RootCell * cell)
++{
++    auto & local = rootCells;
++    if (local.closed) {
++        std::lock_guard lock(rootLock);
++        cell->nextFree = rootShared;
++        rootShared = cell;
++        return;
++    }
++    cell->nextFree = local.head;
++    local.head = cell;
++    if (++local.count > 2 * rootBatch)
++        spillRootCells(local, rootBatch);
++}
++
++/** Allocates exactly one control block, in a `RootCell`. */
++template<typename T>
++struct RootCellAllocator
++{
++    using value_type = T;
++
++    RootCellAllocator() = default;
++
++    template<typename U>
++    RootCellAllocator(const RootCellAllocator<U> &)
++    {
++    }
++
++    T * allocate(size_t n)
++    {
++        static_assert(sizeof(T) <= sizeof(RootCell) && alignof(T) <= alignof(RootCell));
++        if (n != 1)
++            throw std::bad_alloc();
++        return reinterpret_cast<T *>(takeRootCell());
++    }
++
++    void deallocate(T * p, size_t)
++    {
++        giveRootCell(reinterpret_cast<RootCell *>(p));
++    }
++
++    template<typename U>
++    bool operator==(const RootCellAllocator<U> &) const
++    {
++        return true;
++    }
++};
++
++} // namespace
++
++RootValue allocRootValue(Value * v)
++{
++    return std::allocate_shared<Value *>(RootCellAllocator<Value *>(), v);
++}
++
++#else
++
+ RootValue allocRootValue(Value * v)
+ {
+     return std::allocate_shared<Value *>(traceable_allocator<Value *>(), v);
+ }
+ 
++#endif
++
+ // Pretty print types for assertion errors
+ std::ostream & operator<<(std::ostream & os, const ValueType t)
+ {
