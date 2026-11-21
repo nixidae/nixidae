@@ -201,6 +201,9 @@ in
       (patch "nix-determinate-fiber-stack")
       # `std::hash<git_oid>` loaded a size_t from a byte array.
       (patch "nix-determinate-git-oid-hash-aligned")
+      # Root value slots came from one list under one mutex
+      # (nixidae/nixidae#1557).
+      (patch "nix-determinate-thread-local-root-slots")
       emptyBindings
       baseEnvSize
       gmtime234
