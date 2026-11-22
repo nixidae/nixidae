@@ -29,12 +29,16 @@ This is the only shared instruction file. Shared rules first, then one section p
 
 ```sh
 pyjj commit -m ...                  # the work, in as many commits as it needs
-nix run --file . lock-subtrees      # commits the locks if a source moved
-pyjj wf land                        # rebases main..@ onto main, moves main forward to @-
+pyjj wf land                        # drops stale lock commits, rebases onto main, runs lock-subtrees, moves main
 pyjj git push --bookmark main
 ```
 
-`main` moves forward only. Any workspace lands its own work; there is no landing workspace. Never `bookmark set main` by hand. If `wf land` rebased onto a newer `main`, run lock-subtrees and `wf land` again before the push: the lock names the commit it was written at.
+`main` moves forward only. Any workspace lands its own work; there is no landing workspace. Never `bookmark set main` by hand. Do not run lock-subtrees before landing, and never resolve a conflict between two lock commits: `wf land` regenerates the locks after its rebase (repo config `pyjj.land.generated` and `pyjj.land.generate`; `pyjj config list --repo` shows them). Two workspaces landing at once take turns. `Your work conflicts with main` names a real conflict in your own commits. A fresh clone sets the config once:
+
+```sh
+pyjj config set --repo pyjj.land.generated 'description(substring:"Written by lock-subtrees.")'
+pyjj config set --repo pyjj.land.generate 'nix run --file . lock-subtrees'
+```
 
 lock-subtrees commits the locks with jj, so landing needs jj; `--check` also runs in a plain git checkout. The push starts the `josh export` run: `lock-subtrees --check` and `josh-export --verify --push`. Landing ends at the push; do not wait for that run. josh runs in CI only: its vendored libgit2 refuses the `relativeworktrees` extension that a colocated jj workspace sets.
 
