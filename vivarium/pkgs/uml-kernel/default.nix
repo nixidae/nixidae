@@ -10,9 +10,13 @@
   version,
   modDirVersion,
   src,
-  # UML is uniprocessor unless asked otherwise; SMP costs boot time and
-  # is only worth it for tests that measure parallelism.
+  # UML is uniprocessor unless asked otherwise. Measured on 7.2.9: an SMP
+  # build at one CPU is about 2x slower on every serial path (fork+exec,
+  # page faults, stat), and 4 CPUs run parallel work about 3x faster.
   smp ? false,
+  # ./0004-um-stub-spin-and-fault-around.patch: out-of-tree, so not by
+  # default. nixidae/nixidae#1412 has the measurements.
+  speed ? false,
   /*
     A directory inside the build sandbox to keep compiled objects in, or
     null. Set, the build compiles through ccache and fails at once if the
@@ -429,7 +433,11 @@ in
       name = "um-vector-get-ringparam-when-down";
       patch = ./0003-um-vector-get-ringparam-when-down.patch;
     }
-  ];
+  ]
+  ++ lib.optional speed {
+    name = "um-stub-spin-and-fault-around";
+    patch = ./0004-um-stub-spin-and-fault-around.patch;
+  };
   kernelArch = "um";
   target = "linux";
   defconfig = "allnoconfig";

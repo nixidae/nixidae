@@ -11,6 +11,9 @@ let
   others = {
     # A port of NixOS/nix#5265, so Nix's terms.
     "huggorm/packages/nix-tcp-store/tcp-store.cc" = "LGPL-2.1-or-later";
+    # Patches to Linux, so the kernel's terms; this one's diff context
+    # carries a kernel file's SPDX line.
+    "vivarium/pkgs/uml-kernel/0004-um-stub-spin-and-fault-around.patch" = "GPL-2.0";
   };
 in
 runCommand "nixidae-licenses" { } ''

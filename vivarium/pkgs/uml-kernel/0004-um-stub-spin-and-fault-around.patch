@@ -1,0 +1,1404 @@
+Oleksii Zakharov's common UML speed commits from
+https://github.com/zalexdev/linux-um-arm64 (branch um-arm64), squashed
+against Linux 7.2.9: 81fc0f12b6 (stub handoff wake elision and spin),
+72cc9b79bb (cycle counter probe), d2219a3ded and 0489ef6e4a (anonymous
+fault-around), 1d555ded4d, 7d1b5396f1 and ce1a317551 (ncpus default),
+d06cc2a4ec (stub reaper).
+
+Changed here: x86_64 spins too. The stub reads rdtsc, and
+check_stub_cycles() measures the TSC rate when CPUID 0x80000007 says
+the TSC is invariant; upstream x86 returns a zero rate and never spins.
+Boot switches: seccomp_spin=US (0 = off), prefault=BYTES (0 = off).
+Measurements: nixidae/nixidae#1412.
+
+--- a/arch/um/include/asm/mmu.h	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/include/asm/mmu.h	2026-11-20 11:33:13.314741336 +0100
+@@ -21,6 +21,19 @@
+ 	spinlock_t sync_tlb_lock;
+ 	unsigned long sync_tlb_range_from;
+ 	unsigned long sync_tlb_range_to;
++
++	/*
++	 * Anonymous fault-around state (arch/um/kernel/trap.c). A fault costs a
++	 * full stub handoff (~51us measured on-device in seccomp mode), so
++	 * sequential fault streams are detected and additional pages are
++	 * prefaulted into the same handoff. prefault_next is the page a
++	 * sequential stream would fault next (end of the last window);
++	 * prefault_level indexes the ramp. Purely a heuristic: fields are
++	 * accessed racily (READ_ONCE/WRITE_ONCE only) under mmap_read_lock,
++	 * a lost update just mispredicts one window.
++	 */
++	unsigned long prefault_next;
++	unsigned int prefault_level;
+ } mm_context_t;
+ 
+ #define INIT_MM_CONTEXT(mm)						\
+--- a/arch/um/include/shared/os.h	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/include/shared/os.h	2026-11-20 12:03:46.882290284 +0100
+@@ -283,6 +283,7 @@
+ int syscall_stub_flush(struct mm_id *mm_idp);
+ struct stub_syscall *syscall_stub_alloc(struct mm_id *mm_idp);
+ void syscall_stub_dump_error(struct mm_id *mm_idp);
++int syscall_stub_free_slots(struct mm_id *mm_idp);
+ 
+ int map(struct mm_id *mm_idp, unsigned long virt,
+ 	unsigned long len, int prot, int phys_fd,
+@@ -306,6 +307,7 @@
+ extern void *os_epoll_get_data_pointer(int index);
+ extern int os_epoll_triggered(int index, int events);
+ extern int os_event_mask(enum um_irq_type irq_type);
++extern int os_nr_cpus_online(void);
+ extern int os_setup_epoll(void);
+ extern int os_add_epoll_fd(int events, int fd, void *data);
+ extern int os_mod_epoll_fd(int events, int fd, void *data);
+--- a/arch/um/include/shared/skas/skas.h	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/include/shared/skas/skas.h	2026-11-20 11:33:43.991980827 +0100
+@@ -9,6 +9,7 @@
+ #include <sysdep/ptrace.h>
+ 
+ extern int using_seccomp;
++extern int have_stub_cycles;
+ 
+ extern void new_thread_handler(void);
+ extern void handle_syscall(struct uml_pt_regs *regs);
+--- a/arch/um/include/shared/skas/stub-data.h	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/include/shared/skas/stub-data.h	2026-11-20 11:33:13.308439157 +0100
+@@ -14,8 +14,56 @@
+ #include <sysdep/stub-data.h>
+ #include <mm_id.h>
+ 
++/*
++ * The stub <-> kernel handoff word. The low bit names the side that currently
++ * owns the CPU ("the child may run" / "the kernel may run"); ownership strictly
++ * ping-pongs, so at any moment at most one side is waiting.
++ */
+ #define FUTEX_IN_CHILD 0
+ #define FUTEX_IN_KERN 1
++/*
++ * ORed in by a waiter that is about to park in FUTEX_WAIT. A waker hands
++ * ownership over with an atomic exchange and calls FUTEX_WAKE only if the old
++ * value carried this bit: on this host a FUTEX_WAKE that actually has someone
++ * to wake costs a voluntary context switch (the measured 37k voluntary
++ * switches per benchmark run are exactly these), and even an empty one is a
++ * syscall. When the peer was caught mid-spin, the wake is pure waste.
++ *
++ * The bit can go stale in one benign way: the waiter sets it just after the
++ * waker's exchange already flipped ownership. The waiter then sees the flip in
++ * the fetch_or's old value and never parks, but the bit stays set until the
++ * next exchange clears it, costing that exchange one spurious FUTEX_WAKE.
++ * Rare and harmless; a scheme that cleans the bit up would need a second
++ * atomic on every wait, which is the common path.
++ */
++#define STUB_FUTEX_WAITER 2
++
++/* The ownership half of the protocol word, waiter bit masked off. */
++#define STUB_FUTEX_OWNER(v) ((v) & FUTEX_IN_KERN)
++
++/*
++ * 64 covers the cacheline size of every x86-64 and arm64 host this can run on
++ * (Snapdragon's Cortex/Kryo cores included).
++ */
++#define STUB_FUTEX_ALIGN 64
++
++/*
++ * Adaptive-spin bookkeeping, one instance per side, each written only by its
++ * owner (no atomics needed):
++ *
++ *  - streak: consecutive spins that observed the reply within the budget.
++ *    While nonzero, keep spinning: the peer is answering fast.
++ *  - backoff: after a miss, the number of upcoming waits that go straight to
++ *    FUTEX_WAIT before the spin is probed again. Without this an idle or
++ *    compute-heavy guest would burn the full budget on every single wait; with
++ *    it the steady-state cost of a never-hitting spin is one budget per
++ *    STUB_SPIN_BACKOFF waits, while a workload that turns syscall-heavy again
++ *    is picked back up within that many waits.
++ */
++struct stub_spin_state {
++	unsigned short streak;
++	unsigned short backoff;
++};
+ 
+ struct stub_init_data {
+ 	int seccomp;
+@@ -56,16 +104,49 @@
+ 	long err;
+ 
+ 	int syscall_data_len;
+-	/* 128 leaves enough room for additional fields in the struct */
+-	struct stub_syscall syscall_data[(UM_KERN_PAGE_SIZE - 128) / sizeof(struct stub_syscall)] __aligned(16);
++
++	/*
++	 * The handoff word, alone in a 64-byte slot. Both sides poll it now
++	 * (see stub-futex.h); if it shared a cacheline with anything the peer
++	 * writes -- syscall_data, signal, the spin state -- each such write
++	 * would yank the line from the polling CPU and the spin would spend
++	 * its budget on coherence misses instead of observing the flip. The
++	 * explicit pad keeps the tail of the line empty; init_child_tracking()
++	 * BUILD_BUG_ONs the isolation so a reorder here cannot silently undo
++	 * it.
++	 */
++	unsigned int futex __aligned(STUB_FUTEX_ALIGN);
++	unsigned char futex_pad[STUB_FUTEX_ALIGN - sizeof(unsigned int)];
++
++	/*
++	 * 256 leaves enough room for the fields around the array: 128 bytes
++	 * above, the rest below. The static_assert on sizeof(struct stub_data)
++	 * in mmu.c catches this reserve becoming too small on any page size
++	 * or subarch, because the tail would then push the page-aligned
++	 * sigstack into an extra page.
++	 */
++	struct stub_syscall syscall_data[(UM_KERN_PAGE_SIZE - 256) / sizeof(struct stub_syscall)] __aligned(16);
+ 
+ 	/* data shared with signal handler (only used in seccomp mode) */
+ 	short restart_wait;
+-	unsigned int futex;
+ 	int signal;
+ 	unsigned short si_offset;
+ 	unsigned short mctx_offset;
+ 
++	/*
++	 * Spin budget in ticks of the timebase behind stub_cycles(), written
++	 * once by the kernel side before the stub first runs; 0 means "park
++	 * immediately" and is what seccomp_spin=0 and hosts without a usable
++	 * constant-rate EL0 counter (x86) get. Ticks of wall time rather than
++	 * an iteration count is deliberate: this class of SoC scales
++	 * 300 MHz - 3.2 GHz, so a loop count would mean a 10x different
++	 * duration depending on the governor's mood, while CNTVCT_EL0 runs at
++	 * a constant rate regardless.
++	 */
++	unsigned int spin_ticks;
++	struct stub_spin_state kern_spin;	/* written by the kernel side only */
++	struct stub_spin_state stub_spin;	/* written by the stub only */
++
+ 	/* seccomp architecture specific state restore */
+ 	struct stub_data_arch arch_data;
+ 
+--- a/arch/um/include/shared/skas/stub-futex.h	1970-01-01 01:00:00.000000000 +0100
++++ b/arch/um/include/shared/skas/stub-futex.h	1970-01-01 01:00:00.000000000 +0100
+@@ -0,0 +1,110 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Shared halves of the stub <-> kernel handoff: waiter-bit wake elision and
++ * the bounded adaptive spin. Everything here is __always_inline because the
++ * stub side must end up inside .__syscall_stub with no calls out of it.
++ *
++ * Used from both stub_signal_interrupt() (the stub) and
++ * wait_stub_done_seccomp() (the UML kernel thread). The parking step itself
++ * (fetch_or of the waiter bit + FUTEX_WAIT loop) stays in the callers: the
++ * two sides make the futex syscall differently and handle its failure
++ * differently, and hiding that behind one helper obscured more than it saved.
++ *
++ * MEMORY ORDERING. The futex syscalls that used to bracket every handoff are
++ * full barriers, and the whole point of this file is to skip those syscalls;
++ * the ordering must therefore come from the accesses themselves. Every write
++ * that flips ownership is a release (stub_futex_xchg), every read that
++ * decides "the peer is done" is an acquire (stub_futex_load_acquire), so the
++ * data written before the flip -- syscall_data, signal, mctx offsets -- is
++ * visible to whoever observes the flip. This is an arm64-only stale-data
++ * class: x86-TSO gives these guarantees to plain accesses, so no amount of
++ * x86 testing can catch getting it wrong here. See the sysdep stub.h of each
++ * arch for the primitives.
++ */
++#ifndef __STUB_FUTEX_H
++#define __STUB_FUTEX_H
++
++#include <sysdep/stub.h>
++
++/* Streak cap only guards against wraparound; any small value works. */
++#define STUB_SPIN_STREAK_MAX	16
++/* Waits between spin probes while the spin keeps missing. */
++#define STUB_SPIN_BACKOFF	16
++
++/*
++ * Hand ownership of the protocol word to the peer, publishing (release) every
++ * write made before the call. Returns nonzero when the peer parked in
++ * FUTEX_WAIT and a FUTEX_WAKE is actually needed; a peer caught spinning (or
++ * still running) observes the exchange on its own.
++ */
++static __always_inline int
++stub_futex_hand_over(volatile unsigned int *futex, unsigned int to)
++{
++	return stub_futex_xchg(futex, to) & STUB_FUTEX_WAITER;
++}
++
++/*
++ * How long this wait may spin, in stub_cycles() ticks. Zero means "go park".
++ */
++static __always_inline unsigned long
++stub_futex_spin_budget(struct stub_spin_state *s, unsigned int spin_ticks)
++{
++	if (!spin_ticks)
++		return 0;
++
++	if (s->streak)
++		return spin_ticks;
++
++	/* Recent miss: sleep for a while before probing the spin again. */
++	if (s->backoff) {
++		s->backoff--;
++		return 0;
++	}
++
++	return spin_ticks;
++}
++
++/* Record the outcome of an actually-attempted spin. */
++static __always_inline void
++stub_futex_spin_result(struct stub_spin_state *s, int hit)
++{
++	if (hit) {
++		if (s->streak < STUB_SPIN_STREAK_MAX)
++			s->streak++;
++	} else {
++		s->streak = 0;
++		s->backoff = STUB_SPIN_BACKOFF;
++	}
++}
++
++/*
++ * Poll the word until ownership leaves `while_owner`, for at most `ticks`
++ * ticks of wall time. Returns the last value observed, read with acquire
++ * semantics, so on a hit the caller may immediately read the peer's data.
++ *
++ * The bound is wall time by construction, never an iteration count: the
++ * budget must mean the same thing at the governor's 300 MHz floor and its
++ * 3.2 GHz ceiling, and only the constant-rate counter delivers that.
++ */
++static __always_inline unsigned int
++stub_futex_spin(volatile unsigned int *futex, unsigned int while_owner,
++		unsigned long ticks)
++{
++	unsigned int val = stub_futex_load_acquire(futex);
++	unsigned long start;
++
++	if (STUB_FUTEX_OWNER(val) != while_owner || !ticks)
++		return val;
++
++	start = stub_cycles();
++	do {
++		stub_relax();
++		val = stub_futex_load_acquire(futex);
++		if (STUB_FUTEX_OWNER(val) != while_owner)
++			break;
++	} while (stub_cycles() - start < ticks);
++
++	return val;
++}
++
++#endif /* __STUB_FUTEX_H */
+--- a/arch/um/include/shared/smp.h	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/include/shared/smp.h	2026-11-20 12:03:46.885131598 +0100
+@@ -5,6 +5,15 @@
+ #if IS_ENABLED(CONFIG_SMP)
+ 
+ extern int uml_ncpus;
++void um_ncpus_init(void);
++
++/*
++ * Drop back to one CPU. A setter rather than a plain assignment because
++ * uml_ncpus is a constant on a uniprocessor build, where this is a no-op --
++ * the alternative is an #ifdef at every caller, which is how the ptrace path
++ * came to break the !SMP build.
++ */
++static inline void um_ncpus_force_up(void) { uml_ncpus = 1; }
+ 
+ int uml_curr_cpu(void);
+ void uml_start_secondary(void *opaque);
+@@ -14,6 +23,8 @@
+ 
+ #define uml_ncpus 1
+ #define uml_curr_cpu() 0
++static inline void um_ncpus_init(void) { }
++static inline void um_ncpus_force_up(void) { }
+ 
+ #endif /* CONFIG_SMP */
+ 
+--- a/arch/um/kernel/skas/mmu.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/kernel/skas/mmu.c	2026-11-20 12:03:46.886900870 +0100
+@@ -49,6 +49,13 @@
+ 	mutex_init(&mm->context.turnstile);
+ 	spin_lock_init(&mm->context.sync_tlb_lock);
+ 
++	/*
++	 * Fault-around detector starts cold: prefault_level is used as an
++	 * array index in trap.c, so it must never be garbage.
++	 */
++	mm->context.prefault_next = 0;
++	mm->context.prefault_level = 0;
++
+ 	stack = __get_free_pages(GFP_KERNEL | __GFP_ZERO, ilog2(STUB_DATA_PAGES));
+ 	if (stack == 0)
+ 		goto out;
+@@ -77,6 +84,38 @@
+ 	return ret;
+ }
+ 
++/*
++ * A stub that has been killed but not yet reaped, and the resources that
++ * cannot be released until the host says it is gone. destroy_context() cannot
++ * keep a pointer into mm->context for this: the mm_struct is freed as soon as
++ * it returns, so the few fields that matter are copied out.
++ */
++struct dying_stub {
++	struct list_head list;
++	int pid;
++	unsigned long stack;
++	int sock;
++};
++
++static LIST_HEAD(dying_stubs);
++
++/* Release what destroy_context() deferred, now that @pid is confirmed dead. */
++static void reap_dying_stub(pid_t pid)
++{
++	struct dying_stub *d, *tmp;
++
++	list_for_each_entry_safe(d, tmp, &dying_stubs, list) {
++		if (d->pid != pid)
++			continue;
++		list_del(&d->list);
++		if (d->sock)
++			os_close_file(d->sock);
++		free_pages(d->stack, ilog2(STUB_DATA_PAGES));
++		kfree(d);
++		return;
++	}
++}
++
+ void destroy_context(struct mm_struct *mm)
+ {
+ 	struct mm_context *mmu = &mm->context;
+@@ -98,6 +137,42 @@
+ 	scoped_guard(spinlock_irqsave, &mm_list_lock)
+ 		list_del(&mm->context.list);
+ 
++	/*
++	 * Killing a stub is cheap; waiting for it to die is not, and this path
++	 * runs twice for every guest execve. os_kill_ptraced_process() with
++	 * reap_child set blocks in waitpid() with signals off, so the whole
++	 * kernel stops for as long as the host takes to reap: measured on a
++	 * Galaxy S26 at 54.5-55.0us, and flat at 0, 32, 128 and 512 mappings,
++	 * so it is the reap latency itself rather than any work being done.
++	 *
++	 * The wait is not gratuitous, though, which is why this is not simply
++	 * dropped: the free_pages() below hands back the page the stub shares
++	 * with us, and doing that while the stub is still alive is a
++	 * use-after-free on the other side.
++	 *
++	 * So keep the ordering and lose the wait: hand the pid and its pages to
++	 * the SIGCHLD reaper, which already runs and already knows how to
++	 * collect dead stubs, and let it free them once the host confirms the
++	 * process is gone. In ptrace mode there is no SIGCHLD handler
++	 * registered at all (see arch/um/os-Linux/signal.c), so there is nobody
++	 * to hand to and the synchronous path stays.
++	 */
++	if (mmu->id.pid > 0 && using_seccomp) {
++		struct dying_stub *d = kmalloc(sizeof(*d), GFP_ATOMIC);
++
++		if (d) {
++			d->pid = mmu->id.pid;
++			d->stack = mmu->id.stack;
++			d->sock = mmu->id.sock;
++			scoped_guard(spinlock_irqsave, &mm_list_lock)
++				list_add(&d->list, &dying_stubs);
++			os_kill_ptraced_process(mmu->id.pid, 0);
++			mmu->id.pid = -1;
++			return;
++		}
++		/* Out of memory: do it the slow, safe way below instead. */
++	}
++
+ 	if (mmu->id.pid > 0) {
+ 		os_kill_ptraced_process(mmu->id.pid, 1);
+ 		mmu->id.pid = -1;
+@@ -118,6 +193,14 @@
+ 
+ 	while ((pid = os_reap_child()) > 0) {
+ 		/*
++		 * Most reaped children are stubs destroy_context() killed and
++		 * handed over rather than waited for. Release those first; the
++		 * search below is for a stub that died without being asked to,
++		 * and a handed-over one is no longer on mm_list to be found.
++		 */
++		reap_dying_stub(pid);
++
++		/*
+ 		* A child died, check if we have an MM with the PID. This is
+ 		* only relevant in SECCOMP mode (as ptrace will fail anyway).
+ 		*
+@@ -133,9 +216,24 @@
+ 
+ 				stub_data = (void *)mm_context->id.stack;
+ 				stub_data->futex = FUTEX_IN_KERN;
+-#if IS_ENABLED(CONFIG_SMP)
++				/*
++				 * Unconditional on purpose -- the waiter-bit
++				 * wake elision must never be used on this
++				 * path. The waiter can be anywhere between
++				 * spinning and parking, and a dead stub will
++				 * never issue another handoff to correct a
++				 * skipped wake: a spurious FUTEX_WAKE here is
++				 * noise, a missed one is a task hung forever.
++				 * The plain store can race with the waiter's
++				 * fetch_or of its waiter bit; that is fine,
++				 * because FUTEX_WAIT revalidates the value it
++				 * was passed and this wake always fires. The
++				 * syscall also carries the barrier the plain
++				 * store lacks. (This was SMP-only before the
++				 * spin existed; now the wake is the one kick
++				 * that works no matter where the waiter is.)
++				 */
+ 				os_futex_wake(&stub_data->futex);
+-#endif
+ 
+ 				/*
+ 				 * NOTE: Currently executing syscalls by
+@@ -153,6 +251,20 @@
+ {
+ 	int err;
+ 
++	/*
++	 * The handoff word must own its cacheline outright: both sides poll
++	 * it, and a field the peer writes sharing the line would turn the
++	 * spin in stub-futex.h into a stream of coherence misses. Assert the
++	 * layout so a reorder of struct stub_data cannot quietly regress
++	 * this -- it would still be correct, just slow in a way nothing
++	 * functional would ever catch.
++	 */
++	BUILD_BUG_ON(offsetof(struct stub_data, futex) % STUB_FUTEX_ALIGN != 0);
++	BUILD_BUG_ON(offsetofend(struct stub_data, syscall_data_len) >
++		     offsetof(struct stub_data, futex));
++	BUILD_BUG_ON(offsetof(struct stub_data, syscall_data) <
++		     offsetof(struct stub_data, futex) + STUB_FUTEX_ALIGN);
++
+ 	spin_lock_init(&mm_list_lock);
+ 	INIT_LIST_HEAD(&mm_list);
+ 
+--- a/arch/um/kernel/skas/stub.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/kernel/skas/stub.c	2026-11-20 11:33:13.308668037 +0100
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <sysdep/stub.h>
++#include <stub-futex.h>
+ 
+ #include <linux/futex.h>
+ #include <sys/socket.h>
+@@ -112,6 +113,8 @@
+ 	struct cmsghdr *fd_msg;
+ 	int *fd_map;
+ 	int num_fds;
++	unsigned long budget;
++	unsigned int futex_val;
+ 	long res;
+ 
+ 	d->signal = sig;
+@@ -119,19 +122,59 @@
+ 	d->mctx_offset = (unsigned long)&uc->uc_mcontext - (unsigned long)&d->sigstack[0];
+ 
+ restart_wait:
+-	d->futex = FUTEX_IN_KERN;
+-	do {
+-		res = stub_syscall3(__NR_futex, (unsigned long)&d->futex,
+-				    FUTEX_WAKE, 1);
+-	} while (res == -EINTR);
+-
+-	do {
+-		res = stub_syscall4(__NR_futex, (unsigned long)&d->futex,
+-				    FUTEX_WAIT, FUTEX_IN_KERN, 0);
+-	} while (res == -EINTR || d->futex == FUTEX_IN_KERN);
++	/*
++	 * Hand the word to the kernel. The exchange's release ordering
++	 * publishes everything written above (signal, offsets, arch state)
++	 * before the kernel can observe the flip, and its return value says
++	 * whether the kernel actually parked -- only then does FUTEX_WAKE buy
++	 * anything. When the kernel-side spin caught the flip, the wake it
++	 * elides here is the syscall plus the voluntary context switch that
++	 * dominates the measured handoff cost.
++	 */
++	if (stub_futex_hand_over(&d->futex, FUTEX_IN_KERN)) {
++		do {
++			res = stub_syscall3(__NR_futex, (unsigned long)&d->futex,
++					    FUTEX_WAKE, 1);
++		} while (res == -EINTR);
++	}
++
++	/*
++	 * Wait for the kernel's reply: spin within the budget first, so a fast
++	 * reply is observed without ever entering FUTEX_WAIT.
++	 */
++	budget = stub_futex_spin_budget(&d->stub_spin, d->spin_ticks);
++	futex_val = stub_futex_spin(&d->futex, FUTEX_IN_KERN, budget);
++	if (budget)
++		stub_futex_spin_result(&d->stub_spin,
++				       STUB_FUTEX_OWNER(futex_val) == FUTEX_IN_CHILD);
++
++	if (STUB_FUTEX_OWNER(futex_val) == FUTEX_IN_KERN) {
++		/*
++		 * Going to sleep: advertise it, so the kernel's handoff knows
++		 * a wake is needed. If the reply slipped in between the spin
++		 * and this fetch_or, the returned old value shows the flip
++		 * and the wait is skipped entirely.
++		 */
++		futex_val = stub_futex_fetch_or(&d->futex, STUB_FUTEX_WAITER) |
++			STUB_FUTEX_WAITER;
++
++		while (STUB_FUTEX_OWNER(futex_val) == FUTEX_IN_KERN) {
++			/*
++			 * The expected value passed to FUTEX_WAIT is the one
++			 * just observed, re-read after the fetch_or and after
++			 * every wakeup. This is what makes a wake landing
++			 * between the spin and the wait impossible to lose:
++			 * if the word changed since the read, FUTEX_WAIT
++			 * refuses with EAGAIN instead of sleeping through it.
++			 */
++			res = stub_syscall4(__NR_futex, (unsigned long)&d->futex,
++					    FUTEX_WAIT, futex_val, 0);
++			if (res < 0 && res != -EINTR && res != -EAGAIN)
++				stub_syscall1(__NR_exit_group, 1);
+ 
+-	if (res < 0 && res != -EAGAIN)
+-		stub_syscall1(__NR_exit_group, 1);
++			futex_val = stub_futex_load_acquire(&d->futex);
++		}
++	}
+ 
+ 	if (d->syscall_data_len) {
+ 		/* Read passed FDs (if any) */
+--- a/arch/um/kernel/smp.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/kernel/smp.c	2026-11-20 12:03:46.883021757 +0100
+@@ -205,8 +205,50 @@
+ {
+ }
+ 
+-/* Set in uml_ncpus_setup */
+-int uml_ncpus = 1;
++/*
++ * Set by ncpus= if given, otherwise by um_ncpus_init() from the host's CPU
++ * count. Zero means "nobody has decided yet", which is why the default is not
++ * simply written here.
++ */
++int uml_ncpus;
++
++/*
++ * Choose a CPU count when the command line did not.
++ *
++ * One less than the host has, because UML's CPUs are host threads and they are
++ * not the only threads it runs: the kernel thread and the stub processes need
++ * to be scheduled too, so asking for exactly as many CPUs as the host has
++ * oversubscribes it and the guest's own threads start evicting each other.
++ *
++ * Measured on a Raspberry Pi 5 (4x Cortex-A76, 16K pages, guest built from this
++ * tree), parallel compile in the guest, medians of 3 rounds, milliseconds:
++ *
++ *	ncpus=	1	2	3	4
++ *	make -jN	3000	1717	1483	1587
++ *	make -j1	2969	2928	2977	3002
++ *
++ * -- so three CPUs beat four on a four-CPU host, and the flat -j1 column is the
++ * control saying the machine did not move under the measurement. Defaulting to
++ * 1, as this did, left all of that unclaimed unless the operator knew the
++ * option existed.
++ *
++ * A host that only supports ptrace userspace cannot run more than one CPU
++ * thread; start_up.c clamps this back to 1 there, with a message, rather than
++ * refusing to boot.
++ */
++void __init um_ncpus_init(void)
++{
++	int host;
++
++	if (uml_ncpus)		/* ncpus= was given; the operator decides */
++		return;
++
++	host = os_nr_cpus_online();
++	uml_ncpus = clamp(host - 1, 1, NR_CPUS);
++
++	os_info("Using %d CPUs of the host's %d (ncpus= to override)\n",
++		uml_ncpus, host);
++}
+ 
+ void __init prefill_possible_map(void)
+ {
+--- a/arch/um/kernel/trap.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/kernel/trap.c	2026-11-20 11:33:13.317927407 +0100
+@@ -7,7 +7,9 @@
+ #include <linux/sched/signal.h>
+ #include <linux/hardirq.h>
+ #include <linux/module.h>
++#include <linux/sizes.h>
+ #include <linux/uaccess.h>
++#include <linux/userfaultfd_k.h>
+ #include <linux/sched/debug.h>
+ #include <asm/current.h>
+ #include <asm/tlbflush.h>
+@@ -134,6 +136,265 @@
+ }
+ 
+ /*
++ * Anonymous fault-around.
++ *
++ * Every guest page fault costs a full stub handoff: SIGSEGV in the child,
++ * futex/ptrace transfer to the UML kernel thread, and a second transfer back
++ * to resume -- 18.9us (seccomp) / 41.0us (ptrace) per fault on the reference
++ * device, dominated entirely by the two voluntary context switches, not by
++ * handle_mm_fault. The stub mmap transport, however, is already a
++ * batch: um_tlb_sync walks the marked PTE range and queues one stub_syscall
++ * per page, and the whole queue is executed in the *same* handoff that
++ * resumes the guest (see userspace() in os-Linux/skas/process.c). So if we
++ * install K extra PTEs while we are here anyway, K pages ride one handoff
++ * instead of costing K.
++ *
++ * This helps only paths where each page really would fault separately, i.e.
++ * the guest touching fresh anonymous memory. It does NOT help copy_to_user
++ * and friends: uaccess runs in the kernel address space and takes no per-page
++ * stub handoff in the first place.
++ *
++ * The speculation is restricted to vma_is_anonymous() && pte_none() &&
++ * !userfaultfd_armed():
++ *  - file-backed faults can do I/O and have their own fault-around upstream;
++ *  - a non-none PTE may be a swap entry, and do_swap_page can block or
++ *    return VM_FAULT_RETRY -- pte_none keeps us on the do_anonymous_page
++ *    path only;
++ *  - userfaultfd must see real faults, not speculative ones.
++ *
++ * The window ramps up in pages driven by a sequential-stream detector, so a
++ * random-access workload never pays for pages it will not touch; only a stream
++ * that keeps faulting exactly past the previous window earns a bigger one.
++ *
++ * The "prefault=" command-line override is in BYTES (0 disables) because
++ * PAGE_SIZE is parametric here and a page count would mean four times the
++ * memory on a 16K guest than on a 4K one. The *default* has to scale the other
++ * way, though, and getting that backwards cost most of the benefit: a fixed
++ * 128K default is 32 pages at 4K but only 8 at 16K, which silently truncates
++ * the ramp at its second-to-last step. Measured on a Snapdragon 870, 16K
++ * guest, 32MB working set, median of 7:
++ *
++ *	prefault=0	1492 MB/s	windows disabled
++ *	128K (8 pages)	2495 MB/s	what the fixed default gave
++ *	512K (32 pages)	4601 MB/s	the full ramp
++ *
++ * with the host managing 3222 MB/s on the same test -- so the truncated
++ * default was the difference between trailing the host by a quarter and
++ * beating it by 43%. Tie the default to the ramp instead, and the top of the
++ * ramp is reachable at any page size. On a 4K guest this is 128K, exactly the
++ * old default, so only the larger page sizes change behaviour.
++ *
++ * 32 is where the curve flattens, which is why the ramp stops there: extending
++ * it and re-measuring the same way gave 4908 MB/s at 64 pages and 4824 at 128,
++ * i.e. nothing beyond the noise for four times the memory speculated per
++ * fault.
++ */
++#define UM_PREFAULT_MAX_PAGES 32
++static const unsigned int um_prefault_ramp[] = {
++	0, 4, 16, UM_PREFAULT_MAX_PAGES
++};
++#define UM_PREFAULT_LEVEL_MAX (ARRAY_SIZE(um_prefault_ramp) - 1)
++
++static unsigned long um_prefault_bytes __read_mostly =
++	UM_PREFAULT_MAX_PAGES * PAGE_SIZE;
++
++static int __init um_prefault_setup(char *str)
++{
++	um_prefault_bytes = memparse(str, &str);
++	return 1;
++}
++__setup("prefault=", um_prefault_setup);
++
++/*
++ * Count the leading run of pte_none() pages in [addr, seg_end), where the
++ * caller guarantees the range does not cross a PMD (or folded-level)
++ * boundary, so a single PTE table covers it. Sets *stop if the scan hit
++ * something that ends the speculation window (a populated PTE, a swap entry,
++ * or a PTE table we cannot map).
++ */
++static unsigned int um_prefault_scan(struct mm_struct *mm, unsigned long addr,
++				     unsigned long seg_end, bool *stop)
++{
++	unsigned int max = (seg_end - addr) >> PAGE_SHIFT;
++	unsigned int nr = 0;
++	pgd_t *pgd;
++	p4d_t *p4d;
++	pud_t *pud;
++	pmd_t *pmd;
++	pte_t *pte;
++
++	/*
++	 * A missing table at any level means every PTE below it is none, and
++	 * that is the common case for a fresh allocation: the whole segment
++	 * is prefaultable and handle_mm_fault will build the tables.
++	 */
++	pgd = pgd_offset(mm, addr);
++	if (pgd_none(*pgd))
++		return max;
++	if (unlikely(pgd_bad(*pgd)))
++		goto stop;
++
++	p4d = p4d_offset(pgd, addr);
++	if (p4d_none(*p4d))
++		return max;
++	if (unlikely(p4d_bad(*p4d)))
++		goto stop;
++
++	pud = pud_offset(p4d, addr);
++	if (pud_none(*pud))
++		return max;
++	if (unlikely(pud_bad(*pud)))
++		goto stop;
++
++	pmd = pmd_offset(pud, addr);
++	if (pmd_none(*pmd))
++		return max;
++	if (unlikely(pmd_bad(*pmd)))
++		goto stop;
++
++	/*
++	 * pte_offset_map() may return NULL (racing table teardown). We are
++	 * purely speculative, so any ambiguity just ends the window.
++	 */
++	pte = pte_offset_map(pmd, addr);
++	if (!pte)
++		goto stop;
++
++	while (nr < max && pte_none(pte[nr]))
++		nr++;
++	pte_unmap(pte);
++
++	if (nr < max)
++		*stop = true;
++	return nr;
++
++stop:
++	*stop = true;
++	return 0;
++}
++
++/*
++ * Called with mmap_read_lock held, right after the primary fault succeeded
++ * and before the single handoff that will publish it to the stub.
++ *
++ * Returns false only if handle_mm_fault dropped the mmap lock (the caller
++ * must then skip its unlock). With the flags we pass that is a can't-happen,
++ * but see the comment at the VM_FAULT_RETRY check -- silently guessing wrong
++ * about lock ownership here is either a double-unlock or a leaked lock.
++ */
++static bool um_prefault_around(struct mm_struct *mm, struct vm_area_struct *vma,
++			       unsigned long address, unsigned int flags)
++{
++	unsigned long addr, end;
++	unsigned int level = 0, nr;
++	int slots;
++
++	if (!um_prefault_bytes)
++		return true;
++
++	if (!vma_is_anonymous(vma) || userfaultfd_armed(vma))
++		return true;
++
++	address &= PAGE_MASK;
++
++	/*
++	 * Sequential-stream detector: a stream that consumed its previous
++	 * window faults exactly at prefault_next. Anything else resets the
++	 * ramp, so the first fault of any stream (and every fault of a random
++	 * workload) prefaults nothing.
++	 */
++	if (address == READ_ONCE(mm->context.prefault_next)) {
++		level = READ_ONCE(mm->context.prefault_level);
++		level = min_t(unsigned int, level + 1, UM_PREFAULT_LEVEL_MAX);
++	}
++	WRITE_ONCE(mm->context.prefault_level, level);
++
++	nr = um_prefault_ramp[level];
++	nr = min_t(unsigned long, nr, um_prefault_bytes >> PAGE_SHIFT);
++
++	/*
++	 * Anonymous pages land at arbitrary physmem offsets, so map() almost
++	 * never merges them: budget one syscall_data slot per page, plus one
++	 * for the primary fault, and never overflow the batch -- an overflow
++	 * flushes mid-batch, which is exactly the extra handoff this code
++	 * exists to avoid.
++	 */
++	slots = syscall_stub_free_slots(&mm->context.id) - 1;
++	if (slots < 0)
++		slots = 0;
++	nr = min_t(unsigned int, nr, slots);
++
++	addr = address + PAGE_SIZE;
++	end = addr + (unsigned long)nr * PAGE_SIZE;
++	if (end > vma->vm_end)
++		end = vma->vm_end;
++	if (end < addr)
++		end = addr;
++
++	/* Next fault of a sequential stream lands one page past the window. */
++	WRITE_ONCE(mm->context.prefault_next, end);
++
++	/*
++	 * FAULT_FLAG_ALLOW_RETRY must go: VM_FAULT_RETRY releases the mmap
++	 * lock, and our caller still owns a read lock it will unlock exactly
++	 * once. KILLABLE/INTERRUPTIBLE must go with it -- they are only valid
++	 * with retry, and a speculative fault has no business aborting on a
++	 * signal that the (already-satisfied) primary fault will handle.
++	 */
++	flags &= ~(FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE |
++		   FAULT_FLAG_INTERRUPTIBLE | FAULT_FLAG_TRIED);
++
++	while (addr < end) {
++		unsigned long seg_end;
++		unsigned int i, pages;
++		bool stop = false;
++
++		/*
++		 * Clamp the scan to one PTE table. Cascading through every
++		 * level's addr_end keeps this correct whichever levels are
++		 * folded (2-level and 4-level layouts both build here).
++		 */
++		seg_end = pgd_addr_end(addr, end);
++		seg_end = p4d_addr_end(addr, seg_end);
++		seg_end = pud_addr_end(addr, seg_end);
++		seg_end = pmd_addr_end(addr, seg_end);
++
++		pages = um_prefault_scan(mm, addr, seg_end, &stop);
++
++		for (i = 0; i < pages; i++, addr += PAGE_SIZE) {
++			vm_fault_t fault;
++
++			fault = handle_mm_fault(vma, addr, flags, NULL);
++
++			/*
++			 * Cannot happen for a pte_none anonymous fault with
++			 * ALLOW_RETRY stripped; if the mm core ever breaks
++			 * that contract, both codes mean it dropped the mmap
++			 * lock, so tell the caller instead of double-
++			 * unlocking.
++			 */
++			if (WARN_ON_ONCE(fault &
++					 (VM_FAULT_RETRY | VM_FAULT_COMPLETED)))
++				return false;
++
++			/*
++			 * Speculative failure (e.g. OOM) must not surface:
++			 * the primary fault already succeeded, the guest will
++			 * come back for this page if it really wants it.
++			 */
++			if (fault & VM_FAULT_ERROR)
++				return true;
++		}
++
++		if (stop)
++			break;
++		addr = seg_end;
++	}
++
++	return true;
++}
++
++/*
+  * Note this is constrained to return 0, -EFAULT, -EACCES, -ENOMEM by
+  * segv().
+  */
+@@ -207,6 +468,17 @@
+ 		pte = pte_offset_kernel(pmd, address);
+ 	} while (!pte_present(*pte));
+ 	err = 0;
++
++	/*
++	 * The fault is resolved but not yet published to the stub -- that
++	 * happens in one batched handoff on the way back to userspace. Piggy-
++	 * back a fault-around window onto that same handoff. Guest faults
++	 * only: a kernel-mode fault (uaccess) pays no per-page handoff, so
++	 * there is nothing to save.
++	 */
++	if (is_user && !um_prefault_around(mm, vma, address, flags))
++		goto out_nosemaphore;
++
+ 	/*
+ 	 * The below warning was added in place of
+ 	 *	pte_mkyoung(); if (is_write) pte_mkdirty();
+--- a/arch/um/kernel/um_arch.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/kernel/um_arch.c	2026-11-20 12:03:46.883260916 +0100
+@@ -342,6 +342,13 @@
+ 	 */
+ 	task_size = task_size & PGDIR_MASK;
+ 
++	/*
++	 * Before os_early_checks(), which is where a host that can only offer
++	 * ptrace userspace clamps the count back to one: it has to see the
++	 * number we actually intend to use, not the unset zero.
++	 */
++	um_ncpus_init();
++
+ 	/* OS sanity checks that need to happen before the kernel runs */
+ 	os_early_checks();
+ 
+--- a/arch/um/os-Linux/skas/mem.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/os-Linux/skas/mem.c	2026-11-20 11:33:13.315138902 +0100
+@@ -175,6 +175,25 @@
+ 	return sc;
+ }
+ 
++/*
++ * How many more stub syscalls fit into the current batch without forcing a
++ * flush. The fault-around code in trap.c uses this to cap its window: a
++ * prefault that overflowed the batch would trigger a mid-batch handoff in
++ * do_syscall_stub, i.e. exactly the extra round trip prefaulting exists to
++ * avoid. Worst case each prefaulted page costs one slot (anonymous pages have
++ * arbitrary physmem offsets, so map() can rarely merge them).
++ */
++int syscall_stub_free_slots(struct mm_id *mm_idp)
++{
++	struct stub_data *proc_data = (void *)mm_idp->stack;
++
++	/* Batch is in an error state; report no room. */
++	if (mm_idp->syscall_data_len < 0)
++		return 0;
++
++	return ARRAY_SIZE(proc_data->syscall_data) - mm_idp->syscall_data_len;
++}
++
+ static struct stub_syscall *syscall_stub_get_previous(struct mm_id *mm_idp,
+ 						      int syscall_type,
+ 						      unsigned long virt)
+--- a/arch/um/os-Linux/skas/process.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/os-Linux/skas/process.c	2026-11-20 11:33:41.906966218 +0100
+@@ -27,6 +27,7 @@
+ #include <registers.h>
+ #include <skas.h>
+ #include <sysdep/stub.h>
++#include <stub-futex.h>
+ #include <sysdep/mcontext.h>
+ #include <linux/futex.h>
+ #include <linux/threads.h>
+@@ -147,9 +148,49 @@
+ 	fatal_sigsegv();
+ }
+ 
++/*
++ * How long each side may busy-poll the handoff word before parking, in
++ * microseconds. The measured 22 us seccomp syscall round trip is mostly
++ * handoff overhead around a few microseconds of actual work, so 10 us covers
++ * the reply for the syscalls that matter while capping what a miss can burn
++ * at roughly the cost of the futex sleep it tried to avoid. The hit-streak
++ * accounting (see stub-futex.h) keeps an idle or compute-bound guest from
++ * paying even that on every wait.
++ */
++#define SECCOMP_SPIN_DEFAULT_US 10
++
++static unsigned long seccomp_spin_us = SECCOMP_SPIN_DEFAULT_US;
++
++static int __init uml_seccomp_spin_setup(char *line, int *add)
++{
++	*add = 0;
++	seccomp_spin_us = strtoul(line, NULL, 0);
++
++	/*
++	 * Anything beyond a scheduling quantum defeats the purpose and risks
++	 * the budget arithmetic overflowing spin_ticks; clamp, don't reject.
++	 */
++	if (seccomp_spin_us > 100000)
++		seccomp_spin_us = 100000;
++
++	return 0;
++}
++
++__uml_setup("seccomp_spin=", uml_seccomp_spin_setup,
++"seccomp_spin=<microseconds>\n"
++"    In SECCOMP mode, busy-poll the stub<->kernel handoff word this long\n"
++"    before sleeping in FUTEX_WAIT, so a fast peer is observed without the\n"
++"    futex syscalls and the context switch they cost. Bounded by wall time\n"
++"    (the constant-rate architected counter), not iterations, so it means\n"
++"    the same thing at every CPU frequency. An adaptive hit-streak stops\n"
++"    the polling when the peer keeps being slow. 0 disables polling.\n"
++"    Default: 10 (SECCOMP_SPIN_DEFAULT_US).\n\n");
++
+ void wait_stub_done_seccomp(struct mm_id *mm_idp, int running, int wait_sigsys)
+ {
+ 	struct stub_data *data = (void *)mm_idp->stack;
++	unsigned long budget;
++	unsigned int futex_val;
+ 	int ret;
+ 
+ 	do {
+@@ -187,12 +228,43 @@
+ 			}
+ 
+ 			data->signal = 0;
+-			data->futex = FUTEX_IN_CHILD;
+-			CATCH_EINTR(syscall(__NR_futex, &data->futex,
+-					    FUTEX_WAKE, 1, NULL, NULL, 0));
++			/*
++			 * The exchange's release ordering publishes signal and
++			 * syscall_data before the stub can observe the flip;
++			 * the returned old value elides the FUTEX_WAKE when
++			 * the stub's spin caught the reply and never parked.
++			 */
++			if (stub_futex_hand_over(&data->futex, FUTEX_IN_CHILD))
++				CATCH_EINTR(syscall(__NR_futex, &data->futex,
++						    FUTEX_WAKE, 1, NULL, NULL, 0));
+ 		}
+ 
+-		do {
++		/*
++		 * A stub that answers within the budget is observed by the
++		 * spin without ever entering FUTEX_WAIT. A dead child cannot
++		 * flip the word, so the spin can only cost its bounded budget
++		 * before the PID checks below run as they always did.
++		 */
++		budget = stub_futex_spin_budget(&data->kern_spin,
++						data->spin_ticks);
++		futex_val = stub_futex_spin(&data->futex, FUTEX_IN_CHILD,
++					    budget);
++		if (budget)
++			stub_futex_spin_result(&data->kern_spin,
++					       STUB_FUTEX_OWNER(futex_val) == FUTEX_IN_KERN);
++
++		/*
++		 * Going to sleep: advertise it via the waiter bit so the
++		 * stub's handoff knows to send a wake. The fetch_or returns
++		 * the old value, so a flip that happened since the spin gave
++		 * up is seen here and skips the wait entirely.
++		 */
++		if (STUB_FUTEX_OWNER(futex_val) == FUTEX_IN_CHILD)
++			futex_val = stub_futex_fetch_or(&data->futex,
++							STUB_FUTEX_WAITER) |
++				STUB_FUTEX_WAITER;
++
++		while (STUB_FUTEX_OWNER(futex_val) == FUTEX_IN_CHILD) {
+ 			/*
+ 			 * We need to check whether the child is still alive
+ 			 * before and after the FUTEX_WAIT call. Before, in
+@@ -207,15 +279,25 @@
+ 			if (__READ_ONCE(mm_idp->pid) < 0)
+ 				goto out_kill;
+ 
++			/*
++			 * The expected value is the freshly observed one, not
++			 * the constant: if the stub (or the death path in
++			 * mm_sigchld_irq) flipped the word between the read
++			 * and this call, FUTEX_WAIT returns EAGAIN instead of
++			 * sleeping through the wake, and the acquire re-read
++			 * below picks the flip up.
++			 */
+ 			ret = syscall(__NR_futex, &data->futex,
+-				      FUTEX_WAIT, FUTEX_IN_CHILD,
++				      FUTEX_WAIT, futex_val,
+ 				      NULL, NULL, 0);
+ 			if (ret < 0 && errno != EINTR && errno != EAGAIN) {
+ 				printk(UM_KERN_ERR "%s : FUTEX_WAIT failed, errno = %d\n",
+ 				       __func__, errno);
+ 				goto out_kill;
+ 			}
+-		} while (data->futex == FUTEX_IN_CHILD);
++
++			futex_val = stub_futex_load_acquire(&data->futex);
++		}
+ 
+ 		if (__READ_ONCE(mm_idp->pid) < 0)
+ 			goto out_kill;
+@@ -427,6 +509,7 @@
+ __initcall(init_stub_exe_fd);
+ 
+ int using_seccomp;
++int have_stub_cycles;
+ 
+ /**
+  * start_userspace() - prepare a new userspace process
+@@ -471,8 +554,24 @@
+ 		return err;
+ 	}
+ 
+-	if (using_seccomp)
++	if (using_seccomp) {
+ 		proc_data->futex = FUTEX_IN_CHILD;
++		/*
++		 * Convert the microsecond budget into counter ticks once per
++		 * stub, before it first runs; the stub cannot compute this
++		 * itself without re-reading the counter frequency on every
++		 * trap. stub_cycles_per_us() is 0 where no constant-rate EL0
++		 * counter is available (x86), which disables the spin but
++		 * keeps the waiter-bit protocol.
++		 */
++		/*
++	 * No usable cycle counter means no bounded spin: the budget would be
++	 * meaningless and the register read is not even guaranteed to be legal.
++	 * See check_stub_cycles().
++	 */
++	proc_data->spin_ticks = have_stub_cycles ?
++		seccomp_spin_us * stub_cycles_per_us() : 0;
++	}
+ 
+ 	mm_id->pid = clone(userspace_tramp, (void *) sp,
+ 		    CLONE_VFORK | CLONE_VM | SIGCHLD,
+--- a/arch/um/os-Linux/start_up.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/os-Linux/start_up.c	2026-11-20 12:03:46.885232778 +0100
+@@ -13,6 +13,7 @@
+ #include <sched.h>
+ #include <signal.h>
+ #include <string.h>
++#include <time.h>
+ #include <sys/mman.h>
+ #include <sys/stat.h>
+ #include <sys/wait.h>
+@@ -193,6 +194,88 @@
+ 	fatal("missing\n");
+ }
+ 
++/*
++ * Is the cycle counter the stub's adaptive spin is budgeted against readable?
++ *
++ * On arm64 that is CNTVCT_EL0/CNTFRQ_EL0, and userspace may only read them when
++ * CNTKCTL_EL1.EL0VCTEN is set. Linux sets it because its own vDSO needs it --
++ * but that is a statement about Linux, not about the host actually underneath
++ * us, which may be an emulator or a hypervisor that traps the register. Getting
++ * it wrong costs a SIGILL raised inside the stub, where nothing is listening
++ * and the boot dies with no message naming the instruction.
++ *
++ * A child pays for the answer, so an illegal instruction costs one process
++ * rather than the boot. A host without one simply does not spin.
++ */
++#ifdef __x86_64__
++#include <cpuid.h>
++
++unsigned long stub_tsc_per_us;
++
++/*
++ * TSC ticks per microsecond, or 0. Only an invariant TSC (CPUID
++ * 0x80000007 EDX bit 8) ticks at one rate through frequency changes and
++ * idle states, so only then is a tick budget a time budget.
++ */
++static void __init calibrate_stub_tsc(void)
++{
++	unsigned int eax, ebx, ecx, edx;
++	struct timespec start, end;
++	unsigned long ticks, ns;
++
++	if (!__get_cpuid(0x80000007, &eax, &ebx, &ecx, &edx) || !(edx & (1U << 8)))
++		return;
++
++	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
++	ticks = stub_cycles();
++	do {
++		clock_gettime(CLOCK_MONOTONIC_RAW, &end);
++		ns = (end.tv_sec - start.tv_sec) * 1000000000UL +
++		     end.tv_nsec - start.tv_nsec;
++	} while (ns < 20000000UL);
++	ticks = stub_cycles() - ticks;
++	stub_tsc_per_us = ticks * 1000 / ns;
++	os_info("TSC %lu ticks/us; ", stub_tsc_per_us);
++}
++#endif
++
++static void __init check_stub_cycles(void)
++{
++	int pid, n, status;
++
++	os_info("Checking the stub's cycle counter...");
++#ifdef __x86_64__
++	calibrate_stub_tsc();
++#endif
++
++	pid = fork();
++	if (pid == 0) {
++		/* Both are read on the hot path; probe both. */
++		if (!stub_cycles_per_us())
++			_exit(1);
++		stub_cycles();
++		_exit(0);
++	}
++	if (pid < 0)
++		fatal_perror("check_stub_cycles: fork failed");
++
++	CATCH_EINTR(n = waitpid(pid, &status, 0));
++	if (n < 0)
++		fatal_perror("check_stub_cycles: wait failed");
++
++	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
++		have_stub_cycles = 1;
++		os_info("OK\n");
++		return;
++	}
++
++	if (WIFSIGNALED(status))
++		os_info("unreadable (signal %d); stub spin disabled\n",
++			WTERMSIG(status));
++	else
++		os_info("no usable rate; stub spin disabled\n");
++}
++
+ static void __init check_ptrace(void)
+ {
+ 	int pid, syscall, n, status;
+@@ -472,6 +555,12 @@
+ 	 */
+ 	check_tmpexec();
+ 
++	/*
++	 * Before either mode is chosen: the spin this gates belongs to SECCOMP
++	 * mode, and that path returns below without reaching check_ptrace().
++	 */
++	check_stub_cycles();
++
+ 	if (seccomp_config) {
+ 		if (init_seccomp()) {
+ 			using_seccomp = 1;
+@@ -482,8 +571,31 @@
+ 			fatal("SECCOMP userspace requested but not functional!\n");
+ 	}
+ 
+-	if (uml_ncpus > 1)
+-		fatal("SMP is not supported with PTRACE userspace.\n");
++	/*
++	 * ptrace cannot drive more than one CPU thread, but that is a reason to
++	 * bring up one CPU rather than to refuse to boot. Dying here makes the
++	 * CPU count a property of the host: the same command line that works on
++	 * a host with seccomp kills the kernel on one without, before even
++	 * "Linux version" is printed, and the operator has to know which kind of
++	 * host they have before they can pick a number.
++	 *
++	 * Treat ncpus= as a request for an upper bound, which is what it already
++	 * is against NR_CPUS -- uml_ncpus_setup() clamps it there the same way.
++	 * One binary then scales to whatever each host allows, and a host that
++	 * only has ptrace gets a slower boot instead of no boot.
++	 */
++	/*
++	 * Guarded because uml_ncpus is not a variable on a uniprocessor build:
++	 * arch/um/include/shared/smp.h defines it as the constant 1 there, so
++	 * the assignment below does not compile at all. Nothing to clamp in
++	 * that configuration anyway.
++	 */
++	if (IS_ENABLED(CONFIG_SMP) && uml_ncpus > 1) {
++		os_info("SMP is not supported with ptrace userspace; "
++			"running on 1 CPU instead of the %d requested\n",
++			uml_ncpus);
++		um_ncpus_force_up();
++	}
+ 
+ 	using_seccomp = 0;
+ 	check_ptrace();
+--- a/arch/um/os-Linux/util.c	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/um/os-Linux/util.c	2026-11-20 12:03:46.883594012 +0100
+@@ -207,3 +207,15 @@
+ 	fwrite(buf, len, 1, stderr);
+ 	va_end(list);
+ }
++
++/*
++ * CPUs the host will actually run us on. Used to pick a default for ncpus=;
++ * sysconf() rather than parsing /proc/cpuinfo because UML must work where /proc
++ * is not mounted, which is the ordinary case inside an app sandbox.
++ */
++int os_nr_cpus_online(void)
++{
++	long n = sysconf(_SC_NPROCESSORS_ONLN);
++
++	return n > 0 ? (int)n : 1;
++}
+--- a/arch/x86/um/shared/sysdep/stub.h	2026-10-03 12:43:16.000000000 +0200
++++ b/arch/x86/um/shared/sysdep/stub.h	2026-11-20 11:37:25.144537671 +0100
+@@ -1,4 +1,13 @@
+ /* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Guarded because <stub-futex.h> includes this on top of direct includers.
++ * The guard name must differ from __SYSDEP_STUB_H: stub_32.h/stub_64.h below
++ * already use that one internally, and defining it here first would silently
++ * skip their entire body.
++ */
++#ifndef __SYSDEP_X86_STUB_H
++#define __SYSDEP_X86_STUB_H
++
+ #include <asm/unistd.h>
+ #include <sys/mman.h>
+ #include <signal.h>
+@@ -11,7 +20,91 @@
+ #include "stub_64.h"
+ #endif
+ 
++/*
++ * Handoff-word atomics for <stub-futex.h>.
++ *
++ * x86-TSO already makes every store a release and every load an acquire, so
++ * unlike the arm64 versions these only need to add atomicity for the
++ * read-modify-writes (the LOCK prefix; XCHG with a memory operand is locked
++ * implicitly) and a compiler barrier so the poll re-reads memory.
++ */
++static __always_inline unsigned int
++stub_futex_load_acquire(volatile unsigned int *addr)
++{
++	unsigned int val = *addr;
++
++	__asm__ volatile("" ::: "memory");
++
++	return val;
++}
++
++static __always_inline unsigned int
++stub_futex_xchg(volatile unsigned int *addr, unsigned int val)
++{
++	__asm__ volatile("xchgl %0,%1"
++		: "+r" (val), "+m" (*addr)
++		:
++		: "memory");
++
++	return val;
++}
++
++static __always_inline unsigned int
++stub_futex_fetch_or(volatile unsigned int *addr, unsigned int bits)
++{
++	unsigned int old = *addr, prev;
++
++	while (1) {
++		unsigned int newval = old | bits;
++
++		__asm__ volatile("lock; cmpxchgl %2,%1"
++			: "=a" (prev), "+m" (*addr)
++			: "r" (newval), "0" (old)
++			: "memory", "cc");
++		if (prev == old)
++			return prev;
++		old = prev;
++	}
++}
++
++static __always_inline void stub_relax(void)
++{
++	/* PAUSE, encoded so pre-SSE2 assemblers accept it too. */
++	__asm__ volatile("rep; nop" ::: "memory");
++}
++
++/*
++ * The stub reads the TSC; only the kernel side asks for the rate, which
++ * check_stub_cycles() measures at boot on a host with an invariant TSC.
++ * A zero rate makes every spin budget zero: park at once, and keep only
++ * the timing-free wake elision. 32-bit stays there.
++ */
++extern unsigned long stub_tsc_per_us;
++
++static __always_inline unsigned long stub_cycles(void)
++{
++#ifdef __x86_64__
++	unsigned int lo, hi;
++
++	__asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
++	return ((unsigned long)hi << 32) | lo;
++#else
++	return 0;
++#endif
++}
++
++static __always_inline unsigned long stub_cycles_per_us(void)
++{
++#ifdef __x86_64__
++	return stub_tsc_per_us;
++#else
++	return 0;
++#endif
++}
++
+ extern void stub_segv_handler(int, siginfo_t *, void *);
+ extern void stub_syscall_handler(void);
+ extern void stub_signal_interrupt(int, siginfo_t *, void *);
+ extern void stub_signal_restorer(void);
++
++#endif /* __SYSDEP_X86_STUB_H */
