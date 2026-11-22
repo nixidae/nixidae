@@ -464,7 +464,7 @@ same two node configurations run as `lan` and as `lan.qemu`.
 |  | `uml` (default) | `qemu` | `krun` |
 | --- | --- | --- | --- |
 | needs | nothing | `/dev/kvm` | `/dev/kvm` |
-| processors | one | the host's cores (`vivarium.cpus`) | the host's cores (`vivarium.cpus`) |
+| processors | one; `vivarium.cpus` with `vivarium.uml.smp` | the host's cores (`vivarium.cpus`) | the host's cores (`vivarium.cpus`) |
 | kernel | built for `ARCH=um`, all built in | the host's, with an initrd | the same as `qemu` |
 | the store | hostfs | virtiofs | virtiofs with a DAX window |
 | default RAM | 256M | 512M | 512M |
@@ -970,10 +970,17 @@ after it changes, and cached by cachix after that.
 - x86_64-linux only, and the guest kernel comes from the host's nixpkgs.
 - Under UML: no nested virtualisation, no KVM inside a guest, no real
   block devices.
-- A UML guest is single-CPU. The kernel takes `smp = true`, but UML only
-  allows SMP with the seccomp userspace, and two vCPUs measured *slower*
-  than one on the iperf test — the cross-CPU work costs more than the
-  parallelism buys. A QEMU or krun guest takes `vivarium.cpus`: by default
+- A UML guest is single-CPU unless it sets `vivarium.uml.smp = true`,
+  which builds an SMP kernel and passes `ncpus=` from `vivarium.cpus`.
+  SMP needs the seccomp userspace. Measured on 7.2.9: an SMP kernel at
+  one processor is about 2x slower on fork+exec, page faults and stat,
+  and 4 processors run 4 parallel jobs about 3x faster; two vCPUs were
+  *slower* than one on the iperf test. Evaluation warns when a UML guest
+  sets `cpus` without `uml.smp`. `vivarium.uml.speed.enable` builds the
+  kernel with an out-of-tree patch (handoff spin, fault-around; boot
+  switches `uml.speed.spin` and `uml.speed.prefault`): systemd's
+  userspace boot 6.56 s → 4.98 s (nixidae/nixidae#1412); `checks.uml-speed`
+  boots both, by hand. A QEMU or krun guest takes `vivarium.cpus`: by default
   every core the run may use (`NIX_BUILD_CORES` in a build), counted when
   the guest starts. `{ scale = 0.5; }` is half; each guest sets its own.
   `vivarium run --cpus [GUEST=]N` or `--cpu-scale [GUEST=]S` (MCP `start`:

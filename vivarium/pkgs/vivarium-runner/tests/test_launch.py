@@ -16,7 +16,7 @@ from vivarium_runner.backends import BackendError
 from vivarium_runner.backends.container import Container
 from vivarium_runner.backends.krun import Krun, KrunConfig
 from vivarium_runner.backends.qemu import BlankDisk, Qemu, QemuConfig, _drive_args
-from vivarium_runner.backends.uml import Uml, UmlConfig
+from vivarium_runner.backends.uml import Uml, UmlConfig, processors
 from vivarium_runner.boot import Boot, Firmware, Kernel, Root, RootFormat
 from vivarium_runner.machine_spec import LaunchSpec, MachineSpec
 from vivarium_runner.spec import BackendName
@@ -126,6 +126,21 @@ def test_uml_boots_each_root(config: Mapping[str, object], boot: Boot, argv: lis
     assert boot.kernel is not None
     root = anyio.run(Uml._root, UmlConfig.of(spec), Path("/run"), spec, boot.root, boot.kernel)
     assert root == argv
+
+
+@pytest.mark.parametrize(
+    ("smp", "cpus", "args", "noted"),
+    [
+        (False, 1, [], False),
+        (False, 4, [], True),
+        (True, 1, ["ncpus=1"], False),
+        (True, 4, ["ncpus=4"], False),
+    ],
+)
+def test_uml_passes_ncpus_to_an_smp_kernel_only(smp: bool, cpus: int, args: list[str], noted: bool) -> None:
+    got, notes = processors(replace(LINUX, smp=smp), cpus)
+    assert got == args
+    assert bool(notes) == noted
 
 
 @pytest.mark.parametrize(

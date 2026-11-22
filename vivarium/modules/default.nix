@@ -349,6 +349,59 @@ in
       '';
     };
 
+    uml = {
+      smp = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Build this guest's UML kernel with SMP, so that `cpus` gives it
+          that many processors (UML's `ncpus=`). Without it a UML guest
+          has one processor, whatever `cpus` says. Ignored by the other
+          backends.
+
+          Measured on Linux 7.2.9: an SMP kernel at one processor is
+          about 2x slower than the uniprocessor kernel on fork+exec, page
+          faults and stat, and 4 processors run 4 parallel jobs about 3x
+          faster. It pays only for a guest that runs much in parallel.
+          SMP needs the seccomp userspace: see `seccomp`.
+        '';
+      };
+
+      speed = {
+        enable = lib.mkEnableOption ''
+          the out-of-tree UML speed patch (pkgs/uml-kernel/0004): the
+          stub and the kernel spin briefly before they sleep on a
+          handoff, and a fault on fresh anonymous memory maps the
+          following pages too. Measured: systemd's userspace boot
+          6.56 s -> 4.98 s, 256 MiB of faults 1073 -> 236 ms
+          (nixidae/nixidae#1412). The kernel is a separate build'';
+
+        spin = lib.mkOption {
+          type = lib.types.nullOr lib.types.ints.unsigned;
+          default = null;
+          example = 50;
+          description = ''
+            Microseconds a handoff spins before it sleeps
+            (`seccomp_spin=`); 0 turns the spin off, null keeps the
+            kernel's 10. More spin costs host CPU while the guest works:
+            at 50, 500 fork+exec took 31% less time and 52% more host
+            CPU than with no spin.
+          '';
+        };
+
+        prefault = lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          example = "0";
+          description = ''
+            The most a fault on fresh anonymous memory maps ahead
+            (`prefault=`, bytes with an optional K or M); "0" turns it
+            off, null keeps the kernel's 128K.
+          '';
+        };
+      };
+    };
+
     cpus = lib.mkOption {
       type = lib.types.either lib.types.ints.positive (
         lib.types.submodule {
@@ -380,13 +433,14 @@ in
         cores this process may run on. Each guest sets its own here.
         `vivarium run --cpus [GUEST=]N` or `--cpu-scale [GUEST=]S`
         replaces it for one run: one guest, or every guest not named. QEMU and krun honour
-        it; UML and container guests do not.
+        it; a UML guest only with `uml.smp`, and a container guest not
+        at all.
 
         Worth about 11% on the iperf test at two processors, measured.
-        Under UML two vCPUs measured *slower* than one on that same test
-        -- UML allows SMP with the seccomp userspace alone, and the
-        cross-CPU work costs more than the parallelism buys. The two
-        backends disagree here, so do not carry a number between them.
+        Under UML two vCPUs measured *slower* than one on that same test,
+        as the cross-CPU work costs more than the parallelism buys; see
+        `uml.smp` for where UML SMP does pay. The backends disagree here,
+        so do not carry a number between them.
       '';
     };
 
@@ -793,6 +847,11 @@ in
                       type = lib.types.str;
                       description = "The kernel's parameters. The runner adds `init=` from `system`.";
                     };
+                    smp = lib.mkOption {
+                      type = lib.types.bool;
+                      default = false;
+                      description = "A UML kernel built with SMP: the runner adds `ncpus=` from `cpus`.";
+                    };
                   };
                 }
               );
@@ -1092,15 +1151,41 @@ in
       system = lib.mkIf (config.vivarium.kind == "nixos") "${config.system.build.toplevel}";
       kernel = {
         image = lib.mkDefault "${config.system.build.umlKernel}/linux";
-        cmdline = lib.mkDefault "";
+        cmdline = lib.mkDefault (
+          lib.concatStringsSep " " (
+            lib.optional (
+              config.vivarium.uml.speed.spin != null
+            ) "seccomp_spin=${toString config.vivarium.uml.speed.spin}"
+            ++ lib.optional (
+              config.vivarium.uml.speed.prefault != null
+            ) "prefault=${config.vivarium.uml.speed.prefault}"
+          )
+        );
+        # The runner turns this into `ncpus=` from the resolved `cpus`.
+        smp = config.vivarium.uml.smp;
       };
     };
+
+    warnings =
+      lib.optional
+        (config.vivarium.backend == "uml" && !config.vivarium.uml.smp && config.vivarium.cpus != 1)
+        "vivarium: ${config.networking.hostName} sets vivarium.cpus, but its UML kernel is uniprocessor and the guest gets one processor. Set vivarium.uml.smp = true for an SMP kernel: about 3x on 4 parallel jobs at 4 processors, about 2x slower on serial work.";
 
     vivarium.nixDatabase.extraRoots = map toString (
       lib.attrValues config.system.build.vivariumConfigurations
     );
 
     assertions = [
+      {
+        assertion = config.vivarium.uml.smp -> config.vivarium.seccomp != "off";
+        message = "vivarium: ${config.networking.hostName} sets vivarium.uml.smp with vivarium.seccomp = \"off\"; UML refuses SMP under the ptrace userspace (\"SMP is not supported with PTRACE userspace\").";
+      }
+      {
+        assertion =
+          (config.vivarium.uml.speed.spin != null || config.vivarium.uml.speed.prefault != null)
+          -> config.vivarium.uml.speed.enable;
+        message = "vivarium: ${config.networking.hostName} sets vivarium.uml.speed.spin or .prefault, which only the patched kernel reads; set vivarium.uml.speed.enable = true.";
+      }
       {
         assertion = config.vivarium.lan.address != null -> config.vivarium.lan.network != null;
         message = "vivarium.lan.address is set but vivarium.lan.network is not, so nothing would be wired to vec1.";
@@ -1273,6 +1358,8 @@ in
     // lib.optionalAttrs (config.vivarium.backend == "uml") {
       umlKernel = pkgs.callPackage ../pkgs/uml-kernel {
         inherit (config.boot.kernelPackages.kernel) src version modDirVersion;
+        inherit (config.vivarium.uml) smp;
+        speed = config.vivarium.uml.speed.enable;
       };
     };
   };

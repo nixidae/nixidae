@@ -167,6 +167,22 @@ def physmem_dir(memory: str) -> str | None:
     return None
 
 
+def processors(kernel: Kernel, cpus: int) -> tuple[list[str], list[str]]:
+    """The kernel arguments for `cpus` processors, and notes for the user.
+
+    Without `ncpus=` an SMP kernel brings up one processor, or with
+    pkgs/uml-kernel's 0004 patch all the host's but one.
+    """
+    if kernel.smp:
+        return [f"ncpus={cpus}"], []
+    if cpus > 1:
+        return [], [
+            f"{cpus} processors asked, but this UML kernel is not SMP, so one runs;"
+            " vivarium.uml.smp builds an SMP kernel"
+        ]
+    return [], []
+
+
 VIRTIO_ID_VSOCK = 19
 """`virtio_uml.device=SOCKET:ID`: the virtio device ID of vsock."""
 
@@ -247,6 +263,8 @@ class Uml:
             f"uml_dir={uml_dir}",
             f"umid={mconsole.UMID}",
         ]
+        cpu_args, notes = processors(boot.kernel, spec.cpus)
+        kernel += cpu_args
         if machine.artifacts is not None:
             # The kernel does not know this one, so it hands it to /init
             # as an environment variable -- "will be passed to user space"
@@ -257,13 +275,12 @@ class Uml:
         kernel.append(f"{STORE_ENV}={spec.store}")
 
         helpers: list[subprocess.Popen[bytes]] = []
-        notes: list[str] = []
         if spec.vsock:
             # No vec0 from the host: the guest reaches it over vsock, a
             # vhost-user device the egress serves (E7). The kernel connects
             # at boot and fails if nothing listens yet.
             device = uml_dir / "vsock.sock"
-            notes = forward.egress_notes(machine.spec.uplink_network, machine.offline)
+            notes += forward.egress_notes(machine.spec.uplink_network, machine.offline)
             try:
                 machine.egress_control = await start_egress(
                     config.egress,

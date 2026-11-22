@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from .spec import closed
 
@@ -22,6 +22,7 @@ class KernelJson(TypedDict):
     vmlinux: str | None
     initrd: str | None
     cmdline: str
+    smp: NotRequired[bool]
 
 
 @closed
@@ -84,6 +85,9 @@ class Kernel:
     initrd: Path | None
     cmdline: str
     """The parameters, without `init=`: `Boot.cmdline` adds that."""
+    smp: bool = False
+    """A UML kernel built with SMP: the UML backend passes `ncpus=` from
+    `cpus`, a parameter a uniprocessor kernel does not have."""
 
     @classmethod
     def from_json(cls, data: KernelJson) -> Kernel:
@@ -92,6 +96,7 @@ class Kernel:
             vmlinux=_maybe(data["vmlinux"]),
             initrd=_maybe(data["initrd"]),
             cmdline=data["cmdline"],
+            smp=data.get("smp", False),
         )
 
 
