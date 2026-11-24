@@ -320,9 +320,12 @@ the run's router (`checks.k8s-lb`, nixidae/nixidae#1584):
   guests of the run reach it too.
 - The router serves a SOCKS5 proxy that resolves `cluster.local` names
   inside the lab. The host reaches it through a forward of the router's
-  port 1080. The run exports it as `VIVARIUM_PROXY`, a `socks5h://` URL,
-  and `vivarium shell` sets the proxy variables from it (see "Work in a
-  shell that reaches the lab"):
+  port 1080. The session serves a split proxy on the host in front of it:
+  lab names (`vivarium.router.socks.domains`) and lab addresses go
+  through the router's proxy, every other connection goes straight out
+  from the host. The run exports it as `VIVARIUM_PROXY`, a `socks5h://`
+  URL, and `vivarium shell` sets the proxy variables from it (see "Work
+  in a shell that reaches the lab"):
 
 ```console
 $ vivarium up checks.k8s-lb
@@ -403,14 +406,16 @@ another run's now.
 | `VIVARIUM_ENVIRONMENT`, `VIVARIUM_OUT` | the environment's name and directory |
 | `KUBECONFIG` | `vivarium_k8s.host_kubeconfig` |
 | `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` | the lab CA, once a phase asked for it |
-| `VIVARIUM_PROXY` | the router's SOCKS5 proxy, `vivarium.router.socks` |
+| `VIVARIUM_PROXY` | the session's split proxy in front of the router's, `vivarium.router.socks` |
 | `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` (both cases), `NO_PROXY` | `VIVARIUM_PROXY`; `NO_PROXY` keeps the host's own forwards direct |
 
-The proxy variables send every connection through the lab, a public
-download too, and an `--offline` run refuses those. So `shell` and `env`
-put `unproxy` first on `PATH`: `unproxy CMD` runs CMD without them. `nix`,
-the other `nix-*` commands, `pynix` and `vivarium` run that way by
-themselves. `--no-proxy` leaves out the proxy variables and `unproxy`.
+A public download goes straight out from the host, so it works in an
+`--offline` run too. A program that cannot speak SOCKS fails with the
+proxy variables set: Python's httpx without `socksio` refuses every URL.
+So `shell` and `env` put `unproxy` first on `PATH`: `unproxy CMD` runs
+CMD without them. `nix`, the other `nix-*` commands, `pynix` and
+`vivarium` run that way by themselves. `--no-proxy` leaves out the proxy
+variables and `unproxy`.
 
 A phase adds a variable with `await vms.export(NAME, VALUE)`. The run
 keeps them in `access/environment.json`.

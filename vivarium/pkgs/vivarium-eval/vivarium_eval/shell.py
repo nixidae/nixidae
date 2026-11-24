@@ -1,11 +1,12 @@
 """`vivarium env` and `vivarium shell`: a host shell that reaches a live run.
 
 The run's phases name the variables (`access/environment.json`). This
-adds the environment's name, and turns the router's SOCKS5 proxy into the
-variables programs read. Those send every connection through the lab, a
-public download too, which fails in an `--offline` run. So `unproxy`
-leads `PATH`: `unproxy CMD` runs CMD without them, and the Nix commands
-run as `unproxy nix` does on their own.
+adds the environment's name, and turns the run's proxy into the variables
+programs read. The proxy is the session's split proxy on the host: lab
+names and addresses go through the router, the rest straight out. A
+program that cannot speak SOCKS fails with any of them set (httpx without
+`socksio` refuses every URL), so `unproxy` leads `PATH`: `unproxy CMD`
+runs CMD without them, and the Nix commands run that way on their own.
 """
 
 from __future__ import annotations
@@ -46,8 +47,8 @@ UNPROXIED: Final = (
     "pynix",
     "vivarium",
 )
-"""Commands that fetch from public caches and forges: through the lab they
-are slower, and an offline lab refuses them."""
+"""Commands that fetch from public caches and forges, and never from the
+lab: the proxy is a detour for them."""
 
 BIN: Final = "bin"
 """In the runtime directory: `unproxy` and its links."""

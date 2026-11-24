@@ -10,7 +10,8 @@ import pytest
 from vivarium_socks import protocol
 from vivarium_socks.protocol import AddressType, ProtocolError, Reply
 from vivarium_socks.resolve import IPAddress, Unresolved, servers_for
-from vivarium_socks.server import serve
+from vivarium_socks.server import Resolving, serve
+from vivarium_socks.split import Lab, Split
 
 pytestmark = pytest.mark.anyio
 
@@ -84,7 +85,7 @@ async def servers() -> AsyncIterator[tuple[int, int]]:
         listener = await anyio.create_tcp_listener(local_host="127.0.0.1", local_port=0)
         group.start_soon(listener.serve, echo)
         echo_port = listener.extra(anyio.abc.SocketAttribute.local_port)
-        proxy_port = await group.start(serve, "127.0.0.1", 0, resolver)
+        proxy_port = await group.start(serve, "127.0.0.1", 0, Resolving(resolver))
         yield proxy_port, echo_port
         group.cancel_scope.cancel()
 
@@ -129,3 +130,84 @@ async def test_closed_port_is_refused(servers: tuple[int, int]) -> None:
     stream, answer = await socks_connect(proxy, bytes([1]) + socket.inet_aton("127.0.0.1"), port)
     async with stream:
         assert answer[1] == Reply.CONNECTION_REFUSED
+
+
+def test_reply_head_and_request_bytes() -> None:
+    assert protocol.connect_request(protocol.Request("a.lab", 80)) == bytes([5, 1, 0, 3, 5]) + b"a.lab" + b"\x00P"
+    address = ipaddress.IPv4Address("10.0.0.1")
+    assert protocol.connect_request(protocol.Request(address, 443)) == bytes([5, 1, 0, 1, 10, 0, 0, 1, 1, 187])
+    assert protocol.parse_reply_head(bytes([5, 4, 0, 1])) == (Reply.HOST_UNREACHABLE, AddressType.IPV4)
+
+
+def test_lab_holds_its_names_and_networks() -> None:
+    lab = Lab(("cluster.local",), (ipaddress.ip_network("10.200.0.0/24"),))
+    assert lab.holds("web.default.svc.cluster.local")
+    assert lab.holds("10.200.0.7")
+    assert lab.holds(ipaddress.IPv4Address("10.200.0.7"))
+    assert not lab.holds("example.com")
+    assert not lab.holds("local")
+    assert not lab.holds(ipaddress.IPv4Address("10.201.0.1"))
+
+
+class Counting:
+    """The router's connector, counting what reaches it."""
+
+    def __init__(self, inner: Resolving) -> None:
+        self.inner = inner
+        self.seen: list[str] = []
+
+    async def open(self, request: protocol.Request) -> anyio.abc.ByteStream:
+        self.seen.append(str(request.host))
+        return await self.inner.open(request)
+
+
+@pytest.fixture
+async def split() -> AsyncIterator[tuple[int, int, Counting]]:
+    """An echo server, a router-like proxy that resolves `echo.lab`, and a
+    split proxy in front: the split proxy's port, the echo's, the router's log."""
+    router = Counting(Resolving(FakeResolver({"echo.lab": [ipaddress.IPv4Address("127.0.0.1")]})))
+    async with anyio.create_task_group() as group:
+        listener = await anyio.create_tcp_listener(local_host="127.0.0.1", local_port=0)
+        group.start_soon(listener.serve, echo)
+        echo_port = listener.extra(anyio.abc.SocketAttribute.local_port)
+        router_port = await group.start(serve, "127.0.0.1", 0, router)
+        lab = Lab(("lab",), (ipaddress.ip_network("127.0.0.1/32"),))
+        port = await group.start(serve, "127.0.0.1", 0, Split(lab, ("127.0.0.1", router_port)))
+        yield port, echo_port, router
+        group.cancel_scope.cancel()
+
+
+async def test_split_sends_a_lab_name_to_the_router(split: tuple[int, int, Counting]) -> None:
+    proxy, echo_port, router = split
+    stream, answer = await socks_connect(proxy, bytes([3, 8]) + b"echo.lab", echo_port)
+    async with stream:
+        assert answer[1] == Reply.SUCCEEDED
+        await stream.send(b"hi")
+        assert await stream.receive() == b"echo:hi"
+    assert router.seen == ["echo.lab"]
+
+
+async def test_split_sends_a_lab_address_to_the_router(split: tuple[int, int, Counting]) -> None:
+    proxy, echo_port, router = split
+    stream, answer = await socks_connect(proxy, bytes([1]) + socket.inet_aton("127.0.0.1"), echo_port)
+    async with stream:
+        assert answer[1] == Reply.SUCCEEDED
+    assert router.seen == ["127.0.0.1"]
+
+
+async def test_split_connects_the_rest_itself(split: tuple[int, int, Counting]) -> None:
+    proxy, echo_port, router = split
+    stream, answer = await socks_connect(proxy, bytes([3, 9]) + b"localhost", echo_port)
+    async with stream:
+        assert answer[1] == Reply.SUCCEEDED
+        await stream.send(b"hi")
+        assert await stream.receive() == b"echo:hi"
+    assert router.seen == []
+
+
+async def test_split_passes_the_routers_refusal_on(split: tuple[int, int, Counting]) -> None:
+    proxy, echo_port, router = split
+    stream, answer = await socks_connect(proxy, bytes([3, 9]) + b"other.lab", echo_port)
+    async with stream:
+        assert answer[1] == Reply.HOST_UNREACHABLE
+    assert router.seen == ["other.lab"]

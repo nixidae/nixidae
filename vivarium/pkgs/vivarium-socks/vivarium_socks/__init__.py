@@ -4,4 +4,5 @@ lab names through one forward to the router."""
 from __future__ import annotations
 
 from .resolve import Resolver as Resolver
-from .server import serve as serve
+from .server import Resolving as Resolving, serve as serve
+from .split import Lab as Lab, Split as Split

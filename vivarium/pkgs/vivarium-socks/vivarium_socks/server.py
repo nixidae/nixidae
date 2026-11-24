@@ -1,4 +1,8 @@
-"""The proxy: accept, read a CONNECT, connect, carry bytes both ways."""
+"""The proxy: accept, read a CONNECT, connect, carry bytes both ways.
+
+What "connect" means is a `Connector`'s: on the router, resolve in the
+lab and connect (`Resolving`); on the host, `split.Split`.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ import errno
 import ipaddress
 import logging
 from collections.abc import Sequence
+from typing import Protocol
 
 import anyio
 import anyio.abc
@@ -22,6 +27,20 @@ _log = logging.getLogger(__name__)
 HANDSHAKE_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 10.0
 CHUNK = 65536
+
+
+class Refused(Exception):
+    """A connect that failed with a SOCKS reply the client should get as it is."""
+
+    def __init__(self, message: str, reply: Reply) -> None:
+        super().__init__(message)
+        self.reply = reply
+
+
+class Connector(Protocol):
+    async def open(self, request: Request) -> anyio.abc.ByteStream:
+        """A stream to *request*'s destination. Raises `Unresolved`, `Refused` or OSError."""
+        ...
 
 
 async def read_request(stream: anyio.abc.ByteStream) -> tuple[StapledByteStream, Request]:
@@ -63,6 +82,16 @@ async def connect(targets: Sequence[IPAddress], port: int) -> anyio.abc.SocketSt
     raise failure or OSError("no address")
 
 
+class Resolving:
+    """The router's connector: names from the lab's servers, then a direct connect."""
+
+    def __init__(self, resolver: NameResolver) -> None:
+        self.resolver = resolver
+
+    async def open(self, request: Request) -> anyio.abc.ByteStream:
+        return await connect(await addresses(request, self.resolver), request.port)
+
+
 def failure_reply(error: BaseException) -> Reply:
     """The reply for a failed connect. anyio's `connect_tcp` raises a plain
     OSError ("All connection attempts failed") with the socket's error as
@@ -90,7 +119,7 @@ async def pump(source: anyio.abc.ByteReceiveStream, sink: anyio.abc.ByteStream) 
         await sink.send_eof()
 
 
-async def handle(client: anyio.abc.SocketStream, resolver: NameResolver) -> None:
+async def handle(client: anyio.abc.SocketStream, connector: Connector) -> None:
     async with client:
         try:
             with anyio.fail_after(HANDSHAKE_TIMEOUT):
@@ -102,20 +131,24 @@ async def handle(client: anyio.abc.SocketStream, resolver: NameResolver) -> None
         except (anyio.IncompleteRead, anyio.EndOfStream, TimeoutError, ConnectionError):
             return
         try:
-            targets = await addresses(request, resolver)
-            upstream = await connect(targets, request.port)
+            upstream = await connector.open(request)
         except Unresolved as error:
             _log.info("%s", error)
             await _send_quietly(client, protocol.reply(Reply.HOST_UNREACHABLE))
+            return
+        except Refused as error:
+            _log.info("connect %s:%d: %s", request.host, request.port, error)
+            await _send_quietly(client, protocol.reply(error.reply))
             return
         except OSError as error:
             _log.info("connect %s:%d: %s", request.host, request.port, error)
             await _send_quietly(client, protocol.reply(failure_reply(error)))
             return
         async with upstream:
-            local = upstream.extra(anyio.abc.SocketAttribute.local_address)
-            bound = ipaddress.ip_address(local[0])
-            await client.send(protocol.reply(Reply.SUCCEEDED, bound, int(local[1])))
+            local = upstream.extra(anyio.abc.SocketAttribute.local_address, None)
+            bound = ipaddress.ip_address(local[0]) if isinstance(local, tuple) else None
+            port = int(local[1]) if isinstance(local, tuple) else 0
+            await client.send(protocol.reply(Reply.SUCCEEDED, bound, port))
             async with anyio.create_task_group() as group:
                 group.start_soon(pump, stream, upstream)
                 group.start_soon(pump, upstream, stream)
@@ -132,7 +165,7 @@ async def _send_quietly(client: anyio.abc.ByteStream, data: bytes) -> None:
 async def serve(
     host: str,
     port: int,
-    resolver: NameResolver,
+    connector: Connector,
     *,
     task_status: anyio.abc.TaskStatus[int] = anyio.TASK_STATUS_IGNORED,
 ) -> None:
@@ -144,6 +177,6 @@ async def serve(
         task_status.started(bound)
 
         async def one(client: anyio.abc.SocketStream) -> None:
-            await handle(client, resolver)
+            await handle(client, connector)
 
         await listener.serve(one)

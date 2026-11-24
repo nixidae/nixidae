@@ -4,6 +4,7 @@
   vivarium-agent,
   vivarium-ca,
   vivarium-runner,
+  vivarium-socks,
 }:
 
 python3Packages.buildPythonPackage {
@@ -42,6 +43,9 @@ python3Packages.buildPythonPackage {
     vivarium-ca
     python3Packages.platformdirs
     python3Packages.certifi
+    # The host's split proxy into the lab, for `vivarium shell`. See
+    # vivarium/session.py.
+    vivarium-socks
   ];
 
   pythonImportsCheck = [ "vivarium" ];

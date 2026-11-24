@@ -33,6 +33,6 @@ python3Packages.buildPythonPackage {
     description = "A SOCKS5 proxy into a vivarium lab";
     license = lib.licenses.asl20;
     mainProgram = "vivarium-socks";
-    platforms = lib.platforms.linux;
+    platforms = lib.platforms.unix;
   };
 }

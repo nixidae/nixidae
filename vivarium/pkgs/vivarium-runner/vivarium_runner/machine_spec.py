@@ -140,7 +140,7 @@ class MachineSpecJson(TypedDict):
     launch: NotRequired[LaunchSpecJson]
     uplinkAddress: NotRequired[str]
     networkPorts: NotRequired[list[int]]
-    socks: NotRequired[int]
+    socks: NotRequired[SocksJson]
     requires: NotRequired[list[str]]
 
 
@@ -166,6 +166,30 @@ class Systems:
     @classmethod
     def from_json(cls, data: SystemsJson) -> Systems:
         return cls(toplevel=data["toplevel"], configurations=dict(data["configurations"]))
+
+
+@closed
+class SocksJson(TypedDict):
+    """`Socks` as Nix wrote it."""
+
+    port: int
+    domains: list[str]
+    networks: list[str]
+
+
+@dataclass(frozen=True)
+class Socks:
+    """The router's SOCKS5 proxy into the lab."""
+
+    port: int
+    domains: tuple[str, ...]
+    """Names under these resolve in the lab."""
+    networks: tuple[str, ...]
+    """The lab's prefixes, as `10.200.0.0/24`."""
+
+    @classmethod
+    def from_json(cls, data: SocksJson) -> Socks:
+        return cls(port=data["port"], domains=tuple(data["domains"]), networks=tuple(data["networks"]))
 
 
 @closed
@@ -287,9 +311,8 @@ class MachineSpec:
     network_ports: tuple[int, ...] = ()
     """The router: the vsock port of each of its networks' relays to the
     egress (`vivarium.router.networkPorts`, nixidae/nixidae#1523)."""
-    socks: int | None = None
-    """The router: the port of its SOCKS5 proxy, when it serves one
-    (`vivarium.router.socks`)."""
+    socks: Socks | None = None
+    """The router: its SOCKS5 proxy, when it serves one (`vivarium.router.socks`)."""
     requires: tuple[str, ...] = ()
     """`vivarium.requires`: the guests this one cannot boot without. The
     session boots them first; the runner does nothing with it."""
@@ -344,7 +367,7 @@ class MachineSpec:
             launch=LaunchSpec.from_json(launch) if launch is not None else None,
             uplink_address=data.get("uplinkAddress"),
             network_ports=tuple(data.get("networkPorts", ())),
-            socks=data.get("socks"),
+            socks=Socks.from_json(socks) if (socks := data.get("socks")) is not None else None,
         )
 
     @property

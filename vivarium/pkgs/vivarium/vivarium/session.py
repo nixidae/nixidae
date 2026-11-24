@@ -30,6 +30,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import ipaddress
 import json
 import math
 import sys
@@ -43,10 +44,12 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import anyio
 import pytest
+import vivarium_socks
 from anyio.from_thread import BlockingPortal
 from vivarium_runner import Machine, MachineError, Machines, MachineSpec, backends
 from vivarium_runner.backends import BackendError
 from vivarium_runner.instances import seed
+from vivarium_runner.machine_spec import Socks
 from vivarium_runner.report import Report
 from vivarium_runner.run import Run, RunError, Segment, shut_down
 
@@ -90,6 +93,17 @@ _PRINTING: ContextVar[str | None] = ContextVar("uml_printing", default=None)
 
 _COPY: ContextVar[io.StringIO | None] = ContextVar("vivarium_copy", default=None)
 """Where a task's prints also go: the reply to an `exec` or `inject`."""
+
+
+LOOPBACK = "127.0.0.1"
+"""Where the host's split proxy listens: for this user's shell, not the LAN."""
+
+
+def _split(socks: Socks, forward: str) -> vivarium_socks.Split:
+    """The host's proxy in front of the router's, which the host reaches at *forward*."""
+    host, _, port = forward.rpartition(":")
+    lab = vivarium_socks.Lab(socks.domains, tuple(ipaddress.ip_network(each) for each in socks.networks))
+    return vivarium_socks.Split(lab, (host.strip("[]"), int(port)))
 
 
 class _CaseFields(TypedDict, total=False):
@@ -539,8 +553,9 @@ class Session:
         vms.exports = exports.Exports(vms.access)
         vms.trust = trust.Trust(self.spec.name, vms.access, trust.directory(), vms.exports)
         for vm in run.machines.values():
-            if vm.spec.socks is not None and (proxy := vm.reachable(vm.spec.socks)):
-                await vms.export(exports.PROXY, f"socks5h://{proxy[0]}")
+            if vm.spec.socks is not None and (forward := vm.reachable(vm.spec.socks.port)):
+                port = await self.tasks.start(vivarium_socks.serve, LOOPBACK, 0, _split(vm.spec.socks, forward[0]))
+                await vms.export(exports.PROXY, f"socks5h://{LOOPBACK}:{port}")
         for vm in run.machines.values():
             vm.on_inbound = lambda _vm: access.refresh(guests(), self.out)
         self.vms = vms

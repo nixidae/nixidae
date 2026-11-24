@@ -9,7 +9,7 @@ from collections.abc import Sequence
 import anyio
 
 from .resolve import Resolver
-from .server import serve
+from .server import Resolving, serve
 
 
 def domain(text: str) -> tuple[str, list[str]]:
@@ -45,8 +45,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s")
     host, port = args.listen
-    resolver = Resolver(dict(args.domain))
-    anyio.run(serve, host, port, resolver)
+    anyio.run(serve, host, port, Resolving(Resolver(dict(args.domain))))
 
 
 if __name__ == "__main__":

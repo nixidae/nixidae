@@ -1,7 +1,8 @@
 """SOCKS5 (RFC 1928) as values: what a client sent, what to answer.
 
 No I/O here; `server` reads and writes the bytes. Only what a proxy into a
-lab needs: no authentication, CONNECT only.
+lab needs: no authentication, CONNECT only. The client side is for the
+host's proxy, which hands lab destinations on to the router's.
 """
 
 from __future__ import annotations
@@ -111,6 +112,33 @@ def parse_destination(kind: AddressType, address: bytes, port: bytes) -> Request
             if not name:
                 raise ProtocolError("an empty domain name", Reply.HOST_UNREACHABLE)
             return Request(name.rstrip("."), number)
+
+
+GREETING: Final = bytes([VERSION, 1, NO_AUTHENTICATION])
+"""A client's greeting: one method, no authentication."""
+
+
+def connect_request(request: Request) -> bytes:
+    """A client's CONNECT for *request*. A name goes as a name, so the far
+    proxy resolves it."""
+    port = request.port.to_bytes(2, "big")
+    if isinstance(request.host, str):
+        name = request.host.encode("ascii")
+        if not 0 < len(name) < 256:
+            raise ProtocolError(f"a name of {len(name)} bytes", Reply.HOST_UNREACHABLE)
+        return bytes([VERSION, Command.CONNECT, 0, AddressType.DOMAIN, len(name)]) + name + port
+    kind = AddressType.IPV4 if request.host.version == 4 else AddressType.IPV6
+    return bytes([VERSION, Command.CONNECT, 0, kind]) + request.host.packed + port
+
+
+def parse_reply_head(head: bytes) -> tuple[Reply, AddressType]:
+    """The first four bytes of a reply: version, reply, reserved, type."""
+    version, code, _reserved, kind = head
+    check_version(version)
+    try:
+        return Reply(code), AddressType(kind)
+    except ValueError:
+        raise ProtocolError(f"a reply {code:#x} with address type {kind:#x}") from None
 
 
 def reply(code: Reply, bound: ipaddress.IPv4Address | ipaddress.IPv6Address | None = None, port: int = 0) -> bytes:

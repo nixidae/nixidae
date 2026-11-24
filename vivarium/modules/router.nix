@@ -333,6 +333,20 @@ in
         };
         description = "DNS servers inside the lab, by the domain they answer for.";
       };
+      networks = mkOption {
+        type = types.listOf types.str;
+        internal = true;
+        readOnly = true;
+        default = inside ++ [
+          subnet
+          "${prefix6}/64"
+        ];
+        description = ''
+          The lab's prefixes: the host's proxy sends a connection to one of
+          these, or to a name under `domains`, through this proxy, and
+          connects any other itself.
+        '';
+      };
     };
     vrf = mkOption {
       type = types.attrsOf types.anything;

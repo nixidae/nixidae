@@ -28,6 +28,7 @@ let
     vivarium-agent = ../vivarium-agent;
     vivarium-runner = ../vivarium-runner;
     vivarium-ca = ../vivarium-ca;
+    vivarium-socks = ../vivarium-socks;
     vivarium = ../vivarium;
     vivarium-eval = ./.;
   };

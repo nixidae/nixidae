@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 FILE: Final = "environment.json"
 NAME: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 PROXY: Final = "VIVARIUM_PROXY"
-"""The router's SOCKS5 proxy as a `socks5h://` URL, when it serves one."""
+"""The session's split proxy on the host, as a `socks5h://` URL, when the
+router serves a SOCKS5 proxy: lab names and addresses through the
+router's, the rest direct."""
 
 
 class ExportError(ValueError):

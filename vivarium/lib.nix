@@ -62,7 +62,14 @@ rec {
     vivarium-runner = runner;
     vivarium-agent = agent;
     vivarium-ca = ca;
+    vivarium-socks = socks;
   };
+
+  /**
+    `vivarium_socks`: the router's SOCKS5 proxy into the lab, and the
+    host's split proxy in front of it that a session serves.
+  */
+  socks = pkgs.callPackage ./pkgs/vivarium-socks { };
 
   /**
     `vivarium_ca`: the name-constrained lab CA a session makes for a run
@@ -279,7 +286,10 @@ rec {
       uplinkAddress = (import ./nix/uplink.nix).gateway;
     }
     // lib.optionalAttrs (machine.vivarium.router.enable && machine.vivarium.router.socks.enable) {
-      socks = machine.vivarium.router.socks.port;
+      socks = {
+        inherit (machine.vivarium.router.socks) port networks;
+        domains = lib.attrNames machine.vivarium.router.socks.domains;
+      };
     }
     // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {
       nixStore = machine.vivarium.nixDatabase.loader;
