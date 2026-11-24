@@ -226,6 +226,7 @@ lib.fix (self: {
     # Guest programs: the router runs them.
     socks = vivarium.guestPkgs.callPackage ./pkgs/vivarium-socks { };
     inherit (vivarium) lb;
+    cert-manager = vivarium.certManager;
     # The slowest thing in the repository and the same for every guest, so
     # CI builds it once on its own and lets the cache hand it to the test
     # jobs.

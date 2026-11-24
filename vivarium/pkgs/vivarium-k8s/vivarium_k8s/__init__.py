@@ -29,7 +29,7 @@ from typing import Any, TypedDict, cast
 
 import anyio
 from vivarium_runner.machine import Machine, MachineError
-from vivarium_runner.machines import Machines
+from vivarium_runner.machines import Issuer, Machines
 
 
 class NodeFacts(TypedDict):
@@ -696,6 +696,12 @@ async def bring_up(
     router = vms.settings.get("kubernetes", {}).get("loadBalancer", {}).get("router")
     if router is not None:
         await connect_load_balancer(cp, vms[router])
+    cert_manager = vms.settings.get("kubernetes", {}).get("certManager")
+    if cert_manager is not None:
+        if vms.trust is None:
+            raise MachineError("certManager needs the run's lab CA, and this session has none")
+        await install_cert_manager(cp, cert_manager["manifest"])
+        await connect_issuer(cp, await vms.trust.issuer(), cert_manager["issuer"])
     return cp
 
 
@@ -788,9 +794,61 @@ async def connect_load_balancer(cp: Machine, router: Machine) -> None:
     cp.say(f"[k8s] {router.name}: LoadBalancer controller credentials written")
 
 
+CERT_MANAGER_NAMESPACE = "cert-manager"
+CA_SECRET = "vivarium-ca"
+"""The run's intermediate CA, in `CERT_MANAGER_NAMESPACE`: where
+cert-manager reads a ClusterIssuer's secret."""
+
+
+async def install_cert_manager(cp: Machine, manifest: str) -> None:
+    """Apply *manifest* and wait until its webhook can admit an issuer.
+
+    Server-side: the CRDs are larger than the annotation a client-side
+    apply keeps of them."""
+    await cp.succeed(f"kubectl apply --server-side --filename {manifest}", timeout=180)
+    await cp.succeed(
+        f"kubectl --namespace {CERT_MANAGER_NAMESPACE} wait --for=condition=Available deployment --all --timeout=300s",
+        timeout=320,
+    )
+    cp.say("[k8s] cert-manager is available")
+
+
+async def connect_issuer(cp: Machine, issuer: Issuer, name: str) -> None:
+    """A ClusterIssuer *name* that signs with *issuer*.
+
+    The key reaches the guest in the command's environment, which no
+    event records, and leaves the disk once the Secret holds it. The
+    Secret's chain ends in the root, so each issued Secret's `ca.crt` is
+    the root a client trusts."""
+    staging = "/run/vivarium-ca"
+    await cp.succeed(
+        f"install -d -m 0700 {staging}"
+        f' && printf %s "$CHAIN" > {staging}/tls.crt && printf %s "$KEY" > {staging}/tls.key'
+        f" && kubectl --namespace {CERT_MANAGER_NAMESPACE} create secret tls {CA_SECRET}"
+        f" --cert {staging}/tls.crt --key {staging}/tls.key --dry-run=client --output yaml"
+        " | kubectl apply --filename -"
+        f"; status=$?; rm -rf {staging}; exit $status",
+        env={"CHAIN": issuer.certificate + issuer.root, "KEY": issuer.key},
+    )
+    cluster_issuer = {
+        "apiVersion": "cert-manager.io/v1",
+        "kind": "ClusterIssuer",
+        "metadata": {"name": name},
+        "spec": {"ca": {"secretName": CA_SECRET}},
+    }
+    # The webhook may still refuse for a moment after its Deployment is Available.
+    await cp.wait_until_succeeds(
+        f"kubectl apply --filename - <<'EOF'\n{json.dumps(cluster_issuer)}\nEOF", timeout=READY_TIMEOUT
+    )
+    await cp.succeed(f"kubectl wait --for=condition=Ready clusterissuer/{name} --timeout=120s", timeout=130)
+    cp.say(f"[k8s] ClusterIssuer {name} signs with the run's intermediate CA")
+
+
 __all__ = [
     "APISERVER_NAME",
     "APISERVER_PORT",
+    "CA_SECRET",
+    "CERT_MANAGER_NAMESPACE",
     "CONTROL_PLANE_TAINT",
     "DEFAULT_ADDONS",
     "INIT_TIMEOUT",
@@ -806,11 +864,13 @@ __all__ = [
     "UNIT_TIMEOUT",
     "NodeFacts",
     "bring_up",
+    "connect_issuer",
     "connect_load_balancer",
     "diagnose",
     "get_json",
     "host_kubeconfig",
     "init_control_plane",
+    "install_cert_manager",
     "join",
     "kubectl",
     "nodes",

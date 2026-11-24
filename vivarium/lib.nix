@@ -80,6 +80,12 @@ rec {
     The router's LoadBalancer controller, `vivarium-lb`, a guest program.
     `vivarium.recipes.kubernetes.loadBalancer` runs it.
   */
+  /**
+    cert-manager's binaries, images and manifest, for
+    `vivarium.recipes.kubernetes.certManager`.
+  */
+  certManager = guestPkgs.callPackage ./pkgs/cert-manager { };
+
   lb = guestPkgs.callPackage ./pkgs/vivarium-lb {
     kr8s = guestPkgs.python3Packages.callPackage "${sources.nanopynix}/nix/kr8s.nix" {
       src = sources.kr8s;
@@ -548,6 +554,7 @@ rec {
               session
               k8s
               lb
+              certManager
               ;
           };
         };

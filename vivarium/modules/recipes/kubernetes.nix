@@ -11,6 +11,10 @@
 # routes its Service range, gives LoadBalancer Services addresses
 # (../k8s-lb.nix) and resolves `cluster.local` for its SOCKS5 proxy
 # (nixidae/nixidae#1584).
+#
+# `certManager` runs cert-manager with a ClusterIssuer, `vivarium`, on the
+# run's intermediate CA (`vms.trust`), so the host trusts what it issues
+# through `access/ca-bundle.pem`.
 {
   config,
   lib,
@@ -83,6 +87,11 @@ in
         description = "The addresses LoadBalancer Services get. Apart from the Pod and Service ranges.";
       };
     };
+    certManager.enable = lib.mkEnableOption ''
+      cert-manager, and a ClusterIssuer `vivarium` that signs with the run's
+      intermediate CA. The host trusts its certificates through
+      `access/ca.pem` or `access/ca-bundle.pem`
+    '';
   };
 
   config = lib.mkIf cfg.enable (
@@ -103,8 +112,27 @@ in
             }
           ) nodes;
         }
-        // lib.optionalAttrs cfg.loadBalancer.enable { loadBalancer.router = routerName; };
+        // lib.optionalAttrs cfg.loadBalancer.enable { loadBalancer.router = routerName; }
+        // lib.optionalAttrs cfg.certManager.enable {
+          certManager = {
+            manifest = "${vivariumPackages.certManager.manifest}";
+            issuer = "vivarium";
+          };
+        };
       }
+      (lib.mkIf cfg.certManager.enable {
+        # Every node: the scheduler may put a pod on any of them. Not
+        # `nodes.<name>`: which guests are nodes is read from them.
+        defaults =
+          { config, ... }:
+          lib.mkIf config.services.vivarium-k8s.enable {
+            services.vivarium-k8s.extraImages = [ vivariumPackages.certManager.tarball ];
+            # What the images point at, and what `bring_up` applies.
+            vivarium.nixDatabase.extraRoots = map (path: "${path}") (
+              lib.attrValues vivariumPackages.certManager.binaries ++ [ vivariumPackages.certManager.manifest ]
+            );
+          };
+      })
       (lib.mkIf cfg.loadBalancer.enable {
         assertions = [
           {
