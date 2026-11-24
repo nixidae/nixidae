@@ -377,6 +377,11 @@ let
       timeoutMinutes = 45;
       after = [ "test-containerd" ];
     };
+    k8s-lb = {
+      description = "the host reaches a LoadBalancer Service through the router's SOCKS5 proxy";
+      timeoutMinutes = 45;
+      after = [ "test-containerd" ];
+    };
 
     # krun is for dense NixOS guests: its virtio-fs DAX window maps the
     # host's page cache of the store, where QEMU copies it into each guest

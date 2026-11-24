@@ -693,6 +693,9 @@ async def bring_up(
         await untaint(cp)
 
     await host_kubeconfig(cp, vms)
+    router = vms.settings.get("kubernetes", {}).get("loadBalancer", {}).get("router")
+    if router is not None:
+        await connect_load_balancer(cp, vms[router])
     return cp
 
 
@@ -725,6 +728,66 @@ async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
     return path
 
 
+LOAD_BALANCER_RBAC = """
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: vivarium-lb, namespace: kube-system}
+---
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: vivarium-lb
+  namespace: kube-system
+  annotations: {kubernetes.io/service-account.name: vivarium-lb}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: vivarium-lb}
+rules:
+- apiGroups: [""]
+  resources: [services, nodes]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [services/status]
+  verbs: [patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: vivarium-lb}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: vivarium-lb}
+subjects:
+- {kind: ServiceAccount, name: vivarium-lb, namespace: kube-system}
+"""
+
+LOAD_BALANCER_CREDENTIALS = "/run/vivarium-lb/serviceaccount"
+"""Where `modules/k8s-lb.nix` waits for them: the token's arrival starts
+the controller."""
+
+
+async def connect_load_balancer(cp: Machine, router: Machine) -> None:
+    """Give the router's LoadBalancer controller a ServiceAccount: what it
+    may read and patch, nothing more. Its token, CA and namespace go to
+    `LOAD_BALANCER_CREDENTIALS` on *router*, the token last."""
+    await cp.succeed(f"kubectl apply --filename - <<'EOF'\n{LOAD_BALANCER_RBAC}\nEOF")
+
+    async def token() -> tuple[bool, str]:
+        out = await kubectl(cp, "--namespace kube-system get secret vivarium-lb --output jsonpath='{.data.token}'")
+        return bool(out.strip()), out.strip()
+
+    encoded = await until("the vivarium-lb token", token, READY_TIMEOUT, cp)
+    ca = await kubectl(cp, "--namespace kube-system get secret vivarium-lb --output jsonpath='{.data.ca\\.crt}'")
+    files = {"namespace": "a3ViZS1zeXN0ZW0=", "ca.crt": ca.strip(), "token": encoded}
+    await router.succeed(f"install -d -m 0700 {LOAD_BALANCER_CREDENTIALS}")
+    for name, value in files.items():
+        # base64 in, decoded on the router: no quoting of a PEM in a shell.
+        await router.succeed(
+            f"echo {value} | base64 -d > {LOAD_BALANCER_CREDENTIALS}/{name}.part"
+            f" && mv {LOAD_BALANCER_CREDENTIALS}/{name}.part {LOAD_BALANCER_CREDENTIALS}/{name}"
+        )
+    cp.say(f"[k8s] {router.name}: LoadBalancer controller credentials written")
+
+
 __all__ = [
     "APISERVER_NAME",
     "APISERVER_PORT",
@@ -734,6 +797,8 @@ __all__ = [
     "JOIN_TIMEOUT",
     "KUBE_DNS",
     "KUBE_PROXY",
+    "LOAD_BALANCER_CREDENTIALS",
+    "LOAD_BALANCER_RBAC",
     "POLL",
     "READY_TIMEOUT",
     "RUNTIME_MANIFEST",
@@ -741,6 +806,7 @@ __all__ = [
     "UNIT_TIMEOUT",
     "NodeFacts",
     "bring_up",
+    "connect_load_balancer",
     "diagnose",
     "get_json",
     "host_kubeconfig",

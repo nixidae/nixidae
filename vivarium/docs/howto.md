@@ -293,6 +293,38 @@ A sandboxed `nix build` of the same attribute never holds: it runs the
 phases and gives the verdict, so the check proves the environment comes
 up.
 
+### Reach a cluster's Services by name
+
+`vivarium.recipes.kubernetes.loadBalancer.enable` puts the cluster behind
+the run's router (`checks.k8s-lb`, nixidae/nixidae#1584):
+
+- The router routes the cluster's Service and pod ranges to the nodes.
+- `vivarium-lb` on the router gives each `type: LoadBalancer` Service an
+  address from `loadBalancer.pool` (default `10.200.0.0/24`) and routes it
+  to the nodes. The address shows as the Service's `EXTERNAL-IP`. Other
+  guests of the run reach it too.
+- The router serves a SOCKS5 proxy that resolves `cluster.local` names
+  inside the lab. The host reaches it through a forward of the router's
+  port 1080, listed in `access.json`:
+
+```console
+$ vivarium up checks.k8s-lb --out ./k8s
+$ jq -r '.guests.router.forwards[].ports[] | select(.guest == 1080) | .host' ./k8s/access.json
+41733
+$ curl --socks5-hostname 127.0.0.1:41733 http://web.default.svc.cluster.local/
+$ curl --socks5-hostname 127.0.0.1:41733 http://10.200.0.1/
+```
+
+Use `socks5h://` in `ALL_PROXY` or `HTTPS_PROXY`, not `socks5://`, so that
+the proxy resolves the name, not the host. kubectl and other Go programs
+read `HTTPS_PROXY`. Chromium takes `--proxy-server=socks5://ADDR`, and
+Firefox needs `network.proxy.socks_remote_dns`. A program that cannot use
+a proxy cannot reach the cluster this way yet.
+
+`vivarium.router.routes`, `vivarium.router.inside` and
+`vivarium.router.socks` are the router's own options; the recipe sets
+them. A lab without Kubernetes can set them on `nodes.router`.
+
 ## Drive guests from plain pytest
 
 `pytest` in a shell with `packages.vivarium-eval.env` on PATH loads
