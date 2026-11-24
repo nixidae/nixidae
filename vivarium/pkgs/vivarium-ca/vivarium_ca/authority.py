@@ -36,8 +36,9 @@ PERMITTED_NETWORKS: Final = (
 ROOT_LIFETIME: Final = datetime.timedelta(days=3650)
 """Long: a person imports the root into a browser once."""
 
-INTERMEDIATE_LIFETIME: Final = datetime.timedelta(days=30)
-"""Longer than an environment that `vivarium up` keeps for days."""
+INTERMEDIATE_LIFETIME: Final = datetime.timedelta(days=365)
+"""Longer than any environment `vivarium up` keeps. Its name constraints,
+not its lifetime, bound what a leaked key can do."""
 
 LEAF_LIFETIME: Final = datetime.timedelta(days=7)
 
