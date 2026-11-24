@@ -51,6 +51,7 @@ from vivarium.exits import Exit, describe
 from vivarium.phases import VERDICT, Verdict
 from vivarium_runner.forward import InboundJson
 
+from . import shell
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
 if TYPE_CHECKING:
@@ -182,6 +183,20 @@ def parser() -> argparse.ArgumentParser:
     removing.add_argument("--force", "-f", action="store_true", help="stop one that is up first")
     cleaning = sub.add_parser("clean", help="delete every environment that is not up, and stale run entries")
     cleaning.add_argument("--dry-run", action="store_true", help="say what would go, delete nothing")
+    for command, what in (
+        ("env", "a live run's variables as `export` lines, for a shell's `eval`"),
+        ("shell", "the user's shell, or the command after --, with a live run's variables"),
+    ):
+        entering = sub.add_parser(command, help=what)
+        add_target(entering)
+        entering.add_argument(
+            "--no-proxy",
+            dest="proxied",
+            action="store_false",
+            help="leave out the lab's SOCKS5 proxy: no ALL_PROXY, HTTPS_PROXY or unproxy",
+        )
+        if command == "env":
+            entering.add_argument("--json", action="store_true", help="one JSON object")
     closing = sub.add_parser(
         "closure", help="every store path these reach, one a line: what a test in a guest needs of the host's store"
     )
@@ -524,6 +539,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(anyio.run(remove, args.names, args.force))
         if args.command == "clean":
             raise SystemExit(anyio.run(clean, args.dry_run))
+        if args.command in ("env", "shell"):
+            raise SystemExit(enter(args))
         if args.command == "closure":
             raise SystemExit(anyio.run(closure, args.paths))
         raise SystemExit(switch(args))
@@ -702,6 +719,27 @@ def name_environment(argv: list[str]) -> list[str]:
         raise SystemExit(f"vivarium up: the environment {name} is up; `vivarium down {name}` first, or pick --name")
     say(f"environment {name}: {out}")
     return ["up", known.attr, "--file", str(known.file), "--out", str(out), *rest, *tail]
+
+
+def enter(args: argparse.Namespace) -> int:
+    """`env` and `shell`: a live run only, since a stopped one's
+    `environment.json` names ports another run may hold now."""
+    out = target_of(args)
+    if not anyio.run(environments.live, out):
+        print(f"vivarium {args.command}: {out} is not up; `vivarium up` it first", file=sys.stderr)
+        return Exit.NO_RUN
+    try:
+        found = shell.gather(out, proxied=args.proxied)
+        if args.command == "shell":
+            shell.enter(found, args.pytest_args)
+    except (shell.ShellError, places.PlaceError) as error:
+        print(f"vivarium {args.command}: {error}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(found, indent=2, sort_keys=True))
+    else:
+        print(shell.script(found), end="")
+    return 0
 
 
 async def test_name(file: Path, attr: list[str]) -> str:

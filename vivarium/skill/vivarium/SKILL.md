@@ -53,12 +53,15 @@ Guests that stay up after the phases, for work from the host (a cluster to `kube
 
 ```sh
 vivarium up <test> [--name N]       # background; exits 0 at ready with access.json on stdout, 4 if a phase failed (paused)
+vivarium shell N [-- CMD]           # $SHELL or CMD with the run's variables: KUBECONFIG, SSL_CERT_FILE, ALL_PROXY...
+vivarium env N [--json]             # the same as `export` lines
 vivarium ps                         # live runs (state, environment, test, dir), then environments that are down
 vivarium down N                     # 0 if every phase passed; the directory stays
 vivarium rm N / vivarium clean      # delete one stopped environment / every one
 ```
 
-- An environment's directory is `<platformdirs state>/vivarium/envs/<name>` (`~/.local/state/...` on Linux); the name is the test's `name` unless `--name`. `up` refuses a name that is up. `--out "$OUT"` instead of a name still works for `up` and `down`.
+- An environment's directory is `<platformdirs state>/vivarium/envs/<name>` (`~/.local/state/...` on Linux); the name is the test's `name` unless `--name`. `up` refuses a name that is up. `--out "$OUT"` instead of a name still works for `up`, `down`, `env` and `shell`.
+- `shell`/`env` read `<out>/access/environment.json` (a phase adds with `await vms.export(NAME, VALUE)`). With the router's SOCKS proxy they set `ALL_PROXY`/`HTTPS_PROXY`/`HTTP_PROXY` and put `unproxy` first on PATH: `nix`, `pynix`, `vivarium` skip the proxy by themselves, `unproxy CMD` any other. `--no-proxy` leaves all that out.
 
 - `up` is `run --hold` detached; the runner's `--hold` (MCP `start(hold=True)`) pauses at `ready` after the last phase passes. `ctl stop` at ready ends the run with its verdict (exit 0), not `stopped`.
 - Way in, written before boot: `$OUT/access.json` (each guest's ssh and forwards), `ssh -F $OUT/ssh_config <guest>` (root, `vivarium.rootPassword`; only a guest whose `vivarium.inbound` lists `{ guest = config.vivarium.sshPort; }`), `$OUT/access/` (what phases write via `vms.access`; `bring_up` writes `access/kubeconfig` when the control plane forwards 6443, the `modules/k8s.nix` default).

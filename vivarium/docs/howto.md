@@ -241,9 +241,8 @@ against:
 ```console
 $ vivarium up checks.k8s-host
 [vivarium] environment k8s-host: /home/me/.local/state/vivarium/envs/k8s-host
-$ E=~/.local/state/vivarium/envs/k8s-host
-$ kubectl --kubeconfig $E/access/kubeconfig get pods -A
-$ ssh -F $E/ssh_config cp
+$ vivarium shell k8s-host -- kubectl get pods -A
+$ ssh -F ~/.local/state/vivarium/envs/k8s-host/ssh_config cp
 $ vivarium ps
 ready	k8s-host	k8s-host	/home/me/.local/state/vivarium/envs/k8s-host
 $ vivarium down k8s-host
@@ -321,21 +320,21 @@ the run's router (`checks.k8s-lb`, nixidae/nixidae#1584):
   guests of the run reach it too.
 - The router serves a SOCKS5 proxy that resolves `cluster.local` names
   inside the lab. The host reaches it through a forward of the router's
-  port 1080, listed in `access.json`:
+  port 1080. The run exports it as `VIVARIUM_PROXY`, a `socks5h://` URL,
+  and `vivarium shell` sets the proxy variables from it (see "Work in a
+  shell that reaches the lab"):
 
 ```console
-$ vivarium up checks.k8s-lb --out ./k8s
-$ jq -r '.guests.router.forwards[].ports[] | select(.guest == 1080) | .host' ./k8s/access.json
-41733
-$ curl --socks5-hostname 127.0.0.1:41733 http://web.default.svc.cluster.local/
-$ curl --socks5-hostname 127.0.0.1:41733 http://10.200.0.1/
+$ vivarium up checks.k8s-lb
+$ vivarium shell k8s-lb
+$ curl http://web.default.svc.cluster.local/
+$ curl http://10.200.0.1/
 ```
 
-Use `socks5h://` in `ALL_PROXY` or `HTTPS_PROXY`, not `socks5://`, so that
-the proxy resolves the name, not the host. kubectl and other Go programs
-read `HTTPS_PROXY`. Chromium takes `--proxy-server=socks5://ADDR`, and
-Firefox needs `network.proxy.socks_remote_dns`. A program that cannot use
-a proxy cannot reach the cluster this way yet.
+`socks5h://`, not `socks5://`, makes the proxy resolve the name, not the
+host. Chromium takes `--proxy-server=socks5://ADDR`, and Firefox needs
+`network.proxy.socks_remote_dns`. A program that cannot use a proxy
+cannot reach the cluster this way yet.
 
 `vivarium.router.routes`, `vivarium.router.inside` and
 `vivarium.router.socks` are the router's own options; the recipe sets
@@ -358,17 +357,19 @@ key never leaves the host. Each run writes two files to `access/`:
 - `ca.pem`: the root. Import it into a browser once; every later run
   chains to it.
 - `ca-bundle.pem`: the host's public roots and the root, for programs that
-  read one file:
+  read one file.
+
+The run exports `SSL_CERT_FILE` (OpenSSL, Go on Linux, Python's ssl),
+`REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` as the bundle, and
+`NODE_EXTRA_CA_CERTS` as `ca.pem`: Node adds it to its own roots.
+`SSL_CERT_FILE` replaces a program's roots, so it names the bundle. In
+`vivarium shell k8s-lb`:
 
 ```console
-$ export SSL_CERT_FILE=$PWD/k8s/access/ca-bundle.pem   # OpenSSL, Go on Linux, Python's ssl
-$ export REQUESTS_CA_BUNDLE=$SSL_CERT_FILE CURL_CA_BUNDLE=$SSL_CERT_FILE
-$ export NODE_EXTRA_CA_CERTS=$PWD/k8s/access/ca.pem    # adds to Node's roots
-$ curl --socks5-hostname 127.0.0.1:41733 https://web-tls.default.svc.cluster.local/
+$ curl https://web-tls.default.svc.cluster.local/
 ```
 
-`SSL_CERT_FILE` replaces a program's roots, so it names the bundle, not
-`ca.pem`. Browsers read no variable: import `ca.pem` into their own store.
+Browsers read no variable: import `ca.pem` into their own store.
 Chromium on Linux reads `~/.pki/nssdb`:
 
 ```console
@@ -386,6 +387,33 @@ and `checks.k8s-lb` checks it with curl.
 
 A test phase gets the same CA with `await vms.trust.issuer()`. A run that
 never asks makes nothing.
+
+### Work in a shell that reaches the lab
+
+`vivarium shell NAME` starts your shell (`$SHELL`) with a live run's
+variables, as `nix develop` does. `vivarium shell NAME -- CMD` runs one
+command. `vivarium env NAME` prints the same variables as `export` lines:
+`eval "$(vivarium env NAME)"` in bash, `eval (vivarium env NAME)` in fish.
+`--json` prints one object. `--out DIR` names a run that is no named
+environment. A run that is not up is refused (exit 3): its ports may be
+another run's now.
+
+| variable | from |
+| --- | --- |
+| `VIVARIUM_ENVIRONMENT`, `VIVARIUM_OUT` | the environment's name and directory |
+| `KUBECONFIG` | `vivarium_k8s.host_kubeconfig` |
+| `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` | the lab CA, once a phase asked for it |
+| `VIVARIUM_PROXY` | the router's SOCKS5 proxy, `vivarium.router.socks` |
+| `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` (both cases), `NO_PROXY` | `VIVARIUM_PROXY`; `NO_PROXY` keeps the host's own forwards direct |
+
+The proxy variables send every connection through the lab, a public
+download too, and an `--offline` run refuses those. So `shell` and `env`
+put `unproxy` first on `PATH`: `unproxy CMD` runs CMD without them. `nix`,
+the other `nix-*` commands, `pynix` and `vivarium` run that way by
+themselves. `--no-proxy` leaves out the proxy variables and `unproxy`.
+
+A phase adds a variable with `await vms.export(NAME, VALUE)`. The run
+keeps them in `access/environment.json`.
 
 ## Drive guests from plain pytest
 
