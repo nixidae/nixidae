@@ -50,7 +50,7 @@ from vivarium_runner.instances import seed
 from vivarium_runner.report import Report
 from vivarium_runner.run import Run, RunError, Segment, shut_down
 
-from . import access, journal, junit_in, trust
+from . import access, exports, journal, junit_in, trust
 from .cloud import Cloud, CloudService
 from .events import Event, Kind, Level
 from .phases import (
@@ -536,7 +536,11 @@ class Session:
             return {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in run.machines.items()}
 
         vms.access = access.write(guests(), self.out)
-        vms.trust = trust.Trust(self.spec.name, vms.access, trust.directory())
+        vms.exports = exports.Exports(vms.access)
+        vms.trust = trust.Trust(self.spec.name, vms.access, trust.directory(), vms.exports)
+        for vm in run.machines.values():
+            if vm.spec.socks is not None and (proxy := vm.reachable(vm.spec.socks)):
+                await vms.export(exports.PROXY, f"socks5h://{proxy[0]}")
         for vm in run.machines.values():
             vm.on_inbound = lambda _vm: access.refresh(guests(), self.out)
         self.vms = vms
@@ -849,6 +853,7 @@ class Session:
         vms.artifacts = self.vms.artifacts
         vms.access = self.vms.access
         vms.trust = self.vms.trust
+        vms.exports = self.vms.exports
         vms.knobs = self.vms.knobs
         vms.shared = self.vms.shared
         vms.segments = self.vms.segments

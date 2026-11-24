@@ -21,12 +21,16 @@ import anyio
 import certifi
 import platformdirs
 import vivarium_ca
-from vivarium_runner import Issuer
+from vivarium_runner import Exports, Issuer
 
 CERTIFICATE: Final = "ca.pem"
 """The lab root, for a browser or a program that adds one CA."""
 BUNDLE: Final = "ca-bundle.pem"
 """The host's public roots and the lab root, for `SSL_CERT_FILE`."""
+
+BUNDLE_VARIABLES: Final = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+EXTRA_VARIABLES: Final = ("NODE_EXTRA_CA_CERTS",)
+"""Node adds these to its own roots, so they hold the lab root alone."""
 
 
 def directory() -> Path:
@@ -43,10 +47,11 @@ def system_candidates() -> list[Path]:
 class Trust:
     """`vivarium_runner.Trust` for one run."""
 
-    def __init__(self, run: str, access: Path, state: Path) -> None:
+    def __init__(self, run: str, access: Path, state: Path, exports: Exports) -> None:
         self._run = run
         self._access = access
         self._state = state
+        self._exports = exports
         self._lock = anyio.Lock()
         self._issuer: Issuer | None = None
 
@@ -54,6 +59,10 @@ class Trust:
         async with self._lock:
             if self._issuer is None:
                 self._issuer = await anyio.to_thread.run_sync(self._make)
+                for name in BUNDLE_VARIABLES:
+                    await self._exports.set(name, str(self._access / BUNDLE))
+                for name in EXTRA_VARIABLES:
+                    await self._exports.set(name, str(self._access / CERTIFICATE))
             return self._issuer
 
     def _make(self) -> Issuer:

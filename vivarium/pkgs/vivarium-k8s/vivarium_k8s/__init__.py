@@ -730,6 +730,7 @@ async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
     # Owner only: it holds the cluster admin's key.
     await anyio.Path(path).touch(mode=0o600)
     await anyio.Path(path).write_text(json.dumps(config, indent=2) + "\n")
+    await vms.export("KUBECONFIG", str(path))
     cp.say(f"[k8s] host kubeconfig: {path} (server https://{reachable[0]})")
     return path
 

@@ -41,6 +41,15 @@ class Trust(Protocol):
         ...
 
 
+class Exports(Protocol):
+    """Environment variables a run hands the host's shell: `vivarium.exports.Exports`."""
+
+    async def set(self, name: str, value: str) -> None:
+        """Add or replace *name* in `access/environment.json`, which
+        `vivarium env` and `vivarium shell` read."""
+        ...
+
+
 class CloudControl(Protocol):
     """The provider's side of the run's cloud API, for a phase: `vivarium.cloud.Cloud`. nixidae/nixidae#1408."""
 
@@ -115,6 +124,18 @@ class Machines(dict[str, Machine]):
 
     trust: Trust | None = None
     """The run's lab CA. A class default, as `segments`."""
+
+    exports: Exports | None = None
+    """One object for the whole run, shared by every phase's copy of this
+    mapping. A class default, as `segments`."""
+
+    async def export(self, name: str, value: str) -> None:
+        """Give `vivarium shell` the variable *name*: a path in `access`,
+        an address of a forward. A forward's address is the one at export
+        time; a guest whose forwards change exports again."""
+        if self.exports is None:
+            raise MachineError("this run exports nothing: no session drives it that can")
+        await self.exports.set(name, value)
 
     async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine:
         """Boot a new guest *name* from `templates.<template>`; it is in this mapping once up. nixidae/nixidae#1408."""

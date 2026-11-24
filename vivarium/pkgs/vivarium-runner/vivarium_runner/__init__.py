@@ -13,11 +13,12 @@ from .display import Button
 from .forward import ForwardError
 from .machine import GuestTimeout, Machine, MachineError
 from .machine_spec import Interface, LaunchSpec, MachineSpec, Systems
-from .machines import Issuer, Machines, Trust
+from .machines import Exports, Issuer, Machines, Trust
 from .net import Lan, SegmentError
 
 __all__ = [
     "Button",
+    "Exports",
     "ForwardError",
     "GuestTimeout",
     "Interface",
