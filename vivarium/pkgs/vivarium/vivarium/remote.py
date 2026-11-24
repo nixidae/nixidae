@@ -35,6 +35,7 @@ from vivarium_agent.arpyc import AsyncConnection, Service, listen
 from vivarium_runner.control import CommandResult
 from vivarium_runner.machine import Machine, MachineError
 
+from . import places
 from .control import reachable
 
 if TYPE_CHECKING:
@@ -249,7 +250,7 @@ async def _client(stream: SocketStream, service: Machines) -> None:
 
 async def serve(session: Session, *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
     """Listen until cancelled, beside the control socket."""
-    path = session.out / SOCKET
+    path = places.prepare(session.out) / SOCKET
     path.unlink(missing_ok=True)
     with reachable(path) as name:
         listener = await anyio.create_unix_listener(name)

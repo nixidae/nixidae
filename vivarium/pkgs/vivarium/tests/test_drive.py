@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 import pytest
+from vivarium import places
 from vivarium.cli import drive
 from vivarium.control import RUN_FILE, SOCKET, Op, RunFile, request, watch
 from vivarium.events import Event, Kind, Level
@@ -217,7 +218,7 @@ async def until_paused(socket: Path) -> None:
 class TestBreakpoints:
     async def test_a_break_pauses_before_the_phase_until_continue(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
@@ -231,7 +232,7 @@ class TestBreakpoints:
 
     async def test_a_phase_run_while_paused_is_not_run_again(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
@@ -250,7 +251,7 @@ class TestBreakpoints:
             return PhaseState.FAILED
 
         monkeypatch.setattr(session, "run", fail)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, break_on_failure=True))
             await until_paused(socket)
@@ -276,7 +277,7 @@ class TestBreakpoints:
             return PhaseState.PASSED
 
         monkeypatch.setattr(session, "run", slow)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, break_on_failure=True))
             await started.wait()
@@ -304,8 +305,8 @@ class TestBreakpoints:
         deep = tmp_path / ("d" * 60) / ("e" * 60)
         deep.mkdir(parents=True)
         session = FakeSession(out=deep)
-        socket = deep / SOCKET
-        assert len(str(socket)) > 108
+        assert len(str(deep / SOCKET)) > 108
+        socket = places.socket(deep, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
@@ -330,7 +331,7 @@ class TestBreakpoints:
         )
         spec = tmp_path / "spec.json"
         spec.write_text(new.model_dump_json())
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"], spec=Path("old.json")))
             await until_paused(socket)
@@ -347,7 +348,7 @@ class TestBreakpoints:
         session = FakeSession(out=tmp_path)
         spec = tmp_path / "spec.json"
         spec.write_text(Spec(machines=[machine_json("new")], phases=session.spec.phases).model_dump_json())
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
@@ -363,7 +364,7 @@ class TestBreakpoints:
         spec = tmp_path / "spec.json"
         changed = Spec(machines=[], segments={"core": SegmentSpec(hub=True)}, phases=session.spec.phases)
         spec.write_text(changed.model_dump_json())
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"]))
             await until_paused(socket)
@@ -395,14 +396,14 @@ class TestBreakpoints:
 
     async def test_watch_streams_the_pause_and_then_the_verdict(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
-        seen = await self._watched(session, tmp_path / SOCKET, Op.CONTINUE)
+        seen = await self._watched(session, places.socket(tmp_path, SOCKET), Op.CONTINUE)
         assert seen == ["paused", "live", "resumed", "finished"]
 
     async def test_a_watcher_of_a_stopped_run_gets_its_verdict(self, tmp_path: Path) -> None:
         """`stop` cancels the phases, not the socket: the verdict reaches
         each watcher before the run closes it."""
         session = FakeSession(out=tmp_path)
-        seen = await self._watched(session, tmp_path / SOCKET, Op.STOP)
+        seen = await self._watched(session, places.socket(tmp_path, SOCKET), Op.STOP)
         assert seen == ["paused", "live", "finished"]
         assert session.stopped is not None
         assert session.torn_down
@@ -415,14 +416,14 @@ class TestBreakpoints:
         seen: list[bool] = []
 
         async def look(phase: PhaseSpec) -> PhaseState:
-            seen.append((tmp_path / SOCKET).exists())
+            seen.append((places.socket(tmp_path, SOCKET)).exists())
             session.state[phase.name] = PhaseState.PASSED
             return PhaseState.PASSED
 
         monkeypatch.setattr(session, "run", look)
         await drive(session, control=control)
         assert seen == [control]
-        assert not (tmp_path / SOCKET).exists()
+        assert not (places.socket(tmp_path, SOCKET)).exists()
 
 
 async def until_state(socket: Path, result: str) -> None:
@@ -438,7 +439,7 @@ async def until_state(socket: Path, result: str) -> None:
 class TestHold:
     async def test_ready_holds_the_guests_until_stop_and_then_passes(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         seen: list[str] = []
 
         async def follow() -> None:
@@ -468,7 +469,7 @@ class TestHold:
         )
         spec = tmp_path / "spec.json"
         spec.write_text(new.model_dump_json())
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, hold=True, break_on_failure=True))
             await until_state(socket, "ready")
@@ -494,7 +495,7 @@ class TestHold:
             return PhaseState.FAILED
 
         monkeypatch.setattr(session, "run", fail)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, hold=True, break_on_failure=True))
             await until_state(socket, "paused")
@@ -504,7 +505,7 @@ class TestHold:
 
     async def test_a_stop_before_ready_is_still_a_stop(self, tmp_path: Path) -> None:
         session = FakeSession(out=tmp_path)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["one"], hold=True))
             await until_state(socket, "paused")
@@ -602,7 +603,7 @@ class TestPhasesAtOnce:
         session.out = tmp_path
         run = Overlap(session, fail="left")
         monkeypatch.setattr(session, "run", run)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, break_on_failure=True))
             await until_paused(socket)
@@ -619,7 +620,7 @@ class TestPhasesAtOnce:
         session.out = tmp_path
         run = Overlap(session)
         monkeypatch.setattr(session, "run", run)
-        socket = tmp_path / SOCKET
+        socket = places.socket(tmp_path, SOCKET)
         async with anyio.create_task_group() as group:
             group.start_soon(lambda: drive(session, breaks=["end"]))
             await until_paused(socket)

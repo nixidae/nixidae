@@ -11,6 +11,7 @@ from typing import Any
 
 import anyio
 import pytest
+from vivarium import places
 from vivarium.control import RUN_FILE, SOCKET, reachable
 from vivarium.events import Event, Kind, Level
 from vivarium.exits import Exit
@@ -110,21 +111,20 @@ def test_paused_now_is_the_last_pause_left_open(events: list[dict[str, Any]], pa
 
 
 def test_locate_takes_a_directory_or_an_id(tmp_path: Path) -> None:
-    assert locate(str(tmp_path)) == tmp_path / SOCKET
-    assert locate("vivarium-x-abc").name == SOCKET
-    assert locate("vivarium-x-abc").parent.name == "vivarium-x-abc"
+    assert locate(str(tmp_path)) == places.socket(tmp_path, SOCKET)
+    assert locate("vivarium-x-abc") == places.socket(Path("vivarium-x-abc").absolute(), SOCKET)
 
 
 def test_locate_takes_an_out_that_does_not_exist_yet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    assert locate("out") == tmp_path / "out" / SOCKET
+    assert locate("out") == places.socket(tmp_path / "out", SOCKET)
 
 
 def test_locate_prefers_a_run_id_that_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
     (tmp_path / "vivarium-x-abc").mkdir()
     monkeypatch.chdir(tmp_path / "vivarium-x-abc")
-    assert locate("vivarium-x-abc") == tmp_path / "vivarium-x-abc" / SOCKET
+    assert locate("vivarium-x-abc") == places.socket(tmp_path / "vivarium-x-abc", SOCKET)
 
 
 @pytest.mark.anyio
@@ -217,7 +217,7 @@ async def _serve(path: Path, events: list[dict[str, Any]]) -> None:
 async def test_follow_prints_each_event_and_exits_with_the_verdict(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    socket = tmp_path / SOCKET
+    socket = places.prepare(tmp_path) / SOCKET
     events = [
         {"run": "r", "event": "progress", "phase": "boot", "text": "phase boot started"},
         {"run": "r", "event": "finished", "passed": "false", "text": "run failed: boot failed"},
@@ -237,7 +237,7 @@ async def test_follow_prints_each_event_and_exits_with_the_verdict(
 
 @pytest.mark.anyio
 async def test_quiet_leaves_out_progress(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    socket = tmp_path / SOCKET
+    socket = places.prepare(tmp_path) / SOCKET
     events = [
         {"run": "r", "event": "progress", "phase": "boot", "text": "phase boot passed"},
         {"run": "r", "event": "paused", "text": "after boot failed"},
@@ -258,7 +258,7 @@ async def test_quiet_leaves_out_progress(tmp_path: Path, capsys: pytest.CaptureF
 
 @pytest.mark.anyio
 async def test_a_stream_that_ends_before_the_verdict_is_3(tmp_path: Path) -> None:
-    socket = tmp_path / SOCKET
+    socket = places.prepare(tmp_path) / SOCKET
     async with anyio.create_task_group() as group:
         group.start_soon(_serve, socket, [{"run": "r", "event": "paused", "text": "paused"}])
         while not socket.exists():
@@ -268,7 +268,7 @@ async def test_a_stream_that_ends_before_the_verdict_is_3(tmp_path: Path) -> Non
 
 
 async def _follow(tmp_path: Path, events: list[dict[str, Any]], **options: Any) -> int:
-    socket = tmp_path / SOCKET
+    socket = places.prepare(tmp_path) / SOCKET
     code = 0
     async with anyio.create_task_group() as group:
         group.start_soon(_serve, socket, events)

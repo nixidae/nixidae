@@ -239,13 +239,23 @@ guests stay up until you stop them. A Kubernetes cluster to work
 against:
 
 ```console
-$ vivarium up checks.k8s-host --out ./k8s
-$ kubectl --kubeconfig ./k8s/access/kubeconfig get pods -A
-$ ssh -F ./k8s/ssh_config cp
-$ vivarium ls
-ready	k8s-host	/home/me/k8s
-$ vivarium down --out ./k8s
+$ vivarium up checks.k8s-host
+[vivarium] environment k8s-host: /home/me/.local/state/vivarium/envs/k8s-host
+$ E=~/.local/state/vivarium/envs/k8s-host
+$ kubectl --kubeconfig $E/access/kubeconfig get pods -A
+$ ssh -F $E/ssh_config cp
+$ vivarium ps
+ready	k8s-host	k8s-host	/home/me/.local/state/vivarium/envs/k8s-host
+$ vivarium down k8s-host
+$ vivarium rm k8s-host
 ```
+
+An environment has a name: the test's `name`, or `--name` for a second
+one of the same test. Its directory is `envs/<name>` in the user's state
+directory (platformdirs: `~/.local/state/vivarium` on Linux,
+`~/Library/Application Support/vivarium` on macOS). `up` refuses a name
+that is up. `--out DIR` instead of a name keeps the directory where you
+say; `down --out DIR` stops it.
 
 `up` starts `vivarium run <attr> --hold` in the background, with its
 output in `<out>/run.log`. It returns when every phase passed and the
@@ -283,10 +293,16 @@ Without the `vivarium` CLI, `nix run --file . checks.k8s-host.up -- --out
 ./k8s` runs the same environment in the foreground.
 
 `down` stops it, waits for the run to exit and exits 0 if every phase
-passed. `vivarium ctl --out ./k8s stop` does the same. A stop before
-`ready` is an ordinary stop: exit 5. `ls` lists every run on this host
-that has a control socket, with its state: `ready`, `paused` or
-`running`. `vivarium monitor` exits 6 at `ready`. The MCP server's
+passed, and keeps its directory. `vivarium ctl --out <dir> stop` does the
+same. A stop before `ready` is an ordinary stop: exit 5. `ps` (or `ls`)
+lists every run on this host that has a control socket, with its state:
+`ready`, `paused` or `running`; then each environment that is `down`.
+`rm NAME` deletes a stopped environment's directory (`--force` stops it
+first), and `clean` deletes every one that is down.
+
+A live run's sockets are in the user's runtime directory
+(`$XDG_RUNTIME_DIR/vivarium/runs/<key>`, `~/Library/Caches/TemporaryItems`
+on macOS), not in its directory, so none outlives a reboot. `vivarium monitor` exits 6 at `ready`. The MCP server's
 `start` takes `hold=True`.
 
 A sandboxed `nix build` of the same attribute never holds: it runs the
@@ -399,7 +415,7 @@ async def test_fresh(vm):                  # the run's only guest
   plugin runs `vivarium up <attr> --file <vivarium_file>` for the first
   test of a scope, and `vivarium down` after its last.
 - Each guest is a `vivarium.remote.RemoteMachine`. Each of its methods is a
-  coroutine, and one round trip to the run's `<out>/machines.sock`. It has
+  coroutine, and one round trip to the run's `machines.sock`, beside its control socket. It has
   the `Machine` methods that take and return plain data, such as
   `succeed`, `execute`, `wait_for_unit`, `wait_until_succeeds`, `journal`
   and the screen input methods. A list arrives as a tuple. `await

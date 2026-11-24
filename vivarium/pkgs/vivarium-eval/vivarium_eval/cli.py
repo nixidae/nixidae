@@ -46,7 +46,7 @@ import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
 from huggorm_bindings import DerivedPathBuilt, OutputsSpec
-from vivarium import access, cli as runner_cli, control, monitor, registry
+from vivarium import access, cli as runner_cli, control, environments, monitor, places, registry
 from vivarium.exits import Exit, describe
 from vivarium.phases import VERDICT, Verdict
 from vivarium_runner.forward import InboundJson
@@ -151,7 +151,16 @@ def parser() -> argparse.ArgumentParser:
             default=Path(),
             help="the file or directory to evaluate, as `nix build --file` takes it",
         )
-        if command in RUNS:
+        if command == "up":
+            runner_cli.add_run_options(optional_out(evaluate.add_argument))
+            evaluate.add_argument(
+                "--name",
+                help=(
+                    "the environment's name, when no --out is given: its directory is"
+                    " <state>/envs/NAME. The default is the test's `name`"
+                ),
+            )
+        elif command in RUNS:
             runner_cli.add_run_options(evaluate.add_argument)
         if command == "run":
             evaluate.add_argument(
@@ -164,9 +173,15 @@ def parser() -> argparse.ArgumentParser:
                 ),
             )
     down = sub.add_parser("down", help="stop an environment `up` started; exit 0 if its phases passed")
-    down.add_argument("--out", type=Path, required=True, help="the environment's --out")
-    listing = sub.add_parser("ls", help="the runs up on this host: their state, test and --out")
-    listing.add_argument("--json", action="store_true", help="one JSON object per run")
+    add_target(down)
+    for command in ("ps", "ls"):
+        listing = sub.add_parser(command, help="the runs up on this host: their state, environment, test and --out")
+        listing.add_argument("--json", action="store_true", help="one JSON object per run")
+    removing = sub.add_parser("rm", help="delete stopped environments' directories")
+    removing.add_argument("names", nargs="+", metavar="NAME")
+    removing.add_argument("--force", "-f", action="store_true", help="stop one that is up first")
+    cleaning = sub.add_parser("clean", help="delete every environment that is not up, and stale run entries")
+    cleaning.add_argument("--dry-run", action="store_true", help="say what would go, delete nothing")
     closing = sub.add_parser(
         "closure", help="every store path these reach, one a line: what a test in a guest needs of the host's store"
     )
@@ -176,6 +191,32 @@ def parser() -> argparse.ArgumentParser:
     runner_cli.add_ctl(sub)
     runner_cli.add_monitor(sub)
     return top
+
+
+def optional_out(add: Callable[..., argparse.Action]) -> Callable[..., argparse.Action]:
+    """`add` with `--out` optional: `up` names an environment instead."""
+
+    def added(*names: str, **options: Any) -> argparse.Action:  # Any: argparse's own keyword arguments
+        if "--out" in names:
+            options["required"] = False
+        return add(*names, **options)
+
+    return added
+
+
+def add_target(command: argparse.ArgumentParser) -> None:
+    """An environment by name, or a run by its --out."""
+    command.add_argument("name", nargs="?", help="the environment's name, as `vivarium ps` lists it")
+    command.add_argument("--out", type=Path, help="the run's --out, for a run that is no named environment")
+
+
+def target_of(args: argparse.Namespace) -> Path:
+    if (args.name is None) == (args.out is None):
+        raise SystemExit(f"vivarium {args.command}: name an environment or give --out, one of them")
+    try:
+        return places.environment(args.name) if args.out is None else args.out.absolute()
+    except places.PlaceError as error:
+        raise SystemExit(f"vivarium {args.command}: {error}") from None
 
 
 def split_dashdash(argv: list[str]) -> tuple[list[str], list[str]]:
@@ -375,7 +416,7 @@ def reload(args: argparse.Namespace) -> Exit:
         say(f"evaluation failed: {explain(str(error))}")
         return Exit.FAILED
     say(f"built {spec} in {time.monotonic() - started:.1f}s")
-    reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.RELOAD, str(spec), (), None)
+    reply = anyio.run(control.request, places.socket(args.out, control.SOCKET), control.Op.RELOAD, str(spec), (), None)
     if reply.result is not None:
         print(reply.result)
     if reply.error:
@@ -422,7 +463,7 @@ def switch(args: argparse.Namespace) -> Exit:
     say(f"built {system} in {time.monotonic() - started:.1f}s")
     asked = control.SwitchRequest(args.node, system, registration, args.action, inbound).encode()
     # Every argument given: zuban's TypeVarTuple does not count a defaulted parameter.
-    reply = anyio.run(control.request, args.out / control.SOCKET, control.Op.SWITCH, asked, (), None)
+    reply = anyio.run(control.request, places.socket(args.out, control.SOCKET), control.Op.SWITCH, asked, (), None)
     if reply.output:
         print(reply.output, end="" if reply.output.endswith("\n") else "\n")
     if reply.error:
@@ -459,6 +500,8 @@ def say(text: str) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
+    # A runner this execs may be older and read only its own variables.
+    places.pin()
     head, tail = split_dashdash(argv)
     top = parser()
     args, rest = top.parse_known_args(head)
@@ -474,12 +517,18 @@ def main(argv: list[str] | None = None) -> None:
         if args.command == "reload":
             raise SystemExit(reload(args))
         if args.command == "down":
-            raise SystemExit(anyio.run(down, args.out.absolute()))
-        if args.command == "ls":
+            raise SystemExit(anyio.run(down, target_of(args)))
+        if args.command in ("ps", "ls"):
             raise SystemExit(anyio.run(listing, args.json))
+        if args.command == "rm":
+            raise SystemExit(anyio.run(remove, args.names, args.force))
+        if args.command == "clean":
+            raise SystemExit(anyio.run(clean, args.dry_run))
         if args.command == "closure":
             raise SystemExit(anyio.run(closure, args.paths))
         raise SystemExit(switch(args))
+    if head and head[0] == "up":
+        argv = name_environment(argv)
     request = parse(argv)
     if request.until_pause:
         raise SystemExit(until_pause(argv, request))
@@ -584,7 +633,7 @@ async def closure(paths: list[str]) -> int:
 async def down(out: Path) -> Exit:
     """`ctl stop`, then the run's verdict: passed, failed, or stopped before
     it was ready."""
-    socket = out / control.SOCKET
+    socket = places.socket(out, control.SOCKET)
     try:
         reply = await control.request(socket, control.Op.STOP)
     except OSError as error:
@@ -609,12 +658,108 @@ async def down(out: Path) -> Exit:
 
 
 async def listing(as_json: bool) -> int:
-    for up in await registry.runs():
+    """Every live run, then every environment that is down, with its state `down`."""
+    live = await registry.runs()
+    rows = [(up.state, up.environment, up.name, up.out, up.pause) for up in live]
+    seen = {up.out for up in live}
+    rows += [
+        ("down", one.name, None, one.out, None) for one in await environments.every() if one.out.resolve() not in seen
+    ]
+    for state, environment, test, out, pause in rows:
         if as_json:
-            print(json.dumps({"out": str(up.out), "state": up.state, "name": up.name, "pause": up.pause}))
+            print(
+                json.dumps({"out": str(out), "state": state, "environment": environment, "name": test, "pause": pause})
+            )
         else:
-            print("\t".join([up.state, up.name or "-", str(up.out)]))
+            print("\t".join([state, environment or "-", test or "-", str(out)]))
     return 0
+
+
+def name_environment(argv: list[str]) -> list[str]:
+    """`up` with no --out: `--out <state>/envs/<name>` in place of `--name`.
+    The name is `--name`, else the test's `name`, which this evaluates."""
+    head, tail = split_dashdash(argv)
+    words = argparse.ArgumentParser(add_help=False)
+    words.add_argument("--name")
+    words.add_argument("--out")
+    words.add_argument("--file", "-f", type=Path, default=Path())
+    words.add_argument("attr")
+    known, rest = words.parse_known_args(head[1:])
+    if known.out is not None:
+        if known.name is not None:
+            raise SystemExit("vivarium up: --name and --out name the same thing; give one")
+        return argv
+    try:
+        name = known.name or anyio.run(test_name, known.file, split_attr(known.attr))
+    except (NixError, AttrPathError) as error:
+        say(f"evaluation failed: {explain(str(error))}")
+        raise SystemExit(Exit.NO_VERDICT) from None
+    try:
+        out = places.environment(name)
+    except places.PlaceError as error:
+        raise SystemExit(f"vivarium up: {error}; pick one with --name") from None
+    if anyio.run(environments.live, out):
+        raise SystemExit(f"vivarium up: the environment {name} is up; `vivarium down {name}` first, or pick --name")
+    say(f"environment {name}: {out}")
+    return ["up", known.attr, "--file", str(known.file), "--out", str(out), *rest, *tail]
+
+
+async def test_name(file: Path, attr: list[str]) -> str:
+    """The `name` the test's module configuration gives."""
+    async with evaluator(Recorder(None, sys.stderr)) as (state, _):
+        target = await session_of(state, file, attr)
+        return await (await select_attr_path(state, target, ["config", "name"])).realise_string()
+
+
+async def remove(names: list[str], force: bool) -> int:
+    """`rm`: each named environment's directory; one that is up only with --force."""
+    failed = False
+    for name in names:
+        try:
+            out = places.environment(name)
+        except places.PlaceError as error:
+            say(str(error))
+            failed = True
+            continue
+        if not out.is_dir():
+            say(f"no environment {name}")
+            failed = True
+            continue
+        if await environments.live(out):
+            if not force:
+                say(f"{name} is up; `vivarium down {name}` first, or rm --force")
+                failed = True
+                continue
+            await down(out)
+        try:
+            await anyio.to_thread.run_sync(environments.remove, out)
+        except (OSError, environments.Refused, subprocess.CalledProcessError) as error:
+            say(f"{name}: {error}")
+            failed = True
+            continue
+        say(f"removed {name}")
+    return 1 if failed else 0
+
+
+async def clean(dry_run: bool) -> int:
+    """`clean`: every environment that is down. `registry.runs` drops dead
+    run entries on the way."""
+    await registry.runs()
+    failed = False
+    for one in await environments.every():
+        if one.up:
+            continue
+        if dry_run:
+            print(one.name)
+            continue
+        try:
+            await anyio.to_thread.run_sync(environments.remove, one.out)
+        except (OSError, environments.Refused, subprocess.CalledProcessError) as error:
+            say(f"{one.name}: {error}")
+            failed = True
+            continue
+        say(f"removed {one.name}")
+    return 1 if failed else 0
 
 
 def announce(out: Path, origin: control.Origin) -> None:

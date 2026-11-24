@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import anyio
 import pytest
+from vivarium import places
 from vivarium.control import (
     Console,
     Controller,
@@ -179,7 +180,7 @@ class TestReply:
 def test_the_run_file_reads_back_what_it_wrote() -> None:
     out = Path("/tmp/a run")
     about = run_file(VIVARIUM, out, 42, control=True)
-    assert about.socket == out / "control.sock"
+    assert about.socket == places.run_directory(out) / "control.sock"
     assert list(about.commands) == commands(VIVARIUM, out)
     assert RunFile.from_json(about.to_json()) == about
 

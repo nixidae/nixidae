@@ -46,6 +46,7 @@ from typing import Any, Final
 
 import anyio
 
+from . import places
 from .control import RUN_FILE, SOCKET, watch
 from .events import Event, Kind, NotAnEvent
 from .exits import Exit
@@ -201,18 +202,28 @@ def line(event: dict[str, Any], *, as_json: bool = False) -> str:
     return f"{head}: {text}" if text else head
 
 
-def locate(target: str) -> Path:
-    """The socket of a run, named by its `--out` directory or by its id.
+def directory_of(target: str) -> Path:
+    """A run's directory, named by its `--out`, its id, or its environment.
 
     `vivarium-mcp` makes each run's directory under the temporary directory and
-    names the run after it, so an id alone is enough. A target that names
-    neither yet is a `--out` whose run has not started.
+    names the run after it, so an id alone is enough. An environment's name
+    is its directory under the state directory. A target that names none of
+    these yet is a `--out` whose run has not started.
     """
     path = Path(target)
+    if path.is_dir():
+        return path.absolute()
     by_id = Path(tempfile.gettempdir()) / target
-    if not path.is_dir() and by_id.is_dir():
-        path = by_id
-    return path.absolute() / SOCKET
+    if by_id.is_dir():
+        return by_id
+    if places.NAME.fullmatch(target) and (environment := places.environment(target)).is_dir():
+        return environment
+    return path.absolute()
+
+
+def locate(target: str) -> Path:
+    """The control socket of the run `directory_of(target)` names."""
+    return places.socket(directory_of(target), SOCKET)
 
 
 BUILD_LOG: Final = "build.jsonl"
@@ -319,7 +330,7 @@ async def wait_for_run(out: Path, timeout: float = WAIT, printer: Watch | None =
     tally = BuildTally()
 
     async def up() -> bool:
-        return await anyio.Path(out / "events.jsonl").exists() or await anyio.Path(out / SOCKET).exists()
+        return await anyio.Path(out / "events.jsonl").exists() or await anyio.Path(places.socket(out, SOCKET)).exists()
 
     with anyio.move_on_after(timeout):
         while True:
@@ -388,7 +399,7 @@ async def follow_file(out: Path, *, grace: float = GRACE, **options: bool) -> Ex
     notification here."""
     printer = Watch(**options)
     tail = Tail(out / "events.jsonl")
-    control = anyio.Path(out / SOCKET)
+    control = anyio.Path(places.socket(out, SOCKET))
     started = anyio.current_time()
     was_up = False
     while True:

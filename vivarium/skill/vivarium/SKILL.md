@@ -52,10 +52,13 @@ vivarium monitor "$OUT" --quiet                                          # backg
 Guests that stay up after the phases, for work from the host (a cluster to `kubectl` against):
 
 ```sh
-vivarium up <test> --out "$OUT"     # background; exits 0 at ready with access.json on stdout, 4 if a phase failed (paused)
-vivarium ls                         # runs up on this host: state, test, --out
-vivarium down --out "$OUT"          # 0 if every phase passed
+vivarium up <test> [--name N]       # background; exits 0 at ready with access.json on stdout, 4 if a phase failed (paused)
+vivarium ps                         # live runs (state, environment, test, dir), then environments that are down
+vivarium down N                     # 0 if every phase passed; the directory stays
+vivarium rm N / vivarium clean      # delete one stopped environment / every one
 ```
+
+- An environment's directory is `<platformdirs state>/vivarium/envs/<name>` (`~/.local/state/...` on Linux); the name is the test's `name` unless `--name`. `up` refuses a name that is up. `--out "$OUT"` instead of a name still works for `up` and `down`.
 
 - `up` is `run --hold` detached; the runner's `--hold` (MCP `start(hold=True)`) pauses at `ready` after the last phase passes. `ctl stop` at ready ends the run with its verdict (exit 0), not `stopped`.
 - Way in, written before boot: `$OUT/access.json` (each guest's ssh and forwards), `ssh -F $OUT/ssh_config <guest>` (root, `vivarium.rootPassword`; only a guest whose `vivarium.inbound` lists `{ guest = config.vivarium.sshPort; }`), `$OUT/access/` (what phases write via `vms.access`; `bring_up` writes `access/kubeconfig` when the control plane forwards 6443, the `modules/k8s.nix` default).

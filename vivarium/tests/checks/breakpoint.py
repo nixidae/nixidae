@@ -19,6 +19,7 @@ of `inject` and `ctl pytest`.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -45,6 +46,12 @@ async def test(vms: Machines) -> None:
 """
 
 BY_HAND = 'async def test_host(one): assert (await one.succeed("hostname")).stdout == "{name}"\n'
+
+
+def socket_left(out: Path) -> bool:
+    """Whether the control socket `run.json` names is still there."""
+    socket = json.loads((out / "run.json").read_text())["socket"]
+    return socket is not None and Path(socket).exists()
 
 
 def by_hand(vivarium: str, driver: str, work: Path) -> None:
@@ -114,7 +121,7 @@ def by_hand(vivarium: str, driver: str, work: Path) -> None:
     if not any(e["kind"] == "case" and data(e).get("by_hand") and data(e).get("outcome") == "failed" for e in events):
         run.fail("the by-hand case is not in the events")
     print("ok: and its cases are events, outside the verdict and junit.xml")
-    if (run.out / "control.sock").exists():
+    if socket_left(run.out):
         run.fail("the socket outlived the run")
 
 
@@ -160,7 +167,7 @@ def stop(vivarium: str, driver: str, work: Path) -> None:
         run.fail("a stopped run reads as passed")
     if not any(e["kind"] == "run_finished" and data(e).get("stopped") == "ctl stop" for e in run.events()):
         run.fail("the verdict event does not say stopped")
-    if (run.out / "control.sock").exists():
+    if socket_left(run.out):
         run.fail("the socket outlived a stopped run")
     if left := running(UML_PROCESSES):
         run.fail(f"guest processes are left after stop: {', '.join(left)}")

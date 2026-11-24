@@ -50,6 +50,7 @@ from vivarium_runner.control import CommandResult
 from vivarium_runner.forward import InboundJson, Rule
 from vivarium_runner.machine import SwitchAction
 
+from . import places
 from .events import Kind, Level
 from .exits import Exit
 from .phases import PhaseState, ReloadRefused, Stop
@@ -628,7 +629,7 @@ def run_file(
         pid=pid,
         out=out,
         vivarium=vivarium,
-        socket=out / SOCKET if control else None,
+        socket=places.run_directory(out) / SOCKET if control else None,
         commands=tuple(c for c in commands(vivarium, out, origin, node) if control or not c.needs_socket),
         origin=origin,
         test=test,
@@ -675,7 +676,7 @@ class Controller:
         self.feed = feed
         self._stop = stop
         self._stopping = False
-        self.path = session.out / SOCKET
+        self.path = places.prepare(session.out) / SOCKET
         self.console = Console(self._namespace(), lambda copy: session._capture("exec", copy))
         self._resume: anyio.Event | None = None
         self._pause: str | None = None

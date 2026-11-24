@@ -31,7 +31,7 @@ import anyio
 from vivarium_runner import MachineError
 from vivarium_runner.machine_spec import Cpus
 
-from . import access, monitor, namespace, registry, remote, repl, runroot
+from . import access, monitor, namespace, places, registry, remote, repl, runroot
 from .control import (
     ORIGIN,
     PARENT,
@@ -805,7 +805,7 @@ async def ctl(args: argparse.Namespace) -> Exit:
         return Exit.USAGE
     if args.op == Op.SEGMENT:
         arg = shlex.join([arg, *args.segment_args])
-    socket = args.out / SOCKET
+    socket = places.socket(args.out, SOCKET)
     if args.wait and args.op != Op.CONTINUE:
         print("[vivarium] --wait is for continue", file=sys.stderr)
         return Exit.USAGE
@@ -908,15 +908,16 @@ async def phases(args: argparse.Namespace) -> int:
 
 def watch(args: argparse.Namespace) -> int:
     """`monitor`: follow a run until its verdict; the exit status."""
-    socket = monitor.locate(args.target)
+    out = monitor.directory_of(args.target)
+    socket = places.socket(out, SOCKET)
     options = {"as_json": args.json, "quiet": args.quiet, "until_pause": not args.through_pauses}
     try:
-        arrival = anyio.run(monitor.wait_for_run, socket.parent, args.wait, monitor.Watch(**options))
+        arrival = anyio.run(monitor.wait_for_run, out, args.wait, monitor.Watch(**options))
         if arrival is monitor.Arrival.GONE:
             return Exit.NO_VERDICT
         if arrival is monitor.Arrival.NEVER:
             print(
-                f"[vivarium] no run in {socket.parent} after {args.wait:g}s: no events.jsonl",
+                f"[vivarium] no run in {out} after {args.wait:g}s: no events.jsonl",
                 file=sys.stderr,
                 flush=True,
             )
@@ -927,10 +928,10 @@ def watch(args: argparse.Namespace) -> int:
             # No `watch` here: `--no-control`, an older runner, or a run
             # gone without removing its socket. Follow what it writes.
             pass
-        if not (socket.parent / "events.jsonl").exists():
-            print(f"[vivarium] no run in {socket.parent}: no events.jsonl", file=sys.stderr, flush=True)
+        if not (out / "events.jsonl").exists():
+            print(f"[vivarium] no run in {out}: no events.jsonl", file=sys.stderr, flush=True)
             return Exit.NO_RUN
-        return anyio.run(functools.partial(monitor.follow_file, socket.parent, **options))
+        return anyio.run(functools.partial(monitor.follow_file, out, **options))
     except KeyboardInterrupt:
         return 130
 

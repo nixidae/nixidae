@@ -63,7 +63,8 @@ def main() -> None:
     print(f"ok: the run printed its monitor: {shlex.join(watch)}")
     about = json.loads((out / "run.json").read_text())
     listed = {c["use"]: c["argv"] for c in about["commands"]}
-    if listed.get("monitor") != watch or about["socket"] != str(out / "control.sock"):
+    # The socket is in the user's runtime directory, under the run's key.
+    if listed.get("monitor") != watch or not Path(about["socket"]).is_socket():
         fail(f"run.json does not hold what the run printed: {about}")
     print("ok: run.json holds the printed commands and the socket")
     armed = subprocess.Popen(watch, stdout=subprocess.PIPE, text=True)

@@ -43,7 +43,7 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
-from vivarium import registry
+from vivarium import places, registry
 from vivarium.control import PARENT, RUN_FILE, SOCKET, Op, Reply, RunFile, WatchRefused, request, watch
 from vivarium.events import Event, Kind, NotAnEvent
 from vivarium.exits import describe
@@ -310,7 +310,7 @@ class Run(ABC):
 
     @property
     def socket(self) -> Path:
-        return self.out / SOCKET
+        return places.socket(self.out, SOCKET)
 
     @property
     @abstractmethod

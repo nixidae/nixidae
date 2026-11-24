@@ -60,7 +60,7 @@ from anyio.abc import SocketAttribute
 from anyio.from_thread import start_blocking_portal
 from vivarium_agent.arpyc import AsyncConnection, connect
 
-from . import cli as runner_cli, control, monitor
+from . import cli as runner_cli, control, monitor, places
 from .control import reachable
 from .exits import Exit
 from .remote import SOCKET, RemoteMachine
@@ -232,7 +232,7 @@ class Run:
 
 
 async def _connect(out: Path) -> AsyncConnection:
-    with reachable(out / SOCKET) as name:
+    with reachable(places.socket(out, SOCKET)) as name:
         stream = await anyio.connect_unix(name)
     # arpyc reads a raw fd from the loop; the duplicate outlives the stream. The caller serves it.
     fd = os.dup(stream.extra(SocketAttribute.raw_socket).fileno())
@@ -242,7 +242,7 @@ async def _connect(out: Path) -> AsyncConnection:
 
 async def _stop(out: Path) -> None:
     """`vivarium down`: `stop`, then wait for the run to exit."""
-    reply = await control.request(out / control.SOCKET, control.Op.STOP)
+    reply = await control.request(places.socket(out, control.SOCKET), control.Op.STOP)
     if not reply.ok:
         raise RunFailed(f"the run at {out} refused stop: {reply.error}")
     if not await runner_cli.wait_for_exit(out):
@@ -289,7 +289,7 @@ class Driver:
             return self.runs[key]
         name = out_name(want.attr)
         out = self.base / name if self.keep else self.base / f"{name}-{time.time_ns()}"
-        if not (self.keep and (out / SOCKET).exists() and self._try_open(out, key)):
+        if not (self.keep and places.socket(out, SOCKET).exists() and self._try_open(out, key)):
             self._start(want.attr, out)
             self._open(out, key)
         return self.runs[key]

@@ -13,7 +13,8 @@ import anyio
 import pytest
 from mcp.shared.message import SessionMessage
 from mcp.types import ImageContent, JSONRPCNotification, TextContent
-from vivarium.control import PARENT, Op, Origin, Reply, RunFile
+from vivarium import places
+from vivarium.control import PARENT, SOCKET, Op, Origin, Reply, RunFile
 from vivarium.events import Event, Kind, Level
 from vivarium.monitor import CLIP, LIVE, channel_event, clip
 from vivarium.phases import PhaseState, Verdict
@@ -370,7 +371,7 @@ async def test_the_channel_carries_what_the_run_watch_streams(tmp_path: Path) ->
         {"run": "r", "event": "finished", "passed": "true", "text": "run passed: boot passed"},
     ]
     async with anyio.create_task_group() as group:
-        group.start_soon(_serve_watch, tmp_path / "control.sock", events)
+        group.start_soon(_serve_watch, places.prepare(tmp_path) / SOCKET, events)
         runs = Runs(group, pushed.send)
         runs.runs["r"] = run
         with anyio.fail_after(5):
@@ -545,7 +546,7 @@ async def test_an_attached_run_pushes_only_what_happens_after(tmp_path: Path) ->
     ]
 
     async def serve_then_end() -> None:
-        await _serve_watch(tmp_path / "control.sock", events)
+        await _serve_watch(places.prepare(tmp_path) / SOCKET, events)
         run.gone.set()
 
     async with anyio.create_task_group() as group:

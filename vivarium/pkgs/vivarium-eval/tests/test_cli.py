@@ -3,10 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from vivarium import places
 from vivarium.control import RUN_FILE, Op, Origin, run_file
 from vivarium.exits import Exit
 from vivarium_eval import cli as cli_module
-from vivarium_eval.cli import child_args, entry, main, not_ready, origin_of, parse, parser, split_attr
+from vivarium_eval.cli import (
+    child_args,
+    entry,
+    main,
+    name_environment,
+    not_ready,
+    origin_of,
+    parse,
+    parser,
+    split_attr,
+)
 
 
 def test_a_paused_environment_points_at_ctl_state() -> None:
@@ -85,7 +96,7 @@ class TestParse:
 
     @pytest.mark.parametrize(
         "argv",
-        [["run", "x"], ["up", "x"], ["run", "x", "--until-pause"], ["run", "x", "--out", "o", "--cpus", "many"]],
+        [["run", "x"], ["run", "x", "--until-pause"], ["run", "x", "--out", "o", "--cpus", "many"]],
     )
     def test_a_bad_runner_option_fails_before_an_evaluation(
         self, argv: list[str], monkeypatch: pytest.MonkeyPatch
@@ -97,6 +108,27 @@ class TestParse:
         with pytest.raises(SystemExit) as exited:
             main(argv)
         assert exited.value.code == Exit.USAGE
+
+    def test_up_without_out_runs_in_its_named_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def evaluated(*_: object) -> None:
+            raise AssertionError("--name needs no evaluation")
+
+        monkeypatch.setattr(cli_module, "test_name", evaluated)
+        argv = name_environment(["up", "x.qemu", "--name", "dev", "-v", "--", "-k", "t"])
+        out = places.environment("dev")
+        assert argv == ["up", "x.qemu", "--file", ".", "--out", str(out), "-v", "--", "-k", "t"]
+        assert parse(argv).out == out
+
+    def test_up_takes_the_tests_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def named(*_: object) -> str:
+            return "k8s-lb"
+
+        monkeypatch.setattr(cli_module, "test_name", named)
+        assert name_environment(["up", "checks.k8s-lb"])[4:6] == ["--out", str(places.environment("k8s-lb"))]
+
+    def test_up_refuses_name_with_out(self) -> None:
+        with pytest.raises(SystemExit):
+            name_environment(["up", "x", "--name", "a", "--out", "o"])
 
     def test_help_lists_the_runners_options(self, capsys: pytest.CaptureFixture[str]) -> None:
         for command in ("run", "up"):
