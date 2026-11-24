@@ -26,11 +26,22 @@ def load_or_create(directory: Path, now: datetime.datetime) -> authority.Certifi
     A new root goes to a private directory beside it and is renamed into
     place, so two runs that start at once agree on one root: the rename
     that loses finds the winner's.
+
+    A root that ends before an intermediate made now would is moved aside
+    to `<directory>-retired-<serial>` and replaced. A browser that imported
+    it needs the new `ca.pem`.
     """
     try:
-        return _load(directory)
+        found = _load(directory)
     except FileNotFoundError:
         pass
+    else:
+        if found.certificate.not_valid_after_utc - now >= authority.INTERMEDIATE_LIFETIME:
+            return found
+        retired = directory.with_name(f"{directory.name}-retired-{found.certificate.serial_number:x}")
+        # Another run may have moved it first.
+        with contextlib.suppress(FileNotFoundError):
+            directory.rename(retired)
     directory.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     made = authority.root(COMMON_NAME, now)
     staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}-", dir=directory.parent))

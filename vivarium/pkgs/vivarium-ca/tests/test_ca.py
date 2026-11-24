@@ -77,6 +77,17 @@ def test_a_root_round_trips(tmp_path: Path) -> None:
     assert stat.S_IMODE(os.stat(tmp_path / "ca").st_mode) == 0o700
 
 
+def test_a_root_near_its_end_is_replaced(tmp_path: Path) -> None:
+    old = store.load_or_create(tmp_path / "ca", NOW)
+    late = NOW + authority.ROOT_LIFETIME - authority.INTERMEDIATE_LIFETIME + datetime.timedelta(days=1)
+    new = store.load_or_create(tmp_path / "ca", late)
+    assert new.certificate != old.certificate
+    assert new.certificate.not_valid_after_utc - late >= authority.INTERMEDIATE_LIFETIME
+    retired = tmp_path / f"ca-retired-{old.certificate.serial_number:x}"
+    assert (retired / store.CERTIFICATE).read_text() == old.certificate_pem()
+    assert store.load_or_create(tmp_path / "ca", late).certificate == new.certificate
+
+
 def test_runs_that_start_at_once_share_one_root(tmp_path: Path) -> None:
     barrier = threading.Barrier(8)
     found: list[x509.Certificate] = []
