@@ -353,12 +353,20 @@ $ curl --socks5-hostname 127.0.0.1:41733 https://web-tls.default.svc.cluster.loc
 
 `SSL_CERT_FILE` replaces a program's roots, so it names the bundle, not
 `ca.pem`. Browsers read no variable: import `ca.pem` into their own store.
+Chromium on Linux reads `~/.pki/nssdb`:
+
+```console
+$ certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "vivarium lab root" -i ./k8s/access/ca.pem
+```
+
+Firefox has its own store: Settings, Certificates, View Certificates,
+Authorities, Import, and trust it to identify websites.
 
 Both CAs carry X.509 name constraints. They sign only for `cluster.local`,
 `test`, `internal`, `localhost` and private addresses, so a cluster that
-leaks the run's key cannot impersonate a public site. OpenSSL 3.5 and Go
-1.27 enforce this, and `checks.k8s-lb` checks it with curl. Browsers are
-not measured yet.
+leaks the run's key cannot impersonate a public site. OpenSSL 3.5, Go
+1.27, Chromium 157 and Firefox 160 enforce this (nixidae/nixidae#1584),
+and `checks.k8s-lb` checks it with curl.
 
 A test phase gets the same CA with `await vms.trust.issuer()`. A run that
 never asks makes nothing.
