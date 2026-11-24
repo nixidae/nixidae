@@ -222,6 +222,8 @@ lib.fix (self: {
     # `nix run --file . packages.vivarium-mcp`: what `.mcp.json` starts.
     vivarium-mcp = lib.addMetaAttrs { mainProgram = "vivarium-mcp"; } vivarium-eval;
     libkrun = pkgs.callPackage ./pkgs/libkrun/package.nix { };
+    # Guest programs: the router runs them.
+    socks = vivarium.guestPkgs.callPackage ./pkgs/vivarium-socks { };
     # The slowest thing in the repository and the same for every guest, so
     # CI builds it once on its own and lets the cache hand it to the test
     # jobs.

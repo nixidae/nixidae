@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vivarium-socks"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "A SOCKS5 proxy into a vivarium lab"
+requires-python = ">=3.12"
+dependencies = ["anyio", "dnspython"]
+
+[project.scripts]
+vivarium-socks = "vivarium_socks.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vivarium_socks"]
