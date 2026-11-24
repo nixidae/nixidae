@@ -70,6 +70,16 @@ rec {
   k8s = pkgs.callPackage ./pkgs/vivarium-k8s { vivarium-runner = runner; };
 
   /**
+    The router's LoadBalancer controller, `vivarium-lb`, a guest program.
+    `vivarium.recipes.kubernetes.loadBalancer` runs it.
+  */
+  lb = guestPkgs.callPackage ./pkgs/vivarium-lb {
+    kr8s = guestPkgs.python3Packages.callPackage "${sources.nanopynix}/nix/kr8s.nix" {
+      src = sources.kr8s;
+    };
+  };
+
+  /**
     The runner, `vivarium-runner`, in a venv that holds `session`. What a
     test's spec names and its driver runs; it never evaluates. The CLI a
     person runs is `vivarium` from `packages.vivarium`, built on huggorm. A child of
@@ -525,7 +535,14 @@ rec {
           hostPkgs = pkgs;
           # The Python packages vivarium builds, for a recipe's
           # `python.packages`.
-          vivariumPackages = { inherit runner session k8s; };
+          vivariumPackages = {
+            inherit
+              runner
+              session
+              k8s
+              lb
+              ;
+          };
         };
       };
 

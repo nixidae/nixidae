@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vivarium-lb"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "LoadBalancer Services for a Kubernetes cluster in a vivarium lab"
+requires-python = ">=3.12"
+dependencies = ["anyio", "httpx", "kr8s"]
+
+[project.scripts]
+vivarium-lb = "vivarium_lb.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vivarium_lb"]

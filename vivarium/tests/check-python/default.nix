@@ -3,6 +3,7 @@
 {
   hostPkgs,
   lib,
+  sources,
   nixvenv,
   agent,
   runner,
@@ -12,6 +13,11 @@
 }:
 let
   socks = hostPkgs.callPackage ../../pkgs/vivarium-socks { };
+  lb = hostPkgs.callPackage ../../pkgs/vivarium-lb {
+    kr8s = hostPkgs.python3Packages.callPackage "${sources.nanopynix}/nix/kr8s.nix" {
+      src = sources.kr8s;
+    };
+  };
   python = nixvenv {
     python = hostPkgs.python3;
     packages = ps: [
@@ -20,6 +26,7 @@ let
       session
       k8s
       socks
+      lb
       ps.pytest
     ];
   };
@@ -34,7 +41,7 @@ let
     };
 in
 hostPkgs.runCommand "vivarium-check-python" { nativeBuildInputs = [ hostPkgs.zuban ]; } ''
-  for package in ${typed ../../pkgs/vivarium-agent} ${typed ../../pkgs/vivarium-runner} ${typed ../../pkgs/vivarium} ${typed ../../pkgs/vivarium-k8s} ${typed ../../pkgs/vivarium-socks}; do
+  for package in ${typed ../../pkgs/vivarium-agent} ${typed ../../pkgs/vivarium-runner} ${typed ../../pkgs/vivarium} ${typed ../../pkgs/vivarium-k8s} ${typed ../../pkgs/vivarium-socks} ${typed ../../pkgs/vivarium-lb}; do
     # Linux on any host: CI's verdict, and container.py is Linux only.
     (cd $package && zuban mypy --platform linux --python-executable ${python}/lib/venv/bin/python3)
   done
