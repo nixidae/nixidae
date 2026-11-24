@@ -126,6 +126,10 @@ let
       ]
     ) extra6;
 
+  fromOutside = lib.optionalString (
+    inside != [ ]
+  ) " ip saddr != { ${lib.concatStringsSep ", " inside} }";
+
   # The uplink's rules, and its gateway and DNS addresses to the relay
   # too. IPv6 has no DNS address of its own.
   ruleset =
@@ -134,7 +138,7 @@ let
       table = "router";
       device = bridge;
       inherit tproxyIn;
-      subnets4 = [ subnet ];
+      subnets4 = [ subnet ] ++ inside;
       subnets6 = [ "${prefix6}/64" ];
       tcp = 9000;
       udp = 9001;
@@ -144,7 +148,10 @@ let
           "iifname \"${bridge}\" ip daddr ${dns} tcp dport 53 redirect to :9000"
         ];
         mangle = [
-          "iifname \"${tproxyIn}\" ip daddr ${gateway} udp dport != 67 meta mark set 1 tproxy to :9001"
+          # A reply from inside the lab to the router's own socket (the SOCKS
+          # proxy's DNS query) is the router's: tproxy would hand it to the
+          # relay, and the query would never hear back.
+          "iifname \"${tproxyIn}\" ip daddr ${gateway}${fromOutside} udp dport != 67 meta mark set 1 tproxy to :9001"
           "iifname \"${tproxyIn}\" ip daddr ${dns} udp dport 53 meta mark set 1 tproxy to :9001"
           "iifname \"${bridge}\" ip daddr ${gateway} icmp type echo-request meta mark set 1"
         ];
@@ -234,6 +241,12 @@ let
   # A `vsock` guest's own router: the relay and the ruleset in this
   # namespace, the far end of `vec0` named as the router's bridge.
   netns = "uplink";
+
+  # The IPv4 prefixes that stay inside the lab: routed to a guest, not
+  # carried to the host.
+  inside = cfg.inside ++ map (route: route.destination) cfg.routes;
+
+  socks = pkgs.callPackage ../pkgs/vivarium-socks { };
 in
 {
   options.vivarium.router = {
@@ -261,6 +274,78 @@ in
       description = ''
         A routed guest's IPv6 uplink address, by its `vivarium.index`: the
         router's prefix and the digits of its IPv4 address's last octet.
+      '';
+    };
+    routes = mkOption {
+      type = types.listOf (
+        types.submodule {
+          options = {
+            destination = mkOption {
+              type = types.str;
+              example = "10.96.0.0/12";
+              description = "An IPv4 prefix inside the lab.";
+            };
+            via = mkOption {
+              type = types.str;
+              example = "cp";
+              description = "The guest behind the router that the prefix is routed to, by name.";
+            };
+          };
+        }
+      );
+      default = [ ];
+      description = ''
+        IPv4 prefixes the router routes to a guest behind it, in the
+        uplink's routing table. The relay leaves them alone, and the router
+        forwards its guests' traffic to them: a cluster's Service range, say.
+      '';
+    };
+    inside = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "10.200.0.0/24" ];
+      description = ''
+        IPv4 prefixes inside the lab whose routes a program on the router
+        adds at run time, in VRF table 1000. As `routes`, the relay leaves
+        them alone and the router forwards to them.
+      '';
+    };
+    socks = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          A SOCKS5 proxy on the router, `vivarium-socks`, forwarded to the
+          host like any `vivarium.inbound` port. A client on the host
+          reaches the lab's addresses and, through `domains`, its names.
+        '';
+      };
+      port = mkOption {
+        type = types.port;
+        default = 1080;
+        description = "The proxy's port on the router.";
+      };
+      domains = mkOption {
+        type = types.attrsOf (types.listOf types.str);
+        default = { };
+        example = {
+          "cluster.local" = [ "10.96.0.10" ];
+        };
+        description = "DNS servers inside the lab, by the domain they answer for.";
+      };
+    };
+    vrf = mkOption {
+      type = types.attrsOf types.anything;
+      internal = true;
+      readOnly = true;
+      default = {
+        device = vrf;
+        table = 1000;
+      };
+      description = ''
+        The uplink's VRF on the router: its device and routing table. A
+        program on the router that reaches the lab runs in it
+        (`ip vrf exec`), and routes it adds go in its table.
       '';
     };
     networkPorts = mkOption {
@@ -306,8 +391,8 @@ in
       # and no vec0 (`router` in its spec). Forced over a run's `defaults`
       # that name the other guests' uplink.
       vivarium.uplink.proxy = lib.mkForce "vsock";
-      # Its egress binds nothing for it: no ssh, and nothing to reach.
-      vivarium.inbound = lib.mkForce [ ];
+      # No ssh: the proxy, if it runs, is the one thing to reach.
+      vivarium.inbound = lib.mkForce (lib.optional cfg.socks.enable { guest = cfg.socks.port; });
       vivarium.launch.config.egress = "${egress}/bin/egress";
 
       vivarium.interfaces = lib.mapAttrs' (
@@ -394,6 +479,8 @@ in
             IPv6AcceptRA = false;
             # The gateway address is the router's own; no detection delay.
             IPv6DuplicateAddressDetection = 0;
+            # A guest's flow to a prefix inside the lab crosses the router.
+            IPv4Forwarding = lib.mkIf (inside != [ ]) true;
           };
           # The guests' resolver is `dns`; IPv6 carries no DNS.
           ipv6SendRAConfig = {
@@ -432,7 +519,12 @@ in
               Type = "local";
               Table = 100;
             }
-          ];
+          ]
+          ++ map (route: {
+            Destination = route.destination;
+            Gateway = cfg.address nodes.${route.via}.vivarium.index;
+            Table = 1000;
+          }) cfg.routes;
           dhcpServerStaticLeases = lib.mapAttrsToList (_: node: {
             MACAddress = node.vivarium.uplinkMac;
             Address = cfg.address node.vivarium.index;
@@ -459,6 +551,41 @@ in
         (inVrf vrf)
         { description = "The router's relay to the host"; }
       ];
+
+      # In the uplink's VRF: its routes are table 1000's, and the main
+      # table has none of the lab.
+      systemd.services.vivarium-socks = lib.mkIf cfg.socks.enable {
+        description = "A SOCKS5 proxy into the lab";
+        wantedBy = [ "multi-user.target" ];
+        bindsTo = [ (deviceUnit vrf) ];
+        after = [
+          (deviceUnit vrf)
+          "systemd-networkd.service"
+        ];
+        serviceConfig = {
+          ExecStart = lib.escapeShellArgs (
+            [
+              "${pkgs.iproute2}/bin/ip"
+              "vrf"
+              "exec"
+              vrf
+              (lib.getExe socks)
+              "--listen"
+              "${gateway}:${toString cfg.socks.port}"
+            ]
+            ++ lib.concatLists (
+              lib.mapAttrsToList (domain: servers: [
+                "--domain"
+                "${domain}=${lib.concatStringsSep "," servers}"
+              ]) cfg.socks.domains
+            )
+          );
+          # It binds the bridge's address, which networkd may not have set
+          # yet: retry, slower than systemd's start limit.
+          Restart = "always";
+          RestartSec = 2;
+        };
+      };
     })
     (lib.mkIf cfg.enable {
       assertions = map (net: {

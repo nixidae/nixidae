@@ -251,6 +251,9 @@ rec {
     }
     // lib.optionalAttrs machine.vivarium.router.enable {
       inherit (machine.vivarium.router) networkPorts;
+      # Its own address on the bridge: its egress binds the router's own
+      # forwards (the SOCKS proxy) as it does a routed guest's.
+      uplinkAddress = (import ./nix/uplink.nix).gateway;
     }
     // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {
       nixStore = machine.vivarium.nixDatabase.loader;

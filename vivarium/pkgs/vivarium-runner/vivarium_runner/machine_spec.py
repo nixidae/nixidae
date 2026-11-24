@@ -300,7 +300,7 @@ class MachineSpec:
     @property
     def forwards_through_egress(self) -> bool:
         """An egress binds this guest's forwards: its router's, or its own as a
-        `vsock` guest. The router has none of its own (modules/router.nix)."""
+        `vsock` guest. The router's egress binds the router's own too."""
         return self.uplink_address is not None or (self.vsock and not self.router)
 
     @classmethod

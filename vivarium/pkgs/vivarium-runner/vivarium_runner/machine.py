@@ -249,8 +249,9 @@ class Machine:
     @property
     def uplink_ip(self) -> str | None:
         """`vec0`'s IPv4 address as vivarium gives it: the router's lease
-        for this guest, else the relay's fixed one. `None` on a
-        segment a peer serves, which picks its own."""
+        for this guest, else the relay's fixed one; the router's own is
+        its bridge address. `None` on a segment a peer serves, which picks
+        its own."""
         if self.spec.uplink_address is not None:
             return self.spec.uplink_address
         if self.spec.uplink is None:
