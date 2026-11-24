@@ -13,7 +13,7 @@ from .display import Button
 from .forward import ForwardError
 from .machine import GuestTimeout, Machine, MachineError
 from .machine_spec import Interface, LaunchSpec, MachineSpec, Systems
-from .machines import Machines
+from .machines import Issuer, Machines, Trust
 from .net import Lan, SegmentError
 
 __all__ = [
@@ -21,6 +21,7 @@ __all__ = [
     "ForwardError",
     "GuestTimeout",
     "Interface",
+    "Issuer",
     "Lan",
     "LaunchSpec",
     "Machine",
@@ -31,5 +32,6 @@ __all__ = [
     "SegmentError",
     "SystemState",
     "Systems",
+    "Trust",
     "UnitInfo",
 ]

@@ -27,6 +27,7 @@ let
   projects = {
     vivarium-agent = ../vivarium-agent;
     vivarium-runner = ../vivarium-runner;
+    vivarium-ca = ../vivarium-ca;
     vivarium = ../vivarium;
     vivarium-eval = ./.;
   };

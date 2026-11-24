@@ -61,6 +61,7 @@ rec {
   session = pkgs.callPackage ./pkgs/vivarium {
     vivarium-runner = runner;
     vivarium-agent = agent;
+    vivarium-ca = ca;
   };
 
   /**

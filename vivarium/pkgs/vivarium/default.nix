@@ -2,6 +2,7 @@
   lib,
   python3Packages,
   vivarium-agent,
+  vivarium-ca,
   vivarium-runner,
 }:
 
@@ -36,6 +37,11 @@ python3Packages.buildPythonPackage {
     # A test in a guest measures itself for the host's pytest-cov. See
     # vivarium/pytest_worker.py.
     python3Packages.coverage
+    # The run's lab CA (vivarium/trust.py): the certificates, where the
+    # user's root lives, and the public roots when the host names none.
+    vivarium-ca
+    python3Packages.platformdirs
+    python3Packages.certifi
   ];
 
   pythonImportsCheck = [ "vivarium" ];

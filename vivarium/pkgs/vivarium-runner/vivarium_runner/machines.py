@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol
@@ -18,6 +19,26 @@ class Launcher(Protocol):
 
     async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine: ...
     async def terminate(self, name: str) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class Issuer:
+    """A CA a lab signs its servers' certificates with, as PEM text."""
+
+    certificate: str
+    key: str
+    root: str
+    """The certificate the host trusts, which signed `certificate`."""
+
+
+class Trust(Protocol):
+    """The run's lab CA: `vivarium.trust.Trust`."""
+
+    async def issuer(self) -> Issuer:
+        """The run's intermediate CA, made on first call. Its root goes to
+        `access/ca.pem`, and with the host's public roots to
+        `access/ca-bundle.pem`."""
+        ...
 
 
 class CloudControl(Protocol):
@@ -91,6 +112,9 @@ class Machines(dict[str, Machine]):
 
     launcher: Launcher | None = None
     """What boots a guest from a template while the run goes: the session. A class default, as `segments`."""
+
+    trust: Trust | None = None
+    """The run's lab CA. A class default, as `segments`."""
 
     async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine:
         """Boot a new guest *name* from `templates.<template>`; it is in this mapping once up. nixidae/nixidae#1408."""
