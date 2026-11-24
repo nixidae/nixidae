@@ -875,6 +875,7 @@ in
     vyos = "`vyos-uml`, `vyos-bgp` and `vyos-oob` run VyOS in CI";
     routeros-route = "`routeros-bgp` runs the same routing through RouterOS in CI";
     container-probe = "`container-probe-tun` asks the same and more in the container job";
+    uml-speed = "it builds a second, patched UML kernel for one check; a person runs it when the patch moves";
   };
 
   # Through ghanix's schema rather than straight to YAML. That is what
