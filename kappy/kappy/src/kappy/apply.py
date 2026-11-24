@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, cast
 
 import anyio
@@ -867,6 +868,37 @@ apply runs; each listed on the second try. nixidae/nixidae#1176.
 PRUNE_LIST_RETRY_SECONDS = 60.0
 """How long one kind's prune scan keeps retrying a `_LIST_NOT_YET` answer."""
 
+INITIAL_BACKOFF_SECONDS = 1.0
+MAX_BACKOFF_SECONDS = 15.0
+
+RETRY_JITTER = 0.25
+"""The most a jittered wait adds, as a fraction of the wait.
+
+Only ever added. A wait under the server's `retryAfterSeconds` is one it
+asked us not to make.
+"""
+
+
+def backoff(attempt: int) -> float:
+    return min(INITIAL_BACKOFF_SECONDS * (2.0**attempt), MAX_BACKOFF_SECONDS)
+
+
+def wait_before_retrying(attempt: int, asked_by_server: float | None) -> float:
+    """How long to leave a refused request alone before sending it again.
+
+    **The server's own answer wins when it gives one.** `retryAfterSeconds`
+    arrives with a 429 and with a 503 from `Timeout`/`ServerTimeout`, and it
+    is the API server saying how long it needs. Coming back sooner is what it
+    is asking us not to do, so this takes the longer of the two rather than
+    the backoff curve's guess.
+
+    `MAX_BACKOFF_SECONDS` does not cap it. A cap on our own guess is
+    sensible; a cap on an instruction is just ignoring the instruction more
+    politely.
+    """
+    guess = backoff(attempt)
+    return guess if asked_by_server is None else max(guess, asked_by_server)
+
 
 def retry_after_seconds(exc: kr8s.ServerError) -> float | None:
     """The `Status.details.retryAfterSeconds` the API server sent, if any."""
@@ -882,7 +914,40 @@ def retry_after_seconds(exc: kr8s.ServerError) -> float | None:
     return float(seconds) if isinstance(seconds, int | float) else None
 
 
-async def _list_for_prune(
+async def list_when_ready[T](  # noqa: PLR0913 -- the request, its budget, and three injected seams
+    request: Callable[[], Awaitable[T]],
+    *,
+    deadline: float,
+    kind: str,
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+    clock: Callable[[], float] = anyio.current_time,
+    jitter: Callable[[], float] = random.random,
+) -> T:
+    """*request*, sent again while the API server answers `_LIST_NOT_YET`.
+
+    Each wait is `wait_before_retrying`, plus up to `RETRY_JITTER` of it so
+    that kinds refused together are not all asked again in the same instant.
+    *deadline* is on *clock*'s scale; a wait that would end past it raises the
+    last answer instead. Every other error is raised at once. The answer
+    names no event to wait on, so this polls.
+    """
+    attempt = 0
+    while True:
+        try:
+            return await request()
+        except kr8s.ServerError as exc:
+            status = None if exc.response is None else exc.response.status_code
+            if status not in _LIST_NOT_YET:
+                raise
+            wait = wait_before_retrying(attempt, retry_after_seconds(exc)) * (1.0 + RETRY_JITTER * jitter())
+            if clock() + wait > deadline:
+                raise
+            _log.info("listing again when the API server asks", kind=kind, status=status, seconds=round(wait, 1))
+            await sleep(wait)
+            attempt += 1
+
+
+async def _list_for_prune(  # noqa: PLR0913 -- the listing, plus the three seams `list_when_ready` takes
     api: Api,
     target: str | type[APIObject],
     *,
@@ -890,41 +955,41 @@ async def _list_for_prune(
     kind: str,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     clock: Callable[[], float] = anyio.current_time,
+    jitter: Callable[[], float] = random.random,
 ) -> list[APIObject]:
     """Everything of one kind inside the prune scope.
 
     Wraps only the listing, never the deletes that follow it: a kind that
-    cannot be listed is ordinary, and a delete that fails is not.
-
-    A `_LIST_NOT_YET` answer is retried after the server's own
-    `retryAfterSeconds`, for up to `PRUNE_LIST_RETRY_SECONDS`. The answer
-    names no event to wait on.
+    cannot be listed is ordinary, and a delete that fails is not. A
+    `_LIST_NOT_YET` answer is retried for up to `PRUNE_LIST_RETRY_SECONDS`.
     """
-    deadline = clock() + PRUNE_LIST_RETRY_SECONDS
-    while True:
-        try:
-            return [
-                obj
-                async for obj in api.async_get(
-                    target,
-                    namespace=kr8s.ALL,
-                    label_selector=selector,
-                )
-                if isinstance(obj, APIObject)
-            ]
-        except kr8s.ServerError as exc:
-            status = None if exc.response is None else exc.response.status_code
-            if status in _NO_LIST_VERB:
-                _log.debug("not scanning kind with no list verb", kind=kind, status=status)
-                return []
-            if status not in _LIST_NOT_YET:
-                raise
-            asked = retry_after_seconds(exc)
-            wait = 1.0 if asked is None else asked
-            if clock() + wait > deadline:
-                raise
-            _log.info("listing again when the API server asks", kind=kind, status=status, seconds=wait)
-            await sleep(wait)
+
+    async def listed() -> list[APIObject]:
+        return [
+            obj
+            async for obj in api.async_get(
+                target,
+                namespace=kr8s.ALL,
+                label_selector=selector,
+            )
+            if isinstance(obj, APIObject)
+        ]
+
+    try:
+        return await list_when_ready(
+            listed,
+            deadline=clock() + PRUNE_LIST_RETRY_SECONDS,
+            kind=kind,
+            sleep=sleep,
+            clock=clock,
+            jitter=jitter,
+        )
+    except kr8s.ServerError as exc:
+        status = None if exc.response is None else exc.response.status_code
+        if status not in _NO_LIST_VERB:
+            raise
+        _log.debug("not scanning kind with no list verb", kind=kind, status=status)
+        return []
 
 
 async def _prune(  # noqa: PLR0913 -- one caller, and every argument is state that caller built
@@ -1021,11 +1086,13 @@ __all__ = [
     "build_object",
     "discover",
     "field_manager_for",
+    "list_when_ready",
     "prune_generation",
     "prune_selector",
     "raw_manifest",
     "raw_metadata",
     "resource_version",
     "ssa_apply",
+    "wait_before_retrying",
     "with_environment_label",
 ]

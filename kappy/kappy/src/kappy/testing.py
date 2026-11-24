@@ -77,12 +77,16 @@ class FakeApi:
         resources: list[Resource] | None = None,
         extra_metadata: dict[str, Metadata] | None = None,
         deny: dict[str, int] | None = None,
+        refusals: dict[str, list[kr8s.ServerError]] | None = None,
     ) -> None:
         self.namespaced = namespaced
         # Kinds whose LIST answers an error rather than a list, by status:
         # 403 for RBAC that covers writing a kind but not listing it, 405 for
         # the built-in kinds that have no list verb at all.
         self._deny = deny or {}
+        # Errors a kind's metadata LIST raises, one per request, before it
+        # answers: a 429 "storage is (re)initializing" that passes.
+        self._refusals = {kind: list(errors) for kind, errors in (refusals or {}).items()}
         # Merged into a listed object's `metadata`, keyed by its name. What
         # the prune guards read -- `ownerReferences` and the unit label --
         # lives there and nowhere else.
@@ -198,6 +202,8 @@ class FakeApi:
                 f"cannot list {kind}",
                 response=httpx.Response(self._deny[str(kind)], request=httpx.Request("GET", str(url))),
             )
+        if refusals := self._refusals.get(str(kind)):
+            raise refusals.pop(0)
         selector = params.get("labelSelector")
         items: list[JsonValue] = [
             {"kind": "PartialObjectMetadata", "metadata": metadata}

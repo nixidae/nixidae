@@ -13,7 +13,7 @@ import kr8s
 import pytest
 from kr8s.asyncio.objects import APIObject, get_class
 
-from kappy.apply import PRUNE_LIST_RETRY_SECONDS, _list_for_prune
+from kappy.apply import MAX_BACKOFF_SECONDS, PRUNE_LIST_RETRY_SECONDS, RETRY_JITTER, _list_for_prune
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -72,7 +72,7 @@ class _Clock:
         self.now += seconds
 
 
-async def scan(api: _Lists, clock: _Clock) -> list[APIObject]:
+async def scan(api: _Lists, clock: _Clock, *, jitter: float = 0.0) -> list[APIObject]:
     return await _list_for_prune(
         cast("Api", api),
         "ConfigMap",
@@ -80,6 +80,7 @@ async def scan(api: _Lists, clock: _Clock) -> list[APIObject]:
         kind="ConfigMap",
         sleep=clock.sleep,
         clock=clock,
+        jitter=lambda: jitter,
     )
 
 
@@ -90,6 +91,22 @@ async def test_storage_initializing_is_listed_again_when_the_server_asks() -> No
 
     assert [obj.name for obj in listed] == ["a"]
     assert clock.slept == [1.0, 2.0]
+
+
+async def test_without_an_answer_the_wait_grows_to_the_cap() -> None:
+    api, clock = _Lists(*[status(503) for _ in range(6)]), _Clock()
+
+    await scan(api, clock)
+
+    assert clock.slept == [1.0, 2.0, 4.0, 8.0, MAX_BACKOFF_SECONDS, MAX_BACKOFF_SECONDS]
+
+
+async def test_jitter_only_lengthens_the_wait() -> None:
+    api, clock = _Lists(status(429, retry_after=4)), _Clock()
+
+    await scan(api, clock, jitter=1.0)
+
+    assert clock.slept == [4.0 * (1.0 + RETRY_JITTER)]
 
 
 async def test_it_gives_up_at_the_bound() -> None:

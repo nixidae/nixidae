@@ -26,13 +26,12 @@ import kr8s
 import pytest
 from structlog.testing import capture_logs
 
-from kappy.apply import KindNotServedError, ObjectKey
+from kappy.apply import KindNotServedError, ObjectKey, wait_before_retrying
 from kappy.converge import (
     AFTER_ANNOTATION,
     RECREATE_OPT_OUT_ANNOTATION,
     AfterRef,
     Disposition,
-    _wait_before_retrying,
     after_refs,
     classify,
     converge_barrier,
@@ -886,19 +885,19 @@ class TestTheRetryDelay:
     """The server's own answer beats our backoff curve."""
 
     def test_the_curve_is_used_when_the_server_says_nothing(self) -> None:
-        assert _wait_before_retrying(0, None) == 1.0
-        assert _wait_before_retrying(1, None) == 2.0
+        assert wait_before_retrying(0, None) == 1.0
+        assert wait_before_retrying(1, None) == 2.0
 
     def test_the_server_wins_when_it_asks_for_longer(self) -> None:
-        assert _wait_before_retrying(0, 30.0) == 30.0
+        assert wait_before_retrying(0, 30.0) == 30.0
 
     def test_the_curve_wins_when_it_is_longer(self) -> None:
-        assert _wait_before_retrying(4, 2.0) == 15.0
+        assert wait_before_retrying(4, 2.0) == 15.0
 
     def test_the_cap_does_not_apply_to_an_instruction(self) -> None:
         """`MAX_BACKOFF_SECONDS` caps our guess. Capping the API server's
         instruction is just ignoring it more politely."""
-        assert _wait_before_retrying(0, 120.0) == 120.0
+        assert wait_before_retrying(0, 120.0) == 120.0
 
 
 class TestAfter:

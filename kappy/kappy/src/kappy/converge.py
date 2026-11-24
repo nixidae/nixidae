@@ -41,6 +41,7 @@ from .apply import (
     object_key,
     raw_metadata,
     retry_after_seconds,
+    wait_before_retrying,
     wait_object_effective,
 )
 from .readiness import (
@@ -72,9 +73,6 @@ Also the width of the ordering window. Workers pull from a queue sorted by
 Helm order, so this many adjacent objects are attempted together and the
 ordering holds only between windows, not inside one. See `converge_queue`.
 """
-
-INITIAL_BACKOFF_SECONDS = 1.0
-MAX_BACKOFF_SECONDS = 15.0
 
 RECREATE_DENY_KINDS = frozenset(
     {
@@ -641,27 +639,6 @@ def settled(last_progress: float, now: float, settle_seconds: float) -> bool:
     return now - last_progress >= settle_seconds
 
 
-def _backoff(attempt: int) -> float:
-    return min(INITIAL_BACKOFF_SECONDS * (2.0**attempt), MAX_BACKOFF_SECONDS)
-
-
-def _wait_before_retrying(attempt: int, asked_by_server: float | None) -> float:
-    """How long to leave the failed queue alone before sweeping it again.
-
-    **The server's own answer wins when it gives one.** `retryAfterSeconds`
-    arrives with a 429 and with a 503 from `Timeout`/`ServerTimeout`, and it
-    is the API server saying how long it needs. Coming back sooner is what it
-    is asking us not to do, so this takes the longer of the two rather than
-    the backoff curve's guess.
-
-    `MAX_BACKOFF_SECONDS` does not cap it. A cap on our own guess is
-    sensible; a cap on an instruction is just ignoring the instruction more
-    politely.
-    """
-    guess = _backoff(attempt)
-    return guess if asked_by_server is None else max(guess, asked_by_server)
-
-
 class Effect(enum.Enum):
     """Where a probed object is on its way to being in effect."""
 
@@ -985,7 +962,7 @@ async def converge_queue(  # noqa: PLR0913 -- every argument is an injected seam
                 settle_seconds=settle_seconds,
             )
             break
-        wait = _wait_before_retrying(attempt, state.retry_after)
+        wait = wait_before_retrying(attempt, state.retry_after)
         _log.info("retrying", objects=len(pending), seconds=f"{wait:.1f}", asked_by_server=state.retry_after)
         await sleep(wait)
         attempt += 1
