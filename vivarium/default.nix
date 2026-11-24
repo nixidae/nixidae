@@ -218,6 +218,7 @@ lib.fix (self: {
       k8s
       vivarium-eval
       ;
+    inherit (vivarium) ca;
     vivarium = tools;
     # `nix run --file . packages.vivarium-mcp`: what `.mcp.json` starts.
     vivarium-mcp = lib.addMetaAttrs { mainProgram = "vivarium-mcp"; } vivarium-eval;

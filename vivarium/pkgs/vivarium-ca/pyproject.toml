@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vivarium-ca"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "A name-constrained lab CA for vivarium runs"
+requires-python = ">=3.12"
+dependencies = ["cryptography"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["vivarium_ca"]
+artifacts = ["vivarium_ca/py.typed"]

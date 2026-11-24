@@ -1,4 +1,4 @@
-# zuban, strict, over `agent`, `runner`, `session`, `k8s` and the router's
+# zuban, strict, over `agent`, `runner`, `session`, `k8s`, `ca` and the router's
 # programs, and their unit tests. Each package's `mypy.ini` sets its own floor.
 {
   hostPkgs,
@@ -9,6 +9,7 @@
   runner,
   session,
   k8s,
+  ca,
   ...
 }:
 let
@@ -25,6 +26,7 @@ let
       runner
       session
       k8s
+      ca
       socks
       lb
       ps.pytest
@@ -41,7 +43,7 @@ let
     };
 in
 hostPkgs.runCommand "vivarium-check-python" { nativeBuildInputs = [ hostPkgs.zuban ]; } ''
-  for package in ${typed ../../pkgs/vivarium-agent} ${typed ../../pkgs/vivarium-runner} ${typed ../../pkgs/vivarium} ${typed ../../pkgs/vivarium-k8s} ${typed ../../pkgs/vivarium-socks} ${typed ../../pkgs/vivarium-lb}; do
+  for package in ${typed ../../pkgs/vivarium-agent} ${typed ../../pkgs/vivarium-runner} ${typed ../../pkgs/vivarium} ${typed ../../pkgs/vivarium-k8s} ${typed ../../pkgs/vivarium-socks} ${typed ../../pkgs/vivarium-lb} ${typed ../../pkgs/vivarium-ca}; do
     # Linux on any host: CI's verdict, and container.py is Linux only.
     (cd $package && zuban mypy --platform linux --python-executable ${python}/lib/venv/bin/python3)
   done

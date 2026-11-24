@@ -23,6 +23,7 @@ let
     runner
     session
     k8s
+    ca
     cli
     typeCheck
     images
@@ -451,6 +452,7 @@ let
       runner
       session
       k8s
+      ca
       cli
       typeCheck
       images

@@ -64,6 +64,12 @@ rec {
   };
 
   /**
+    `vivarium_ca`: the name-constrained lab CA a session makes for a run
+    that asks, `vms.trust`.
+  */
+  ca = pkgs.callPackage ./pkgs/vivarium-ca { };
+
+  /**
     `vivarium_k8s`, the cluster library. `vivarium.recipes.kubernetes` puts
     it in the run's venv.
   */
