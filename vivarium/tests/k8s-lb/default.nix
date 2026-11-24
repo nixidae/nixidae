@@ -6,7 +6,8 @@
   router routes the cluster's ranges, gives the Service an address from
   its pool, and serves a SOCKS5 proxy that the host reaches through a
   forward. A second guest, `client`, reaches the Service's address
-  through the router too.
+  through the router too. cert-manager issues from the run's lab CA, and
+  the host trusts it through `access/ca-bundle.pem`.
 
   10.108: every other cluster test has its own subnet.
 */
@@ -24,6 +25,7 @@ mkTest {
   vivarium.recipes.kubernetes = {
     enable = true;
     loadBalancer.enable = true;
+    certManager.enable = true;
   };
   phases.test = {
     script = ../k8s-lb.py;
@@ -31,6 +33,8 @@ mkTest {
   };
   nodes.cp = {
     imports = [ k8sNodes.cp ];
+    # The TLS server's pods run it from the store.
+    environment.systemPackages = [ pkgs.openssl ];
     vivarium.lan = lib.mkForce {
       network = "k8s-lb";
       address = "10.108.0.1/24";
@@ -41,5 +45,7 @@ mkTest {
     inherit (k8sConfig.services.vivarium-k8s) workloadImage;
     curl = lib.getExe hostPkgs.curl;
     kubectl = lib.getExe hostPkgs.kubectl;
+    openssl = lib.getExe pkgs.openssl;
+    publicRoots = "${hostPkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
   };
 }

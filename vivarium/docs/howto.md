@@ -325,6 +325,44 @@ a proxy cannot reach the cluster this way yet.
 `vivarium.router.socks` are the router's own options; the recipe sets
 them. A lab without Kubernetes can set them on `nodes.router`.
 
+### Trust the cluster's HTTPS
+
+`vivarium.recipes.kubernetes.certManager.enable` runs cert-manager with a
+ClusterIssuer `vivarium`. A `Certificate` or an Ingress that names it gets
+a certificate the host can trust:
+
+```yaml
+cert-manager.io/cluster-issuer: vivarium   # an Ingress annotation
+```
+
+The issuer signs with a CA made for the run. Its root is yours, made once
+in `~/.local/state/vivarium/ca` (platformdirs' state directory). The root's
+key never leaves the host. Each run writes two files to `access/`:
+
+- `ca.pem`: the root. Import it into a browser once; every later run
+  chains to it.
+- `ca-bundle.pem`: the host's public roots and the root, for programs that
+  read one file:
+
+```console
+$ export SSL_CERT_FILE=$PWD/k8s/access/ca-bundle.pem   # OpenSSL, Go on Linux, Python's ssl
+$ export REQUESTS_CA_BUNDLE=$SSL_CERT_FILE CURL_CA_BUNDLE=$SSL_CERT_FILE
+$ export NODE_EXTRA_CA_CERTS=$PWD/k8s/access/ca.pem    # adds to Node's roots
+$ curl --socks5-hostname 127.0.0.1:41733 https://web-tls.default.svc.cluster.local/
+```
+
+`SSL_CERT_FILE` replaces a program's roots, so it names the bundle, not
+`ca.pem`. Browsers read no variable: import `ca.pem` into their own store.
+
+Both CAs carry X.509 name constraints. They sign only for `cluster.local`,
+`test`, `internal`, `localhost` and private addresses, so a cluster that
+leaks the run's key cannot impersonate a public site. OpenSSL 3.5 and Go
+1.27 enforce this, and `checks.k8s-lb` checks it with curl. Browsers are
+not measured yet.
+
+A test phase gets the same CA with `await vms.trust.issuer()`. A run that
+never asks makes nothing.
+
 ## Drive guests from plain pytest
 
 `pytest` in a shell with `packages.vivarium-eval.env` on PATH loads
