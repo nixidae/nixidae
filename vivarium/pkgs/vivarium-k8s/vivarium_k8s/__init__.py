@@ -395,7 +395,9 @@ async def patch_kube_proxy(cp: Machine) -> None:
     cp.say("[k8s] cp: kube-proxy has the store")
 
 
-async def join(cp: Machine, workers: Sequence[Machine], control_planes: Sequence[Machine] = ()) -> None:
+async def join(
+    cp: Machine, workers: Sequence[Machine], control_planes: Sequence[Machine] = (), *, node_ip: bool = False
+) -> None:
     """Bring the workers and *control_planes* in with a token minted for this run.
 
     The token and the CA hash come from kubeadm rather than being read
@@ -421,6 +423,9 @@ async def join(cp: Machine, workers: Sequence[Machine], control_planes: Sequence
     the token is minted now: kubeadm deletes them after two hours. They
     join one at a time, since each adds an etcd member, and before the
     workers.
+
+    *node_ip* gives each worker kubelet's `--node-ip` from its `ip`: a
+    template's instance, whose address Nix does not know.
     """
     if not workers and not control_planes:
         return
@@ -448,9 +453,14 @@ async def join(cp: Machine, workers: Sequence[Machine], control_planes: Sequence
         worker.say(f"[k8s] {worker.name}: kubeadm join ...")
         # Kept on the node for the same reason as `INIT_LOG`.
         log = "/tmp/kubeadm-join.log"
+        flags = ""
+        if node_ip:
+            if worker.ip is None:
+                raise MachineError(f"[{worker.name}] has no address on the lan to register with")
+            flags = f"--node-ip {worker.ip} "
         try:
             done = await worker.execute(
-                f"vivarium-k8s-join {endpoint} {token} {digest} {certificate_key}"
+                f"vivarium-k8s-join {flags}{endpoint} {token} {digest} {certificate_key}"
                 f" > {log} 2>&1; rc=$?; cat {log}; exit $rc",
                 timeout=JOIN_TIMEOUT,
                 label="kubeadm join",
@@ -474,7 +484,7 @@ async def join(cp: Machine, workers: Sequence[Machine], control_planes: Sequence
         await one(control_plane, key)
     async with anyio.create_task_group() as group:
         for worker in workers:
-            group.start_soon(one, worker)
+            group.start_soon(one, worker, "")
 
 
 async def wire_pod_network(cp: Machine, vms: Mapping[str, Machine]) -> None:
@@ -508,15 +518,16 @@ async def wire_pod_network(cp: Machine, vms: Mapping[str, Machine]) -> None:
     if set(cidrs) != set(vms):
         raise MachineError(f"[cp] the cluster has {sorted(cidrs)}, the test booted {sorted(vms)}")
 
-    async def one(vm: Machine) -> None:
-        await vm.succeed(f"vivarium-k8s-cni {cidrs[vm.name]}")
-        for peer in vms.values():
-            if peer.name != vm.name:
-                await vm.succeed(f"ip route replace {cidrs[peer.name]} via {peer.ip} dev vec1")
-
     async with anyio.create_task_group() as group:
         for vm in vms.values():
-            group.start_soon(one, vm)
+            group.start_soon(_wire, vm, [peer for peer in vms.values() if peer is not vm], cidrs)
+
+
+async def _wire(vm: Machine, peers: Sequence[Machine], cidrs: Mapping[str, str | None]) -> None:
+    """*vm*'s CNI configuration, and its route to each of *peers*' pods."""
+    await vm.succeed(f"vivarium-k8s-cni {cidrs[vm.name]}")
+    for peer in peers:
+        await vm.succeed(f"ip route replace {cidrs[peer.name]} via {peer.ip} dev vec1")
 
 
 async def wait_for_ready_nodes(cp: Machine, expected: int) -> None:
@@ -841,6 +852,114 @@ async def bring_up(
         await install_cert_manager(cp, cert_manager["manifest"])
         await connect_issuer(cp, await vms.trust.issuer(), cert_manager["issuer"])
     return cp
+
+
+ADDING = anyio.Lock()
+"""One `add_node` or `remove_node` at a time: each reads the cluster's
+Nodes, and two at once would each wire the other in half."""
+
+
+def templates(vms: Machines) -> dict[str, NodeFacts]:
+    """The run's templates that make a Kubernetes node, by name: what `add_node` launches."""
+    return cast(dict[str, NodeFacts], vms.settings.get("kubernetes", {}).get("templates", {}))
+
+
+def _control_plane(vms: Machines) -> Machine:
+    """The cluster's one control plane: a node added at run time is no
+    member of a cluster with several (`vivarium.recipes.kubernetes`)."""
+    facts = nodes(vms)
+    planes = sorted(name for name, node in facts.items() if node["role"] == CONTROL_PLANE)
+    if len(planes) != 1 or planes[0] not in vms:
+        raise MachineError(f"adding a node needs one control plane in this phase; the run has {planes}")
+    return vms[planes[0]]
+
+
+async def _members(cp: Machine, vms: Mapping[str, Machine]) -> dict[str, Machine]:
+    """The guests the cluster has a Node for."""
+    listed = (await kubectl(cp, "get nodes --output jsonpath={.items[*].metadata.name}")).split()
+    return {name: vms[name] for name in listed if name in vms}
+
+
+async def _pod_cidrs(cp: Machine, name: str) -> dict[str, str | None]:
+    """Every Node's podCIDR, once the Node *name* has one."""
+    cidrs: dict[str, str | None] = {}
+
+    async def assigned() -> tuple[bool, str]:
+        listed = await get_json(cp, "get nodes")
+        cidrs.clear()
+        cidrs.update({item["metadata"]["name"]: item["spec"].get("podCIDR") for item in listed["items"]})
+        return bool(cidrs.get(name)), f"{name}: {cidrs.get(name, 'no Node')}"
+
+    await until(f"{name} to be given a podCIDR", assigned, JOIN_TIMEOUT, cp)
+    return cidrs
+
+
+async def add_node(vms: Machines, template: str, name: str) -> Machine:
+    """Launch *name* from *template* and join it to the running cluster as
+    a worker; return it once its Node is Ready.
+
+    *template* is one of `templates`: a template with
+    `services.vivarium-k8s.enable`. The instance registers its address on
+    the lan, which the runner gives it at launch, and every node routes to
+    its pods. A resumed environment deletes its Node, since no guest is it
+    then (`bring_up`).
+    """
+    facts = templates(vms)
+    if template not in facts:
+        raise MachineError(f"no Kubernetes template {template!r}; the run has {sorted(facts)}")
+    if facts[template]["role"] != "worker":
+        raise MachineError(
+            f"template {template!r} is a {facts[template]['role']}; a node added at run time is a worker"
+        )
+    cp = _control_plane(vms)
+    async with ADDING:
+        vm = await vms.launch(template, name)
+        await vm.wait_for_unit("vivarium-k8s-cri.target", timeout=UNIT_TIMEOUT)
+        if facts[template]["images"] == "nix":
+            await wait_for_images({name: vm})
+        else:
+            await wait_for_dns(vm)
+        await join(cp, [vm], node_ip=True)
+
+        # kubelet registers the Node after `kubeadm join` returns: measured 0.4 s.
+        async def registered() -> tuple[bool, str]:
+            listed = (await kubectl(cp, "get nodes --output jsonpath={.items[*].metadata.name}")).split()
+            return name in listed, f"Nodes: {', '.join(sorted(listed))}"
+
+        await until(f"a Node {name}", registered, JOIN_TIMEOUT, cp)
+        members = await _members(cp, vms)
+        if facts[template]["cni"] != "external":
+            cidrs = await _pod_cidrs(cp, name)
+            peers = [peer for peer in members.values() if peer is not vm]
+            async with anyio.create_task_group() as group:
+                group.start_soon(_wire, vm, peers, cidrs)
+                for peer in peers:
+                    group.start_soon(_route, peer, vm, cidrs[name])
+            await kubectl(cp, f"wait --for=condition=Ready node/{name} --timeout={READY_TIMEOUT}s", READY_TIMEOUT + 10)
+        await provision_runtimes(cp, {name: vm})
+    vm.say(f"[k8s] {name}: added from {template}")
+    return vm
+
+
+async def _route(vm: Machine, peer: Machine, cidr: str | None) -> None:
+    """*vm*'s route to *peer*'s pods."""
+    await vm.succeed(f"ip route replace {cidr} via {peer.ip} dev vec1")
+
+
+async def remove_node(vms: Machines, name: str) -> None:
+    """Delete the Node of *name*, an instance `add_node` launched, its
+    routes on the other nodes, and the instance."""
+    cp = _control_plane(vms)
+    async with ADDING:
+        node = await get_json(cp, f"get node {name}")
+        cidr = node["spec"].get("podCIDR")
+        await kubectl(cp, f"drain {name} --ignore-daemonsets --delete-emptydir-data --force --timeout=120s", 150)
+        await kubectl(cp, f"delete node {name} --wait")
+        if cidr:
+            for peer in (await _members(cp, vms)).values():
+                await peer.succeed(f"ip route del {cidr} || true")
+        await vms.terminate(name)
+    cp.say(f"[k8s] {name}: removed")
 
 
 LOADS = "load"

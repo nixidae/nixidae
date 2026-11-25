@@ -55,6 +55,11 @@ let
   );
   nodeIp = if nodeIps == [ ] then "0.0.0.0" else lib.concatStringsSep "," nodeIps;
   advertiseAddress = if nodeIps == [ ] then "0.0.0.0" else lib.head nodeIps;
+  # A template's instance has its address from the runner at launch, so
+  # `vivarium-k8s-join --node-ip` sets it, and kubeadm writes it to
+  # kubeadm-flags.env. A `--node-ip` here as well would come last and win.
+  inherit (config.vivarium) template;
+  nodeIpArgs = lib.optionalAttrs (!template) { node-ip = nodeIp; };
   # host:port, with an IPv6 host in brackets.
   hostPort =
     host: port:
@@ -196,7 +201,7 @@ let
       "NumCPU"
       "Mem"
     ];
-    kubeletExtraArgs = args { node-ip = nodeIp; };
+    kubeletExtraArgs = args nodeIpArgs;
   };
 
   /*
@@ -962,12 +967,20 @@ in
         message = "services.vivarium-k8s.runtimes: kata starts a VM per pod and needs vivarium.nestedVirtualization.";
       }
       {
-        assertion = config.vivarium.lan.address != null;
+        assertion =
+          config.vivarium.lan.address != null || (template && config.vivarium.lan.network != null);
         message = ''
-          services.vivarium-k8s needs vivarium.lan.address: every guest shares
-          one address behind its relay, so a node with no segment of its own
-          has no address to register with.
+          services.vivarium-k8s needs vivarium.lan.address (a template:
+          vivarium.lan.network): every guest shares one address behind its
+          relay, so a node with no segment of its own has no address to
+          register with.
         '';
+      }
+      {
+        # Each needs a fact an instance has only at run time: an etcd
+        # member's address, a PersistentVolume's node, a disk kept by name.
+        assertion = template -> (cfg.role == "worker" && cfg.persistentVolumes == 0 && !cfg.persist);
+        message = "services.vivarium-k8s on a template: a node added at run time is a worker with no persistentVolumes and no persist.";
       }
     ];
 
@@ -1160,7 +1173,7 @@ in
           "--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf"
           + " --kubeconfig=/etc/kubernetes/kubelet.conf";
         KUBELET_CONFIG_ARGS = "--config=/var/lib/kubelet/config.yaml";
-        KUBELET_EXTRA_ARGS = "--node-ip=${nodeIp}";
+        KUBELET_EXTRA_ARGS = lib.optionalString (!template) "--node-ip=${nodeIp}";
       };
       serviceConfig = {
         EnvironmentFile = [ "-/var/lib/kubelet/kubeadm-flags.env" ];

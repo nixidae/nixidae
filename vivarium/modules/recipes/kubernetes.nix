@@ -16,6 +16,11 @@
 # the router balances the API endpoint over them (../k8s-api.nix), and every node
 # reaches the API there (`controlPlaneEndpoint`, nixidae/nixidae#1592).
 #
+# A template with `services.vivarium-k8s.enable` is a node added at run
+# time: `vivarium_k8s.add_node` launches and joins one. Its instance does
+# not sit behind the router, so neither several control planes nor
+# `loadBalancer` take one.
+#
 # `certManager` runs cert-manager with a ClusterIssuer, `vivarium`, on the
 # run's intermediate CA (`vms.trust`), so the host trusts what it issues
 # through `access/ca-bundle.pem`.
@@ -23,6 +28,7 @@
   config,
   lib,
   systems,
+  templateNodes,
   vivariumPackages,
   ...
 }:
@@ -32,6 +38,17 @@ let
   nodes = lib.filterAttrs (
     name: system: name != routerName && system.config.services.vivarium-k8s.enable
   ) systems;
+  templates = lib.filterAttrs (_: node: node.services.vivarium-k8s.enable) templateNodes;
+  # What `vivarium_k8s` reads of one node: its `NodeFacts`.
+  facts =
+    node:
+    lib.getAttrs [
+      "cni"
+      "images"
+      "skipAddons"
+      "role"
+      "persist"
+    ] node.services.vivarium-k8s;
 
   # The first node's view of the cluster's ranges: kubeadm takes them from
   # the control plane, and every node sets the same.
@@ -113,21 +130,9 @@ in
 
         # One definition: `settings` does not merge two of `kubernetes`.
         settings.kubernetes = {
-          nodes = lib.mapAttrs (
-            _: system:
-            let
-              node = system.config.services.vivarium-k8s;
-            in
-            {
-              inherit (node)
-                cni
-                images
-                skipAddons
-                role
-                persist
-                ;
-            }
-          ) nodes;
+          nodes = lib.mapAttrs (_: system: facts system.config) nodes;
+          # Always present: whether it is empty needs the templates evaluated.
+          templates = lib.mapAttrs (_: facts) templates;
         }
         // lib.optionalAttrs several { api.router = routerName; }
         // lib.optionalAttrs cfg.loadBalancer.enable { loadBalancer.router = routerName; }
@@ -156,6 +161,10 @@ in
           {
             assertion = !several || config.router.enable == true;
             message = "vivarium.recipes.kubernetes: several control planes (${lib.concatStringsSep ", " controlPlanes}) sit behind the run's router: set router.enable.";
+          }
+          {
+            assertion = templates == { } || !(several || cfg.loadBalancer.enable);
+            message = "vivarium.recipes.kubernetes: a template's instance (${lib.concatStringsSep ", " (lib.attrNames templates)}) does not sit behind the run's router, so several control planes and loadBalancer cannot take one.";
           }
         ];
       }

@@ -557,6 +557,8 @@ rec {
           # guest can switch to, the one it booted plus a module. Lazy, as
           # `nodes` is for guests.
           { _module.args.systems = evaluated; }
+          # Each template's evaluated configuration, as `nodes` holds a guest's.
+          { _module.args.templateNodes = templates; }
         ];
         specialArgs = {
           # A run's modules mostly write guests.

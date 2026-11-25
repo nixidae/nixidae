@@ -387,6 +387,11 @@ let
       timeoutMinutes = 45;
       after = [ "test-containerd" ];
     };
+    k8s-add = {
+      description = "workers added from a template join a running cluster, and one leaves";
+      timeoutMinutes = 45;
+      after = [ "test-containerd" ];
+    };
     k8s-kept = {
       description = "a second run of a Kubernetes environment resumes its cluster";
       timeoutMinutes = 60;
