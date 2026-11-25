@@ -282,7 +282,7 @@ nixkube injects Nix stores into pods: CSI ephemeral volumes requested through `v
 Run from `nixkube/`.
 
 - Before committing (CI's `check` job): `nix run --file . internal.treefmt` and `nix build --file ./checks.nix all`. treefmt from the nixidae root formats the whole monorepo.
-- Fast loop: `nix develop --file shell.nix --command python -m pytest pkgs/nixkube/tests pkgs/nri-wait/tests pkgs/pynixd-nixkube/tests pkgs/grpclib-ttrpc/tests pkgs/grpclib-nri/tests`.
+- Fast loop: `nix develop --file shell.nix --command nixkube-unit-tests [PYTEST ARGS]`: one pytest per suite in `nix/tests.nix`, with that suite's environment. One pytest over two projects' `tests/` fails on collection: each is a package named `tests`.
 - Root-only tests: `nix build --file . internal.nixosTests.bind-farm internal.nixosTests.csi-mount-rec internal.nixosTests.farm-builder --no-link`.
 - Manifests: `nix build --file . internal.kubenixApply.manifestJSONFile`. Both architectures (needs builders): `nix build --file . internal.push --no-link`. Push to cachix and the registry: `nix run --file . internal.push`.
 - The test workflow is `ciTestWorkflows.tests` (`ci/workflows/tests.nix`), rendered to `.github/workflows/nixkube-tests.yml` by nixidae's `ci-workflow-update`.
