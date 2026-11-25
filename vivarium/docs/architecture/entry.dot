@@ -1,0 +1,31 @@
+// Every way to start a run ends in one program: `vivarium-runner run
+// --spec`. An edge means "starts" or "execs".
+digraph entry {
+  rankdir = LR;
+  node [shape = box, style = rounded];
+
+  build  [label = "nix build <test>", shape = plain];
+  nixrun [label = "nix run <test>.driver", shape = plain];
+  cli    [label = "vivarium run <attr>\nvivarium up <attr>", shape = plain];
+  mcp    [label = "MCP start", shape = plain];
+
+  attempt [label = "<test>.attempt\nlib.nix", file = "lib.nix", symbol = "attempt"];
+  verdict [label = "<test> reads status\nlib.nix", file = "lib.nix", symbol = "readVerdict"];
+  wrap    [label = ".driver, .driverDebug, .up\nlib.nix: wrap", file = "lib.nix", symbol = "wrap"];
+  resolve [label = "evaluate, build .driver\nvivarium_eval/cli.py: resolve", file = "pkgs/vivarium-eval/vivarium_eval/cli.py", symbol = "resolve"];
+  argv    [label = "the child's argv\nvivarium_eval/server.py: run_argv", file = "pkgs/vivarium-eval/vivarium_eval/server.py", symbol = "run_argv"];
+  runner  [label = "vivarium-runner run --spec\nvivarium/cli.py: main", file = "pkgs/vivarium/vivarium/cli.py", symbol = "main"];
+
+  build -> attempt [label = "builds"];
+  build -> verdict;
+  attempt -> verdict [label = "status"];
+  attempt -> runner [label = "--no-control\n--random-ports"];
+  nixrun -> wrap;
+  wrap -> runner [label = "flags baked in"];
+  cli -> resolve;
+  resolve -> wrap [label = "builds"];
+  resolve -> runner [label = "execv"];
+  mcp -> argv;
+  argv -> cli [label = "by attribute:\nchild process"];
+  argv -> runner [label = "by spec:\nchild process"];
+}

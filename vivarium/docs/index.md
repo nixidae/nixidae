@@ -18,6 +18,7 @@ howto
 reference
 test-options
 guest-options
+architecture/index
 ```
 
 ```{toctree}

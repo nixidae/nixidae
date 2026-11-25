@@ -1,0 +1,48 @@
+// How the guests of a run are made and booted. Solid edges: "then".
+// Dashed edges: "starts beside it".
+digraph boot {
+  rankdir = TB;
+  node [shape = box, style = rounded];
+
+  prepare  [label = "Session.prepare", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.prepare"];
+  rprep    [label = "Run.prepare", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "Run.prepare"];
+  lans     [label = "one Lan per segment\nnet.py: build_lans", file = "pkgs/vivarium-runner/vivarium_runner/net.py", symbol = "build_lans"];
+  machines [label = "a Machine per guest\nSession._machine", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session._machine"];
+  forwards [label = "bind each vivarium.inbound port\nMachine.resolve_forward", file = "pkgs/vivarium-runner/vivarium_runner/machine.py", symbol = "Machine.resolve_forward"];
+  routed   [label = "router.routed, guest.behind\nRun.prepare", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "Run.prepare"];
+  access   [label = "access.json, SOCKS proxy\nSession.prepare", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.prepare"];
+
+  ensure   [label = "Session.ensure", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.ensure"];
+  rensure  [label = "the guests and what they require\nRun.ensure, required", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "required"];
+  startall [label = "every guest at once\nrun.py: _start_all", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "_start_all"];
+  start    [label = "Machine.start", file = "pkgs/vivarium-runner/vivarium_runner/machine.py", symbol = "Machine.start"];
+  store    [label = "the guest's view of its closure\nBackend.store", file = "pkgs/vivarium-runner/vivarium_runner/store.py", symbol = "Store"];
+  launch   [label = "argv, fds, helpers\nBackend.launch", file = "pkgs/vivarium-runner/vivarium_runner/backends/base.py", symbol = "Backend.launch"];
+  egress   [label = "egress\nbackends/host.py: start_egress", file = "pkgs/vivarium-runner/vivarium_runner/backends/host.py", symbol = "start_egress"];
+  spawn    [label = "the guest's process\nGuestProcess.spawn", file = "pkgs/vivarium-runner/vivarium_runner/guestprocess.py", symbol = "GuestProcess.spawn"];
+  console  [label = "console lines to events\nConsoleLines", file = "pkgs/vivarium-runner/vivarium_runner/consolelines.py", symbol = "ConsoleLines"];
+  readyl   [label = "wait for \"vivarium-agent: ready\"\nMachine._boot", file = "pkgs/vivarium-runner/vivarium_runner/machine.py", symbol = "Machine._boot"];
+  connect  [label = "arpyc connection\narpyc.py: connect", file = "pkgs/vivarium-agent/vivarium_agent/arpyc.py", symbol = "connect"];
+  watch    [label = "watch for the guest's exit\nMachine._watch", file = "pkgs/vivarium-runner/vivarium_runner/machine.py", symbol = "Machine._watch"];
+  up       [label = "Run.up holds the guest:\nphases and exec see it", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "Run.ensure"];
+
+  prepare -> rprep;
+  rprep -> lans;
+  lans -> machines;
+  machines -> forwards;
+  forwards -> routed;
+  routed -> access;
+  access -> ensure;
+  ensure -> rensure;
+  rensure -> startall;
+  startall -> start;
+  start -> store;
+  store -> launch;
+  launch -> egress [style = dashed];
+  launch -> spawn;
+  spawn -> console [style = dashed];
+  spawn -> readyl;
+  readyl -> connect;
+  connect -> watch [style = dashed];
+  connect -> up;
+}

@@ -1,0 +1,73 @@
+// The parts of vivarium and who uses whom. An edge means "calls, starts
+// or imports". Each node names the file that holds it (`file`) and the
+// definition (`symbol`); `checks.docs` fails when either is gone.
+digraph packages {
+  rankdir = TB;
+  compound = true;
+  node [shape = box, style = rounded];
+
+  subgraph cluster_nix {
+    label = "Nix: evaluation and build";
+    mkTest   [label = "mkTest\nlib.nix", file = "lib.nix", symbol = "mkTest"];
+    runmod   [label = "the test's options\nmodules/run.nix", file = "modules/run.nix", symbol = "phases"];
+    guestmod [label = "a guest's options\nmodules/default.nix", file = "modules/default.nix", symbol = "backend"];
+    spec     [label = "spec.json\nlib.nix", file = "lib.nix", symbol = "spec", shape = note, style = ""];
+  }
+
+  subgraph cluster_cli {
+    label = "host: the commands a person runs (vivarium-eval, on huggorm)";
+    cli [label = "vivarium\nvivarium_eval/cli.py", file = "pkgs/vivarium-eval/vivarium_eval/cli.py", symbol = "main"];
+    mcp [label = "vivarium-mcp\nvivarium_eval/server.py", file = "pkgs/vivarium-eval/vivarium_eval/server.py", symbol = "build"];
+  }
+
+  subgraph cluster_driver {
+    label = "host: the driver (package vivarium, program vivarium-runner)";
+    main       [label = "main, run, drive\nvivarium/cli.py", file = "pkgs/vivarium/vivarium/cli.py", symbol = "drive"];
+    session    [label = "Session\nvivarium/session.py", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session"];
+    phases     [label = "phase rules (pure)\nvivarium/phases.py", file = "pkgs/vivarium/vivarium/phases.py", symbol = "ready"];
+    controller [label = "Controller\nvivarium/control.py", file = "pkgs/vivarium/vivarium/control.py", symbol = "Controller"];
+  }
+
+  subgraph cluster_runner {
+    label = "host: the mechanism (package vivarium_runner)";
+    run      [label = "Run\nrun.py", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "Run"];
+    machine  [label = "Machine\nmachine.py", file = "pkgs/vivarium-runner/vivarium_runner/machine.py", symbol = "Machine"];
+    backends [label = "Backend: uml, qemu, krun, container\nbackends/", file = "pkgs/vivarium-runner/vivarium_runner/backends/base.py", symbol = "Backend"];
+    lan      [label = "Lan: segments\nnet.py", file = "pkgs/vivarium-runner/vivarium_runner/net.py", symbol = "Lan"];
+  }
+
+  subgraph cluster_helpers {
+    label = "host: helper processes";
+    egress [label = "egress\nvivarium-egress", file = "pkgs/vivarium-egress/src/bin/egress.rs", symbol = "main"];
+    guestproc [label = "the guest's process\n(UML kernel, QEMU, libkrun, crun)", file = "pkgs/vivarium-runner/vivarium_runner/guestprocess.py", symbol = "GuestProcess"];
+  }
+
+  subgraph cluster_guest {
+    label = "guest";
+    agent [label = "vivarium-agent\nvivarium_agent/agent.py", file = "pkgs/vivarium-agent/vivarium_agent/agent.py", symbol = "Agent"];
+    relay [label = "relay\nvivarium-egress", file = "pkgs/vivarium-egress/src/bin/relay.rs", symbol = "main"];
+  }
+
+  mkTest -> runmod;
+  mkTest -> guestmod;
+  mkTest -> spec;
+  cli -> mkTest [label = "evaluates"];
+  cli -> main [label = "execs .driver"];
+  mcp -> cli [label = "starts"];
+  spec -> main [label = "--spec"];
+  main -> session;
+  main -> controller;
+  main -> phases;
+  session -> phases;
+  session -> run;
+  controller -> session;
+  cli -> controller [label = "ctl, monitor,\nreload, switch", style = dashed];
+  mcp -> controller [label = "control.sock", style = dashed];
+  run -> machine;
+  run -> lan;
+  machine -> backends;
+  backends -> guestproc [label = "launch"];
+  backends -> egress [label = "helper"];
+  machine -> agent [label = "arpyc"];
+  relay -> egress [label = "vsock"];
+}

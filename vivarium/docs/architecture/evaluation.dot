@@ -1,0 +1,46 @@
+// What `mkTest` evaluates, in the order the values depend on each other.
+// An edge means "reads". All of it is in lib.nix unless a node says else.
+digraph evaluation {
+  rankdir = TB;
+  node [shape = box, style = rounded];
+
+  module   [label = "the caller's module", shape = plain];
+  cfg      [label = "the test module\nevalModules: modules/run.nix, modules/recipes", file = "lib.nix", symbol = "run"];
+  ordered  [label = "phases in order\nlib.toposort over after", file = "modules/run.nix", symbol = "ordered"];
+  probe    [label = "each guest without a router\nwantsRouter", file = "lib.nix", symbol = "wantsRouter"];
+  router   [label = "a router or not\nrouterEnabled", file = "lib.nix", symbol = "routerEnabled"];
+  index    [label = "index of each guest\nindexOf (router: 254)", file = "lib.nix", symbol = "indexOf"];
+  routerm  [label = "what the router does to a guest\nrouterModule", file = "lib.nix", symbol = "routerModule"];
+  nodes    [label = "each guest's NixOS\nevaluate, mkNode", file = "lib.nix", symbol = "evaluateWith"];
+  peers    [label = "peers in /etc/hosts\npeersModule", file = "lib.nix", symbol = "peersModule"];
+  templates [label = "each template's NixOS\ntemplates", file = "lib.nix", symbol = "templates"];
+  checked  [label = "assertions\ncheckedConfig", file = "lib.nix", symbol = "checkedConfig"];
+  typecheck [label = "type check of the phase scripts\ntypeCheck", file = "lib.nix", symbol = "typeCheck"];
+  mspec    [label = "one guest as JSON\nmachineSpec", file = "lib.nix", symbol = "machineSpec"];
+  spec     [label = "spec.json\nspec", file = "lib.nix", symbol = "spec", shape = note, style = ""];
+  outputs  [label = "attempt, driver, driverDebug,\nup, phases, extend, uml, qemu, ...", file = "lib.nix", symbol = "mkTest"];
+
+  module -> cfg;
+  cfg -> ordered;
+  cfg -> probe;
+  probe -> router;
+  router -> index;
+  router -> routerm;
+  index -> nodes;
+  routerm -> nodes;
+  peers -> nodes;
+  routerm -> templates;
+  peers -> templates;
+  nodes -> peers [label = "nodes (lazy)", style = dashed];
+  nodes -> checked;
+  templates -> checked;
+  cfg -> checked;
+  ordered -> typecheck;
+  nodes -> mspec;
+  templates -> mspec;
+  checked -> spec;
+  ordered -> spec;
+  mspec -> spec;
+  spec -> outputs;
+  typecheck -> outputs;
+}

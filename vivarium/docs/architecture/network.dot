@@ -1,0 +1,57 @@
+// The paths a frame or a flow takes. An edge is a link that carries
+// data; its label says what kind. Guest a has its own egress; guest c
+// shares the router's.
+digraph network {
+  rankdir = LR;
+  newrank = true;
+  node [shape = box, style = rounded];
+
+  world [label = "the host's network", shape = plain];
+
+  subgraph cluster_a {
+    label = "guest a: uplink by vsock";
+    agentA [label = "vivarium-agent", file = "pkgs/vivarium-agent/vivarium_agent/agent.py", symbol = "Agent"];
+    lanA   [label = "an interface\non segment s", shape = plain];
+    vec0A  [label = "vec0", shape = plain];
+    relayA [label = "relay, in its own netns\nmodules/router.nix: relayService", file = "modules/router.nix", symbol = "relayService"];
+  }
+
+  subgraph cluster_b {
+    label = "guest b";
+    lanB [label = "an interface\non segment s", shape = plain];
+  }
+
+  subgraph cluster_c {
+    label = "guest c: uplink behind the router";
+    vec0C [label = "vec0: lease\n10.0.2.(15 + index)", shape = plain];
+  }
+
+  subgraph cluster_router {
+    label = "router guest (router.enable)";
+    bridge [label = "bridge: one port g<index>\nper routed guest\nmodules/router.nix: ported", file = "modules/router.nix", symbol = "ported"];
+    relayR [label = "relay\nrelayService", file = "modules/router.nix", symbol = "relayService"];
+  }
+
+  subgraph cluster_host {
+    label = "host: the runner's process and its helpers";
+    runner  [label = "Machine\nmachine.py", file = "pkgs/vivarium-runner/vivarium_runner/machine.py", symbol = "Machine"];
+    hub     [label = "hub, for a segment of three or more\nor hub = true\nnet.py: Lan", file = "pkgs/vivarium-runner/vivarium_runner/net.py", symbol = "Lan"];
+    claims  [label = "bound host ports\nforward.py: claim", file = "pkgs/vivarium-runner/vivarium_runner/forward.py", symbol = "claim"];
+    egressA [label = "guest a's egress\nvivarium-egress", file = "pkgs/vivarium-egress/src/bin/egress.rs", symbol = "main"];
+    egressR [label = "the router's egress\nvivarium-egress", file = "pkgs/vivarium-egress/src/bin/egress.rs", symbol = "main"];
+  }
+
+  runner -> agentA [label = "agent socketpair: arpyc", dir = both];
+  lanA -> lanB [label = "two members: one socketpair", dir = both];
+  lanA -> hub [label = "or", style = dashed, dir = both];
+  hub -> lanB [style = dashed, dir = both];
+  vec0A -> relayA [label = "veth, tproxy", dir = both];
+  relayA -> egressA [label = "vsock", dir = both];
+  vec0C -> bridge [label = "segment uplink-c", dir = both];
+  bridge -> relayR [dir = both];
+  relayR -> egressR [label = "vsock", dir = both];
+  egressA -> world [dir = both];
+  egressR -> world [dir = both];
+  claims -> egressA [label = "inbound: the bound sockets,\nover the egress's control socket"];
+  claims -> egressR;
+}

@@ -228,33 +228,11 @@ run prints them with absolute paths.
 
 ## How it fits together
 
-```
-        host                                  guest
-  ┌──────────────┐  vsock  ┌───────┐
-  │    egress    ├─────────┤       │   NAT out, forwards in
-  └──────────────┘         │       │
-  ┌──────────────┐   ssl0  │  UML  │
-  │    runner    ├─────────┤kernel │   arpyc on /dev/ttyS0: the agent
-  └──────────────┘         │       │
-  ┌──────────────┐   vec1  │       │
-  │ socketpair / ├─────────┤       │   L2 to the other guests
-  │ hub (net.py) │         └───┬───┘
-  └──────────────┘             │ hostfs
-                             the guest's store view
-```
-
-Each guest is one UML kernel process, with a vhost-user vsock device the
-egress serves, a socket to its segment on `vec1`, and a socketpair to the
-host runner on `ssl0`. The guest's relay runs in a network namespace
-behind `vec0` and carries each flow over vsock to the egress.
-
-**Control channel.** The host drives guests over `ssl0`, not ssh, so
-commands work before networking exists and inside a sandbox. `vivarium_agent.arpyc`
-speaks rpyc's wire format (brine for values, vinegar for exceptions) over
-asyncio, with one handler that calls a method by name — so `await
-vm.succeed("...")` is a single round trip. The guest half is the
-`vivarium-agent` systemd unit, from the `vivarium-agent` package: a guest
-holds that package and not the runner.
+[Architecture](architecture/index.md) tells how a run is evaluated,
+started and driven, how a guest boots, and how the runner, the agent,
+the segments and the uplink connect, with the code behind each step.
+The rest of this section tells what a guest's disk and store are, and
+what a test sets for its segments.
 
 **Root image.** Almost empty: busybox, an `/init`, and a symlink to the
 system's `init`. `/init` mounts the guest's store view over hostfs with a

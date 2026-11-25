@@ -398,7 +398,7 @@ Standing rule (maintainer, 2026-11-09): where pynixd can do better than Nix, it 
 
 ## vivarium
 
-Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` is the user guide and stays true when a command, flag or printed line changes. `docs/design/runner.md` is the design.
+Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` is the user guide and stays true when a command, flag or printed line changes. `docs/architecture/` is how the code works (graph nodes name a file and symbol; `checks.docs` fails on a dead one) and stays true when a step moves. `docs/design/runner.md` is the design.
 
 ### Rules
 
