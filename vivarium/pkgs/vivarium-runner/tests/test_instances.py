@@ -40,6 +40,14 @@ def test_an_instance_carries_its_index_in_each_mac_and_has_no_forwards() -> None
     assert [(nic.mac, nic.addresses) for nic in one.interfaces] == [("52:54:00:12:01:07", ("10.9.0.101/24",))]
 
 
+def test_an_instance_on_the_lan_takes_its_first_address_there() -> None:
+    nic = Interface(name="vec1", nic=1, segment="k8s", addresses=(), mac="52:54:00:12:01:03", mtu=65000)
+    template = machine_spec("worker", index=3, interfaces=(nic,), address=None)
+    one = instance_spec(template, "w1", 7, {"k8s": ["10.100.0.50/24"]}, slot=2)
+    assert (one.address, one.ip) == ("10.100.0.52/24", "10.100.0.52")
+    assert instance_spec(_template(), "w1", 7, {"fleet": ["10.9.0.100/24"]}, slot=0).address is None
+
+
 def test_the_seed_names_each_interface_and_the_user_data() -> None:
     one = instance_spec(_template(), "w1", 7, {}, slot=0)
     assert seed(one, "worker", "x") == {

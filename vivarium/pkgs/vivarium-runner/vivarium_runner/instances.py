@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 MAX_INDEX = 255
 """The index is the last byte of every MAC the guest has, so 256 guests at once."""
 
+LAN = "vec1"
+"""The interface `vivarium.lan` makes: its first address is the guest's `address`."""
+
 
 class InstanceError(ValueError):
     """A launch this run cannot do: no such template, a name taken, no index free."""
@@ -48,6 +51,7 @@ def instance_spec(
     """*template* as the guest *name*: its own index, the MACs that carry it, its addresses, no host forwards.
 
     A forward binds a host port, and two instances of one template would bind the same one.
+    The first address on `LAN` is the instance's `address`, as `vivarium.lan.address` is a node's.
     """
     interfaces = tuple(
         replace(
@@ -57,7 +61,8 @@ def instance_spec(
         )
         for nic in template.interfaces
     )
-    return replace(template, name=name, index=index, interfaces=interfaces, inbound=())
+    lan = next((nic.addresses[0] for nic in interfaces if nic.name == LAN and nic.addresses), None)
+    return replace(template, name=name, index=index, interfaces=interfaces, inbound=(), address=lan)
 
 
 def seed(spec: MachineSpec, template: str, user_data: str | None) -> dict[str, object]:
