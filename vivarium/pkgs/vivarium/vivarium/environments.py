@@ -64,6 +64,15 @@ def starting(out: Path) -> bool:
     return True
 
 
+def running(out: Path) -> bool:
+    """Whether the run in *out* runs: its lock, or for a runner without
+    one, the pid in `run.json`."""
+    found = liveness.life(out)
+    if found is not liveness.Life.ABSENT:
+        return found is liveness.Life.HELD
+    return starting(out)
+
+
 async def live(out: Path) -> bool:
     found = liveness.life(out)
     if found is not liveness.Life.ABSENT:

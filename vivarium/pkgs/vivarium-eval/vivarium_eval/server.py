@@ -138,7 +138,7 @@ def select(
         case=case,
         contains=contains,
     )
-    found: list[EventLine] = [json.loads(line) for line, event in logs.parsed(lines) if wanted.matches(event)]
+    found: list[EventLine] = [json.loads(line) for line, _ in logs.matching(lines, wanted)]
     return found[-limit:] if limit > 0 else found
 
 

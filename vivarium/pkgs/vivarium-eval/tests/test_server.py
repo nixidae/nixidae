@@ -162,6 +162,13 @@ class TestSelect:
     def test_contains(self) -> None:
         assert [e["kind"] for e in select(LINES, contains="t.py")] == ["case"]
 
+    def test_a_newer_runners_kind_is_kept(self) -> None:
+        """The server outlives runs, and a run's runner may be newer."""
+        newer = json.dumps({"at": 1, "kind": "lease", "level": 20, "text": "renewed", "machine": "cp"})
+        assert [e["text"] for e in select([*LINES, newer], machine="cp")] == ["a", "b", "hostname", "renewed"]
+        assert [e["text"] for e in select([*LINES, newer], kind="lease")] == ["renewed"]
+        assert select([*LINES, newer], kind="journal", limit=0)[-1]["text"] == "c"
+
 
 class TestRunArgv:
     def test_by_attribute_through_uml_eval(self, tmp_path: Path) -> None:

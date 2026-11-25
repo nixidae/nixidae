@@ -16,7 +16,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import anyio
 
@@ -26,13 +26,13 @@ from .exits import Exit
 from .journal import Tail
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
 
 EVENTS: Final = "events.jsonl"
 POLL: Final = 0.25
 """Seconds between reads while following: a file has no notification here."""
 CHECK: Final = 1.0
-"""Seconds between looks whether the runner still runs. Its pid, not its
+"""Seconds between looks whether the runner still runs. Its lock, not its
 socket: each `state` request is an event in the very log being followed."""
 
 
@@ -50,37 +50,65 @@ class Filter:
     contains: str | None = None
 
     def matches(self, event: Event) -> bool:
-        if self.kinds and event.kind.value not in self.kinds:
-            return False
-        if self.machines and event.machine not in self.machines:
-            return False
-        if self.phase is not None and event.phase != self.phase:
-            return False
-        if self.units and not self._unit(event):
-            return False
-        if self.case is not None and self.case not in str(event.data.get("case", "")):
-            return False
-        return self.contains is None or self.contains in event.text
+        return self._fields(event.kind.value, event.machine, event.phase, event.text, event.data)
 
-    def _unit(self, event: Event) -> bool:
-        unit = str(event.data.get("unit", ""))
-        identifier = str(event.data.get("identifier", ""))
+    def matches_body(self, body: Mapping[str, Any]) -> bool:  # Any: one JSON line's values
+        """The same test over a line this version's `Event` does not read,
+        such as a newer runner's kind: its keys, as `Event.as_dict` writes them."""
+        data = body.get("data")
+        return self._fields(
+            str(body.get("kind", "")),
+            body.get("machine"),
+            body.get("phase"),
+            str(body.get("text", "")),
+            data if isinstance(data, dict) else {},
+        )
+
+    def _fields(  # Any: an event's data, whose keys its kind decides
+        self, kind: str, machine: object, phase: object, text: str, data: Mapping[str, Any]
+    ) -> bool:
+        if self.kinds and kind not in self.kinds:
+            return False
+        if self.machines and machine not in self.machines:
+            return False
+        if self.phase is not None and phase != self.phase:
+            return False
+        if self.units and not self._unit(data):
+            return False
+        if self.case is not None and self.case not in str(data.get("case", "")):
+            return False
+        return self.contains is None or self.contains in text
+
+    def _unit(self, data: Mapping[str, Any]) -> bool:  # Any: as `_fields`
+        unit = str(data.get("unit", ""))
+        identifier = str(data.get("identifier", ""))
         return any(want in (unit, unit.removesuffix(".service"), identifier) for want in self.units)
 
 
-def parsed(lines: Iterable[str]) -> Iterator[tuple[str, Event]]:
-    """Each line that is an event, with the event. A damaged line is skipped."""
+def matching(lines: Iterable[str], wanted: Filter) -> Iterator[tuple[str, Event | None]]:
+    """Each line *wanted* matches, with its event; None for a JSON object
+    this version's `Event` does not read, which is kept, not dropped. A
+    line that is no JSON object is skipped."""
     for line in lines:
         try:
-            yield line, Event.from_dict(json.loads(line))
-        except (json.JSONDecodeError, NotAnEvent):
+            body = json.loads(line)
+        except json.JSONDecodeError:
             continue
+        if not isinstance(body, dict):
+            continue
+        try:
+            event = Event.from_dict(body)
+        except NotAnEvent:
+            if wanted.matches_body(body):
+                yield line, None
+            continue
+        if wanted.matches(event):
+            yield line, event
 
 
 def shown(lines: Iterable[str], wanted: Filter, *, as_json: bool) -> Iterator[str]:
-    for line, event in parsed(lines):
-        if wanted.matches(event):
-            yield line if as_json else render(event)
+    for line, event in matching(lines, wanted):
+        yield line if as_json or event is None else render(event)
 
 
 def last[T](lines: Iterable[T], count: int | None) -> list[T]:
@@ -100,12 +128,12 @@ async def read(out: Path, wanted: Filter, *, count: int | None, follow: bool, as
     if not follow:
         return 0
     checked = anyio.current_time()
-    up = await anyio.to_thread.run_sync(environments.starting, out)
+    up = await anyio.to_thread.run_sync(environments.running, out)
     while up:
         await anyio.sleep(POLL)
         if anyio.current_time() - checked >= CHECK:
             checked = anyio.current_time()
-            up = await anyio.to_thread.run_sync(environments.starting, out)
+            up = await anyio.to_thread.run_sync(environments.running, out)
         # After the look: a run gone now wrote its last line before it went.
         for line in shown(await tail.read(), wanted, as_json=as_json):
             sys.stdout.write(line + "\n")
