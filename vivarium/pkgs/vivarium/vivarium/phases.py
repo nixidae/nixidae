@@ -21,12 +21,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from enum import StrEnum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from .exits import Exit
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
     from .spec import PhaseSpec
 
@@ -40,6 +41,11 @@ class PhaseState(StrEnum):
     SKIPPED = "skipped"
     """Its dependency failed, so nobody knows what it would have done.
     A run holding one of these did not pass."""
+
+    UNNEEDED = "unneeded"
+    """The phase ran and found its work done already (`vms.skip`): a
+    kept environment's cluster needs no second `kubeadm init`. It counts
+    as answered, so what runs after it runs, and the run can pass."""
 
     INTERRUPTED = "interrupted"
     """It was running when the run was stopped -- ^C, a signal, or
@@ -166,6 +172,8 @@ def runnable(phases: Iterable[PhaseSpec], state: dict[str, PhaseState]) -> list[
 
 
 UNFINISHED = frozenset({PhaseState.PENDING, PhaseState.RUNNING})
+DONE: Final = frozenset({PhaseState.PASSED, PhaseState.UNNEEDED})
+"""A phase that did what it is for."""
 
 
 def ready(phases: Iterable[PhaseSpec], state: dict[str, PhaseState]) -> list[PhaseSpec]:
@@ -267,7 +275,7 @@ def passed(state: dict[str, PhaseState]) -> bool:
 
     A run with no phases at all asked nothing, so it did not pass.
     """
-    return bool(state) and all(value in (PhaseState.PASSED, PhaseState.DESELECTED) for value in state.values())
+    return bool(state) and all(value in DONE or value is PhaseState.DESELECTED for value in state.values())
 
 
 VERDICT: Final = "phases.json"
@@ -281,6 +289,8 @@ class Outcome:
     name: str
     state: PhaseState
     error: str | None = None
+    reason: str | None = None
+    """Why an `unneeded` phase had nothing to do."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,18 +303,28 @@ class Verdict:
     phases: tuple[Outcome, ...]
 
     @classmethod
-    def of(cls, state: dict[str, PhaseState], errors: dict[str, str], stopped: str | None) -> Verdict:
+    def of(
+        cls,
+        state: dict[str, PhaseState],
+        errors: dict[str, str],
+        stopped: str | None,
+        reasons: Mapping[str, str] = MappingProxyType({}),
+    ) -> Verdict:
         return cls(
             passed=stopped is None and passed(state),
             stopped=stopped,
-            phases=tuple(Outcome(name, value, errors.get(name)) for name, value in state.items()),
+            phases=tuple(Outcome(name, value, errors.get(name), reasons.get(name)) for name, value in state.items()),
         )
 
     def to_json(self) -> str:
         document = {
             "passed": self.passed,
             "stopped": self.stopped,
-            "phases": [{"name": o.name, "state": str(o.state), "error": o.error} for o in self.phases],
+            "phases": [
+                {"name": o.name, "state": str(o.state), "error": o.error}
+                | ({} if o.reason is None else {"reason": o.reason})
+                for o in self.phases
+            ],
         }
         return json.dumps(document, indent=2) + "\n"
 
@@ -317,7 +337,12 @@ class Verdict:
                 passed=bool(raw["passed"]),
                 stopped=None if raw["stopped"] is None else str(raw["stopped"]),
                 phases=tuple(
-                    Outcome(str(p["name"]), PhaseState(p["state"]), None if p["error"] is None else str(p["error"]))
+                    Outcome(
+                        str(p["name"]),
+                        PhaseState(p["state"]),
+                        None if p["error"] is None else str(p["error"]),
+                        None if p.get("reason") is None else str(p["reason"]),
+                    )
                     for p in raw["phases"]
                 ),
             )

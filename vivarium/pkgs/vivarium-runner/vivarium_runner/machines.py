@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
 
 import anyio
 
@@ -39,6 +39,14 @@ class Trust(Protocol):
         `access/ca.pem`, and with the host's public roots to
         `access/ca-bundle.pem`."""
         ...
+
+
+class Unneeded(Exception):  # noqa: N818 -- a phase's outcome, not an error
+    """`Machines.skip`: the phase found its work already done."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 class Exports(Protocol):
@@ -136,6 +144,12 @@ class Machines(dict[str, Machine]):
         if self.exports is None:
             raise MachineError("this run exports nothing: no session drives it that can")
         await self.exports.set(name, value)
+
+    def skip(self, reason: str) -> NoReturn:
+        """End this phase as `unneeded`: its work is done already, as a
+        kept environment's state shows. Phases after it run, and the run
+        can still pass. A pytest phase skips a case with `pytest.skip`."""
+        raise Unneeded(reason)
 
     async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine:
         """Boot a new guest *name* from `templates.<template>`; it is in this mapping once up. nixidae/nixidae#1408."""

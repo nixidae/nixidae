@@ -140,6 +140,9 @@ def channel_event(event: Event, run: str) -> tuple[str, dict[str, str]] | None:
     if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.PASSED:
         meta |= {"event": Channel.PROGRESS, "phase": phase, "state": "passed"}
         return f"phase {phase} passed in {event.seconds or 0:.0f}s", meta
+    if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.UNNEEDED:
+        meta |= {"event": Channel.PROGRESS, "phase": phase, "state": "unneeded"}
+        return f"phase {phase} unneeded: {data.get('reason', '')}", meta
     if event.kind is Kind.PHASE_FINISHED and data.get("state") == PhaseState.FAILED:
         meta |= {"event": Channel.FAILED, "phase": phase}
         error = clip(str(data.get("error", "")), "events.jsonl and phases.json")

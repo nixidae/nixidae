@@ -53,7 +53,7 @@ from vivarium_runner.machine import SwitchAction
 from . import places
 from .events import Kind, Level
 from .exits import Exit
-from .phases import PhaseState, ReloadRefused, Stop
+from .phases import DONE, ReloadRefused, Stop
 from .session import CasesFailed, load_phase
 from .spec import PytestSpec, Spec, SpecError
 
@@ -1033,7 +1033,7 @@ class Controller:
             return Reply.refuse(f"no phase {name!r}")
         state = await self.session.run(phase)
         return Reply(
-            ok=state is PhaseState.PASSED,
+            ok=state in DONE,
             result=str(state),
             error=self.session.errors.get(name),
             state=self._state(),

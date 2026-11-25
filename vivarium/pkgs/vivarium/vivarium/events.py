@@ -278,6 +278,10 @@ def junit(events: Iterable[Event], name: str = "uml") -> str:
         elif state == "skipped":
             skipped += 1
             body = f'<skipped message="{_xml_escape(event.data.get("reason", "a phase it needs failed"))}"/>'
+        elif state == "unneeded":
+            # A dashboard's skip is neutral, as an unneeded phase is.
+            skipped += 1
+            body = f'<skipped message="{_xml_escape(event.data.get("reason", "its work was done"))}"/>'
         cases.append(
             f'  <testcase classname="{_xml_escape(classname)}"'
             f' name="{_xml_escape(case_name)}"'

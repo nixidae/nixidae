@@ -46,7 +46,7 @@ import anyio
 import pytest
 import vivarium_socks
 from anyio.from_thread import BlockingPortal
-from vivarium_runner import Machine, MachineError, Machines, MachineSpec, backends
+from vivarium_runner import Machine, MachineError, Machines, MachineSpec, Unneeded, backends
 from vivarium_runner.backends import BackendError
 from vivarium_runner.instances import seed
 from vivarium_runner.machine_spec import Socks
@@ -267,6 +267,8 @@ class Session:
         self.artifacts = out / "artifacts"
         self.state: dict[str, PhaseState] = {phase.name: PhaseState.PENDING for phase in spec.phases}
         self.errors: dict[str, str] = {}
+        self.reasons: dict[str, str] = {}
+        """Why each `unneeded` phase had nothing to do."""
         self.stopped: Stop | None = None
         """What ended the run before its verdict, if anything did."""
         # Which phase holds each guest, so a command or a journal entry
@@ -911,6 +913,8 @@ class Session:
                     await test(vms)
                 if limit.cancelled_caught:
                     raise PhaseTimeout(f"phase {phase.name} ran past its timeout of {phase.timeout:g}s")
+        except Unneeded as unneeded:
+            reason = unneeded.reason
         except Exception as error:  # noqa: BLE001 -- any error fails the phase, and the run goes on
             took = time.monotonic() - started
             await self.settle(nodes=nodes)
@@ -965,11 +969,25 @@ class Session:
             )
             self._release(nodes)
             raise
+        else:
+            reason = None
         took = time.monotonic() - started
         await self.settle(nodes=nodes)
         self._cases_from_guests(phase.name, nodes)
         self._release(nodes)
         self._record(phase, started)
+        if reason is not None:
+            self.state[phase.name] = PhaseState.UNNEEDED
+            self.reasons[phase.name] = reason
+            self.emit(
+                Kind.PHASE_FINISHED,
+                f"{phase.name} unneeded: {reason}",
+                phase=phase.name,
+                seconds=took,
+                state=str(PhaseState.UNNEEDED),
+                reason=reason,
+            )
+            return PhaseState.UNNEEDED
         self.state[phase.name] = PhaseState.PASSED
         self.emit(
             Kind.PHASE_FINISHED,
@@ -1014,7 +1032,7 @@ class Session:
         self.out.mkdir(parents=True, exist_ok=True)
         (self.out / "status").write_text("0\n" if self.passed else "1\n")
         stopped = None if self.stopped is None else self.stopped.reason
-        (self.out / VERDICT).write_text(Verdict.of(self.state, self.errors, stopped).to_json())
+        (self.out / VERDICT).write_text(Verdict.of(self.state, self.errors, stopped, self.reasons).to_json())
         self.write_report()
         verdict = "passed" if self.passed else "failed"
         if self.stopped is not None:
