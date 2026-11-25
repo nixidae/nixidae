@@ -45,10 +45,8 @@ from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
 from vivarium import logs, places, registry
 from vivarium.control import PARENT, RUN_FILE, SOCKET, Op, Reply, RunFile, WatchRefused, request, watch
-from vivarium.events import Event, Kind, NotAnEvent
 from vivarium.exits import describe
-from vivarium.journal import Tail
-from vivarium.monitor import LIVE, Channel, channel_event, clip, paused_now
+from vivarium.monitor import LIVE, Channel, clip, paused_now
 from vivarium.phases import VERDICT, Verdict
 from vivarium.registry import ASK
 from vivarium.runroot import exit_watch
@@ -452,9 +450,9 @@ class Runs:
         raise ValueError(f"no run {run!r}: give an id ({have}) or a run's --out; `runs` lists the runs on this host")
 
     async def _watch(self, run: Run) -> None:
-        """Push what matters of the run's events, until it exits: from
-        `watch` on its control socket, or from `events.jsonl` for a runner
-        that serves none."""
+        """Push what matters of the run's events, from `watch` on its
+        control socket, until it exits. Every runner with a socket serves
+        `watch`; a run with none pushes nothing, and `events` answers."""
         live = run.HISTORY
         try:
             if await _bound(run):
@@ -469,8 +467,10 @@ class Runs:
                         await self.push(event.get("text", ""), meta)
                     else:
                         run.took({**meta, "text": event.get("text", "")})
-        except WatchRefused:
-            await self._tail(run)
+        except WatchRefused as error:
+            # A runner older than `watch`: its events are in `events.jsonl`.
+            await self.push(f"the run serves no watch ({error}); `events` answers", {"run": run.id})
+            return
         except OSError:
             # The run went away between binding its socket and our connect.
             pass
@@ -481,24 +481,6 @@ class Runs:
             tail = clip(why_it_exited(_read(run.out / "terminal.log")), str(run.out / "terminal.log"))
             text = f"run {run.status} without a verdict"
             await self.push(f"{text}:\n{tail}" if tail else text, {"run": run.id, "event": Channel.EXITED})
-
-    async def _tail(self, run: Run) -> None:
-        """`_watch` for an older runner: polls `events.jsonl`, the only
-        thing such a run offers."""
-        tail = Tail(run.out / "events.jsonl")
-        while True:
-            for line in await tail.read():
-                try:
-                    event = Event.from_dict(json.loads(line))
-                except (json.JSONDecodeError, NotAnEvent):
-                    continue
-                run.finished = run.finished or event.kind is Kind.RUN_FINISHED
-                pushed = channel_event(event, run.id)
-                if pushed is not None:
-                    await self.push(*pushed)
-            if not run.running:
-                return
-            await anyio.sleep(0.25)
 
     async def stop_all(self) -> None:
         """Every run this server started, at once: one after another, each
