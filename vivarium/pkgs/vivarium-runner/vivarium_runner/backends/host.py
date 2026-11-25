@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import anyio
 
@@ -246,6 +246,40 @@ async def start_egress(
         control.close()
         raise
     return control
+
+
+KEPT_SERIAL: Final = "vivarium-kept"
+"""The serial a QEMU or krun guest finds its kept disk by: `modules/kept.nix`."""
+
+
+def kept_store(machine: Machine, rundir: Path, *, directory: bool = False) -> Path | None:
+    """`vivarium.persist`'s store of *machine*: `make_kept_store` for its spec."""
+    return make_kept_store(machine.spec.keep, machine.kept, rundir, directory=directory)
+
+
+def make_kept_store(size: int | None, kept: Path | None, rundir: Path, *, directory: bool = False) -> Path | None:
+    """`vivarium.persist`'s store on the host, made when missing: a sparse
+    raw file of *size* MiB, or a *directory* for a container guest.
+    *kept*, the environment's, else one in *rundir* that lasts the run.
+    None for a guest that keeps nothing (*size* None).
+
+    By path, not an unlinked fd as `scratch_disk`: it must outlive the
+    run. A file an earlier run made keeps its size, because the guest's
+    ext4 fills the disk it was made on."""
+    if size is None:
+        return None
+    path = kept or rundir / "kept"
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if directory:
+        path.mkdir(mode=0o700, exist_ok=True)
+        return path
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if os.fstat(fd).st_size == 0:
+            os.ftruncate(fd, size << 20)
+    finally:
+        os.close(fd)
+    return path
 
 
 async def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:

@@ -22,6 +22,7 @@ from .host import (
     abandon,
     egress_adds,
     egress_args,
+    kept_store,
     memory_bytes,
     memory_file_kib,
     socket_dir,
@@ -244,7 +245,7 @@ class Uml:
         uml_dir, cleanup = socket_dir(rundir, f"{mconsole.UMID}/mconsole", ram)
         kernel = [
             str(boot.kernel.image),
-            *await self._root(config, rundir, spec, boot.root, boot.kernel),
+            *await self._root(config, rundir, spec, boot.root, boot.kernel, kept_store(machine, rundir)),
             "rw",
             f"mem={spec.memory}",
             f"ssl0=fd:{agent_fd}",
@@ -341,7 +342,9 @@ class Uml:
         return Controls(channel=console, balloon=console)
 
     @staticmethod
-    async def _root(config: UmlConfig, rundir: Path, spec: MachineSpec, root: Root | None, kernel: Kernel) -> list[str]:
+    async def _root(
+        config: UmlConfig, rundir: Path, spec: MachineSpec, root: Root | None, kernel: Kernel, kept: Path | None
+    ) -> list[str]:
         """The disks, the root and the kernel's parameters.
 
         A qcow2 image (a cloud image) is a format ubd cannot read. It
@@ -352,7 +355,15 @@ class Uml:
         if root is None:
             # vivarium's NixOS image: its /init mounts the store, then runs
             # the system's init. See modules/image.nix.
-            return [f"ubd0={rundir}/cow,{spec.image}", "root=/dev/ubda", "init=/init", *kernel.cmdline.split()]
+            # The kept store is /dev/ubdb, as modules/kept.nix names it.
+            kept_disk = [f"ubd1={kept}"] if kept is not None else []
+            return [
+                f"ubd0={rundir}/cow,{spec.image}",
+                *kept_disk,
+                "root=/dev/ubda",
+                "init=/init",
+                *kernel.cmdline.split(),
+            ]
         match root.format:
             case RootFormat.SQUASHFS:
                 disks = [f"ubd0r={spec.image}"]

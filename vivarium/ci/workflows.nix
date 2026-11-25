@@ -471,6 +471,7 @@ let
       "checks.cleanup"
       "checks.interactive"
       "checks.verdict"
+      "checks.kept"
     ];
     features = [
       "checks.cloud"
@@ -780,7 +781,7 @@ let
     ghanix = sandboxBootstrap;
     steps = [
       (steps.build {
-        name = "The session: phase rules, knobs, --only, on-demand boot, recipes, guest suites, stream, pytest, breakpoints, printed commands, parallel, report, peers, switch, cleanup, interactive, red verdicts";
+        name = "The session: phase rules, knobs, --only, on-demand boot, recipes, guest suites, stream, pytest, breakpoints, printed commands, parallel, report, peers, switch, cleanup, interactive, red verdicts, kept environments";
         attrs = built.sessions;
         timeoutMinutes = 20;
       })

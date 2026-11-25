@@ -128,6 +128,7 @@ in
     ./container.nix
     ./guest.nix
     ./image.nix
+    ./kept.nix
     ./nftables.nix
     ./qemu.nix
     ./router.nix

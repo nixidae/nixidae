@@ -18,6 +18,7 @@ from .host import (
     abandon,
     egress_adds,
     egress_args,
+    kept_store,
     memory_bytes,
     processes_pss_kib,
     require_ids,
@@ -234,6 +235,8 @@ class Krun:
             argv.append(f"--store-allowlist={spec.store_allowlist}")
         if machine.artifacts is not None:
             argv.append(f"--artifacts={machine.artifacts}")
+        if (kept := kept_store(machine, rundir)) is not None:
+            argv.append(f"--kept={kept}")
         if spec.nested:
             argv.append("--nested")
         if config.acpi:

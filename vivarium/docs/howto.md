@@ -327,10 +327,28 @@ A sandboxed `nix build` of the same attribute never holds: it runs the
 phases and gives the verdict, so the check proves the environment comes
 up.
 
-### Let a phase see what an earlier run did
+### Keep data across an environment's runs
 
-A named environment keeps `state.json` in its directory across runs, and
-`rm` deletes it. A phase reads two things from it:
+Each run of an environment boots fresh guests: the root is the run's own.
+A guest keeps the paths it lists:
+
+```nix
+nodes.cp.vivarium.persist = [ "/var/lib/etcd" "/etc/kubernetes" ];
+```
+
+Each path is a bind mount of a directory on one store per guest,
+`envs/<name>/disks/<guest>`. Under UML, QEMU and krun the store is a
+sparse raw disk (`vivarium.persistSize` MiB, 16 GiB by default) that the
+guest formats as ext4 on its first run. A container guest's store is a
+host directory. A changed configuration still boots, on the kept data.
+`rm` deletes the stores. Every other run gets a blank store that lasts
+the run, so a check proves the first run (`checks.kept`).
+
+`down` powers the guests off, so the disks are clean. A run killed with
+SIGKILL leaves them as a power cut would.
+
+A phase reads two things from `state.json` in the environment's
+directory:
 
 - `vms.state`: a dict of the phase's own keys. The run writes it after
   each phase. A value must be JSON; another fails the phase that set it.

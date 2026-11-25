@@ -53,7 +53,7 @@ from vivarium_runner.machine_spec import Socks
 from vivarium_runner.report import Report
 from vivarium_runner.run import Run, RunError, Segment, shut_down
 
-from . import access, exports, journal, junit_in, kept, trust
+from . import access, exports, journal, junit_in, kept, places, trust
 from .cloud import Cloud, CloudService
 from .events import Event, Kind, Level
 from .phases import (
@@ -579,6 +579,7 @@ class Session:
             tasks=self.tasks,
             lan_fds=lan_fds,
             artifacts=self._guest_artifacts(one.name),
+            kept=self.kept_store(one.name),
             recorder=self.report,
             offline=self.offline,
             random_ports=self.random_ports,
@@ -588,6 +589,13 @@ class Session:
         )
         vm.service = CloudService(self.cloud, one.name)
         return vm
+
+    def kept_store(self, guest: str) -> Path | None:
+        """`vivarium.persist`'s store of *guest* in a named environment,
+        beside `state.json`; None in any other run, which keeps nothing."""
+        if places.environment_name(self.out) is None:
+            return None
+        return self.out / kept.DISKS / guest
 
     async def launch(self, template: str, name: str, user_data: str | None = None) -> Machine:
         """Boot a new guest *name* from *template* while the run goes, and return it once up.

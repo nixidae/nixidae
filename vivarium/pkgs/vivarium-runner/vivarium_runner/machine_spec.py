@@ -142,6 +142,7 @@ class MachineSpecJson(TypedDict):
     networkPorts: NotRequired[list[int]]
     socks: NotRequired[SocksJson]
     requires: NotRequired[list[str]]
+    keep: NotRequired[int]
 
 
 @closed
@@ -316,6 +317,9 @@ class MachineSpec:
     requires: tuple[str, ...] = ()
     """`vivarium.requires`: the guests this one cannot boot without. The
     session boots them first; the runner does nothing with it."""
+    keep: int | None = None
+    """`vivarium.persistSize` in MiB when `vivarium.persist` names a path:
+    the guest gets a kept store (`Machine.kept`). None is no store."""
 
     @property
     def vsock(self) -> bool:
@@ -368,6 +372,7 @@ class MachineSpec:
             uplink_address=data.get("uplinkAddress"),
             network_ports=tuple(data.get("networkPorts", ())),
             socks=Socks.from_json(socks) if (socks := data.get("socks")) is not None else None,
+            keep=data.get("keep"),
         )
 
     @property

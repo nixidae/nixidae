@@ -124,8 +124,16 @@ VYOS = Boot(
 def test_uml_boots_each_root(config: Mapping[str, object], boot: Boot, argv: list[str]) -> None:
     spec = replace(uml(config, boot=boot), image=Path("/nix/store/image"))
     assert boot.kernel is not None
-    root = anyio.run(Uml._root, UmlConfig.of(spec), Path("/run"), spec, boot.root, boot.kernel)
+    root = anyio.run(Uml._root, UmlConfig.of(spec), Path("/run"), spec, boot.root, boot.kernel, None)
     assert root == argv
+
+
+def test_a_kept_store_is_the_second_ubd() -> None:
+    """`modules/kept.nix` mounts `/dev/ubdb`."""
+    spec = replace(uml(GOOD, boot=UML_NIXOS), image=Path("/nix/store/image"))
+    assert UML_NIXOS.kernel is not None
+    root = anyio.run(Uml._root, UmlConfig.of(spec), Path("/run"), spec, None, UML_NIXOS.kernel, Path("/e/disks/one"))
+    assert root[:3] == ["ubd0=/run/cow,/nix/store/image", "ubd1=/e/disks/one", "root=/dev/ubda"]
 
 
 @pytest.mark.parametrize(

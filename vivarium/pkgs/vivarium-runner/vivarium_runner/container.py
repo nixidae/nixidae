@@ -48,6 +48,8 @@ from .lifetime import die_with_parent
 
 AGENT_DIR = "/run/host/agent"
 """Where the guest sees the host's agent directory."""
+KEPT_ROOT = "/.vivarium-kept"
+"""`vivarium.persist`'s store in the guest: `root` in modules/kept.nix."""
 
 AGENT_SOCKET = f"{AGENT_DIR}/sock"
 
@@ -196,6 +198,7 @@ def oci_config(
     writable_store: bool = True,
     store_view: bool = False,
     kvm: bool = False,
+    kept: Path | None = None,
 ) -> dict[str, object]:
     # The OCI runtime spec is an open JSON document; crun reads its keys, not this code.
     """The ``config.json`` for one guest.
@@ -273,6 +276,9 @@ def oci_config(
     ]
     if artifacts is not None:
         mounts.append(_bind(str(artifacts), "/artifacts", "rw"))
+    if kept is not None:
+        # modules/kept.nix's root; a container has no disk to format.
+        mounts.append(_bind(str(kept), KEPT_ROOT, "rw"))
     if kvm:
         mounts.append(_bind("/dev/kvm", "/dev/kvm", "rw"))
 

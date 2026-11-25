@@ -141,6 +141,7 @@ class Machine:
         tasks: TaskGroup,
         lan_fds: dict[str, int] | None = None,
         artifacts: Path | None = None,
+        kept: Path | None = None,
         boot_timeout: float = 180,
         # Generous, because several guests on a loaded builder are slow
         # in a way that looks exactly like a hang.
@@ -165,6 +166,10 @@ class Machine:
         self.lan_fds = lan_fds or {}
         """Each interface's segment fd, by interface name."""
         self.artifacts = artifacts
+        self.kept = kept
+        """Where `vivarium.persist` lives on the host: a named environment's
+        `disks/<guest>`. None is a store in the run directory, gone with
+        the run."""
         # A session passes its run's, so every guest's timings are in one
         # report. Without one, the guest keeps its own.
         self.recorder = recorder if recorder is not None else report.Report()

@@ -291,6 +291,9 @@ rec {
         domains = lib.attrNames machine.vivarium.router.socks.domains;
       };
     }
+    // lib.optionalAttrs (machine.vivarium.persist != [ ]) {
+      keep = machine.vivarium.persistSize;
+    }
     // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {
       nixStore = machine.vivarium.nixDatabase.loader;
     }

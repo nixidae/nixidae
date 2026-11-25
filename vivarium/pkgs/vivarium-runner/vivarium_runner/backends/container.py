@@ -15,7 +15,16 @@ from typing import TYPE_CHECKING
 from .. import container, forward
 from ..store import ContainerStore
 from .base import BackendError, Launch, Stop, config_maybe_path, config_path, launch_config
-from .host import abandon, egress_adds, egress_args, memory_bytes, processes_pss_kib, socket_dir, start_egress
+from .host import (
+    abandon,
+    egress_adds,
+    egress_args,
+    kept_store,
+    memory_bytes,
+    processes_pss_kib,
+    socket_dir,
+    start_egress,
+)
 
 if TYPE_CHECKING:
     from ..boot import Boot
@@ -168,6 +177,7 @@ class Container:
                     writable_store=container.store_is_one_mount(spec.store),
                     store_view=spec.store_paths is not None,
                     kvm=spec.nested,
+                    kept=kept_store(machine, rundir, directory=True),
                 )
             )
         )

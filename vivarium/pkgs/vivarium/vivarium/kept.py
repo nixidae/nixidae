@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from .phases import PhaseState
 
 FILE: Final = "state.json"
+DISKS: Final = "disks"
+"""Each guest's `vivarium.persist` store, by guest name."""
 KEYS: Final = "keys"
 OUTCOMES: Final = "outcomes"
 

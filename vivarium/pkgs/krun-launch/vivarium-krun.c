@@ -5,7 +5,7 @@
  *                 --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD
  *                 [--uplink FD,MAC | --uplink-segment FD,MAC] [--lan FD,MAC]...
  *                 [--vsock PORT,PATH]... [--vsock-listen PORT,PATH]...
- *                 [--store-allowlist FILE] [--artifacts DIR] [--nested] [--acpi]
+ *                 [--store-allowlist FILE] [--artifacts DIR] [--kept RAW] [--nested] [--acpi]
  *
  * With no --initrd the kernel mounts its root itself: a guest kind that boots
  * straight into its own init (docs/design/dinix-guests.md).
@@ -143,12 +143,12 @@ static void usage(void)
             "                     --disk QCOW2 --store DIR --dax-window BYTES --agent-fd FD\n"
             "                     [--uplink FD,MAC | --uplink-segment FD,MAC] [--lan FD,MAC]...\n"
             "                     [--vsock PORT,PATH]... [--vsock-listen PORT,PATH]...\n"
-            "                     [--store-allowlist FILE] [--artifacts DIR] [--nested] [--acpi]\n");
+            "                     [--store-allowlist FILE] [--artifacts DIR] [--kept RAW] [--nested] [--acpi]\n");
 }
 
 int main(int argc, char *argv[])
 {
-    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, UPLINK_SEGMENT, LAN, VSOCK, VSOCK_LISTEN, ARTIFACTS, ALLOWLIST, NESTED, ACPI };
+    enum { VMLINUX = 256, INITRD, CMDLINE, CPUS, MEMORY, DISK, STORE, DAX, AGENT, UPLINK, UPLINK_SEGMENT, LAN, VSOCK, VSOCK_LISTEN, ARTIFACTS, ALLOWLIST, KEPT, NESTED, ACPI };
     static const struct option options[] = {
         {"vmlinux", required_argument, NULL, VMLINUX},
         {"initrd", required_argument, NULL, INITRD},
@@ -166,12 +166,13 @@ int main(int argc, char *argv[])
         {"vsock-listen", required_argument, NULL, VSOCK_LISTEN},
         {"artifacts", required_argument, NULL, ARTIFACTS},
         {"store-allowlist", required_argument, NULL, ALLOWLIST},
+        {"kept", required_argument, NULL, KEPT},
         {"nested", no_argument, NULL, NESTED},
         {"acpi", no_argument, NULL, ACPI},
         {NULL, 0, NULL, 0},
     };
     const char *vmlinux = NULL, *initrd = NULL, *cmdline = NULL, *disk = NULL, *store = NULL, *artifacts = NULL,
-               *allowlist = NULL;
+               *allowlist = NULL, *kept = NULL;
     long cpus = 0, memory = 0, dax_window = -1, agent_fd = -1;
     bool nested = false, acpi = false, have_uplink = false, uplink_segment = false;
     struct nic uplink = {0};
@@ -189,6 +190,7 @@ int main(int argc, char *argv[])
         case STORE: store = optarg; break;
         case ARTIFACTS: artifacts = optarg; break;
         case ALLOWLIST: allowlist = optarg; break;
+        case KEPT: kept = optarg; break;
         case CPUS: ok = parse_long(optarg, 1, 255, &cpus); break;
         case MEMORY: ok = parse_long(optarg, 1, UINT32_MAX, &memory); break;
         case DAX: ok = parse_long(optarg, 0, INT64_MAX, &dax_window); break;
@@ -254,6 +256,16 @@ int main(int argc, char *argv[])
 
     CHECK(KrunBlockDevice blk = krun_block_device_new(KRUN_STR("root"), KRUN_STR(disk), KRUN_DISK_FORMAT_QCOW2, &err));
     krun_mmio_device_manager_add(devices, blk);
+
+    /* vivarium.persist: a raw disk that outlives the run, so every flush
+     * the guest asks for reaches the host's disk. The id is its serial,
+     * which modules/kept.nix finds it by. */
+    if (kept != NULL) {
+        CHECK(KrunBlockDevice keep = krun_block_device_new(KRUN_STR("vivarium-kept"), KRUN_STR(kept),
+                                                           KRUN_DISK_FORMAT_RAW, &err));
+        krun_block_device_set_sync_mode(keep, KRUN_SYNC_MODE_FULL);
+        krun_mmio_device_manager_add(devices, keep);
+    }
 
     if (have_uplink) {
         KrunNetDevice up;

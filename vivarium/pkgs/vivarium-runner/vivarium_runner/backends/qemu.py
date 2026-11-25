@@ -29,11 +29,13 @@ from .base import (
     with_boot_image,
 )
 from .host import (
+    KEPT_SERIAL,
     RELAY_IN_PORT,
     abandon,
     alive,
     egress_adds,
     egress_args,
+    kept_store,
     log_tail,
     memory_file_kib,
     require_ids,
@@ -313,6 +315,9 @@ class Qemu:
         if firmware is not None:
             drives.append(("qcow2", None))
         drives += [("raw", disk.name) for disk in config.disks]
+        kept = kept_store(machine, rundir)
+        if kept is not None:
+            drives.append(("raw", KEPT_SERIAL))
         if disk_fds:
             disk_fds = _reopen(disk_fds)
             opened.extend(disk_fds)
@@ -327,6 +332,10 @@ class Qemu:
                 blank_fds = self._blank_disk(rundir, disk)
                 opened.extend(blank_fds)
                 disk_fds += blank_fds
+            if kept is not None:
+                kept_fds = (os.open(kept, os.O_RDWR), os.open(kept, os.O_RDONLY))
+                opened.extend(kept_fds)
+                disk_fds += kept_fds
         if len(disk_fds) != 2 * len(drives):
             raise BackendError(f"{spec.name}: {len(disk_fds)} disk fds for {len(drives)} disks")
 
