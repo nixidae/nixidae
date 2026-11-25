@@ -30,11 +30,13 @@ def main() -> None:
         driven.wait(f"in {environment}")
         driven.want({"up": "passed"})
         log = (environment / "log").read_text()
+        # `fail`, not `sys.exit`: it prints the run's log, the only copy
+        # of it that leaves the sandbox.
         if (RESUMED in log) != (run == 2):
-            sys.exit(f"run {run}: {'no' if run == 2 else 'a'} resume of the kept cluster")
+            driven.fail(f"run {run}: {'no' if run == 2 else 'a'} resume of the kept cluster")
         kept = json.loads((environment / "state.json").read_text())
         if "probe" not in kept["keys"] or kept["outcomes"].get("up") != "passed":
-            sys.exit(f"after run {run}, state.json is {kept}")
+            driven.fail(f"after run {run}, state.json is {kept}")
         print(f"ok: run {run} {'resumed' if run == 2 else 'made'} the cluster")
 
 
