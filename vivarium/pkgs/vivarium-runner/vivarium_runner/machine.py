@@ -477,10 +477,11 @@ class Machine:
 
     async def _load_registration(self, info: str) -> None:
         """Register a closureInfo in the guest's Nix database, if it has one."""
-        drop = "echo 2 > /proc/sys/vm/drop_caches && " if self.backend.has_kernel else ""
         nix_store = self.spec.nix_store
-        load = "true" if nix_store is None else f"{shlex.quote(nix_store)} --load-db < {shlex.quote(info)}/registration"
-        done = await self.execute(f"{drop}{load}", label=f"add_closure {Path(info).name}")
+        if nix_store is None:
+            return
+        load = f"{shlex.quote(nix_store)} --load-db < {shlex.quote(info)}/registration"
+        done = await self.execute(load, label=f"add_closure {Path(info).name}")
         if done.returncode != 0:
             raise MachineError(f"[{self.name}] loading {info} failed (exit {done.returncode}):\n{_both(done)}")
 
@@ -1160,9 +1161,17 @@ class Machine:
         if self._store is None:
             return []
         try:
-            return await self._store.add(paths)
+            added = await self._store.add(paths)
         except StoreError as error:
             raise MachineError(f"[{self.name}] {error}") from error
+        if added and self.backend.has_kernel:
+            # The guest's /nix is an overlay, and overlayfs keeps a negative dentry for a name looked
+            # up before the path came: the lower layer has it, `/nix/store/<path>` stays missing
+            # (UML, QEMU, krun, measured). Dropping dentries costs 12-21 ms. nixidae/nixidae#1585.
+            done = await self.execute("echo 2 > /proc/sys/vm/drop_caches", label="add_paths drop dentries")
+            if done.returncode != 0:
+                raise MachineError(f"[{self.name}] dropping dentries failed (exit {done.returncode}):\n{_both(done)}")
+        return added
 
     # ── init ───────────────────────────────────────────────────────
 

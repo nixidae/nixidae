@@ -43,10 +43,11 @@ async def test(vms: Machines) -> None:
                 continue
             system = systems[other]
             await vm.fail(f"nix-store --check-validity {system}")
+            # Looked up above and missing then: `add_paths` alone must make it appear (nixidae/nixidae#1585).
+            await vm.add_paths([system])
+            await vm.succeed(f"test -e {system}")
             assert peer.spec.store_paths is not None
             closure = await vm.add_closure(str(peer.spec.store_paths.parent))
-            if system not in closure:
-                raise AssertionError(f"{name} was not given {other}'s system: {closure}")
             await vm.succeed(f"test -x {system}/init")
             await vm.succeed(f"nix-store --verify-path {system}")
             print(f"[test] {name} took {other}'s closure while running: {len(closure)} paths")
