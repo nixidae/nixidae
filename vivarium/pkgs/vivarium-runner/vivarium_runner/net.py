@@ -238,6 +238,10 @@ class Lan:
             self._listen(port)
 
     def _listen(self, port: _Port) -> None:
+        # An asyncio reader, not a task in an anyio group: anyio has no
+        # callback on readiness, and `_flood` says why a task per frame
+        # costs too much. So the hub runs on asyncio only. `close` and
+        # `remove_member` take the readers off; nothing else owns them.
         port.sock.setblocking(False)
         asyncio.get_running_loop().add_reader(port.sock, self._flood, port)
 
