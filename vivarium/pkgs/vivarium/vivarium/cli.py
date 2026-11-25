@@ -290,7 +290,9 @@ def add_run_options(add: Callable[..., argparse.Action]) -> None:
 
 def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """`ctl`: one request to a run. The runner and the `vivarium` CLI both take it."""
-    command = sub.add_parser("ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused")
+    command = sub.add_parser(
+        "ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused"
+    )
     command.add_argument("--out", type=_absolute, required=True, help="the run's --out")
     command.add_argument("--json", action="store_true", help="the whole reply as one JSON object on stdout")
     command.add_argument(
