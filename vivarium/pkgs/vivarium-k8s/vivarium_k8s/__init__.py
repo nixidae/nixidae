@@ -110,9 +110,10 @@ CONTROL_PLANE_TAINT = "node-role.kubernetes.io/control-plane"
 # spends its life timing out against an upstream resolver it cannot reach.
 # What a node writes when it declares PersistentVolumes -- see
 # `services.vivarium-k8s.persistentVolumes` and `provision_storage`.
-STORAGE_MANIFEST = "/etc/kubernetes/vivarium-storage.yaml"
+STORAGE_MANIFEST = "/etc/vivarium-k8s/storage.yaml"
 # `services.vivarium-k8s.runtimes` and `provision_runtimes`.
-RUNTIME_MANIFEST = "/etc/kubernetes/vivarium-runtimes.yaml"
+RUNTIME_MANIFEST = "/etc/vivarium-k8s/runtimes.yaml"
+KUBEADM_CONFIG = "/etc/vivarium-k8s/kubeadm-config.yaml"
 
 KUBE_PROXY = "--selector k8s-app=kube-proxy"
 KUBE_DNS = "--selector k8s-app=kube-dns"
@@ -309,10 +310,7 @@ async def init_control_plane(cp: Machine, *, patch_proxy: bool = True) -> None:
     cp.say("[k8s] cp: kubeadm init ...")
     # Redirected and then printed, rather than piped through `tee`: a pipe
     # would report tee's exit status, and /bin/sh here has no `pipefail`.
-    command = (
-        "kubeadm init --config /etc/kubernetes/kubeadm-config.yaml --v=2"
-        f" > {INIT_LOG} 2>&1; rc=$?; cat {INIT_LOG}; exit $rc"
-    )
+    command = f"kubeadm init --config {KUBEADM_CONFIG} --v=2 > {INIT_LOG} 2>&1; rc=$?; cat {INIT_LOG}; exit $rc"
     try:
         done = await cp.execute(command, timeout=INIT_TIMEOUT, label="kubeadm init")
     except Exception as err:
@@ -408,9 +406,7 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
     """
     if not workers:
         return
-    printed = (
-        await cp.succeed("kubeadm token create --print-join-command --config /etc/kubernetes/kubeadm-config.yaml")
-    ).stdout
+    printed = (await cp.succeed(f"kubeadm token create --print-join-command --config {KUBEADM_CONFIG}")).stdout
     fields = printed.split()
     try:
         token = fields[fields.index("--token") + 1]

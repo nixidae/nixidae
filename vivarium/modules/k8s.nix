@@ -279,7 +279,7 @@ let
         milliseconds" against nixkube.cachix.org.
       */
       resolvConf =
-        if cfg.images == "nix" then "/etc/kubernetes/resolv.conf" else "/run/systemd/resolve/resolv.conf";
+        if cfg.images == "nix" then "/etc/vivarium-k8s/resolv.conf" else "/run/systemd/resolve/resolv.conf";
       # Nothing here is fast, and a CRI call that takes a minute on a
       # loaded builder is normal rather than a hung runtime.
       runtimeRequestTimeout = "15m";
@@ -769,7 +769,7 @@ in
         cluster gets a default StorageClass at all.
 
         Above zero, the node writes a StorageClass named `standard` and
-        that many hostPath volumes to `/etc/kubernetes/vivarium-storage.yaml`,
+        that many hostPath volumes to `/etc/vivarium-k8s/storage.yaml`,
         and `bring_up` applies every node's copy once the cluster is up.
         A chart that leaves `storageClassName` unset then binds, which is
         what a chart written for a cloud or for kind expects.
@@ -1139,12 +1139,15 @@ in
       "vm.overcommit_memory" = 1;
     };
 
+    # vivarium's own files stay out of /etc/kubernetes, which is kubeadm's:
+    # an environment keeps that directory across runs (`persist`), and a
+    # kept one would hide these.
     environment.etc =
       lib.optionalAttrs (cfg.persistentVolumes > 0) {
         # Where `provision_storage` looks.  A node with no volumes writes no
         # file and the runner applies nothing, so storage is one knob and not
         # two -- unlike `skipAddons`, which a test has to repeat in `addons`.
-        "kubernetes/vivarium-storage.yaml".source = storageManifest;
+        "vivarium-k8s/storage.yaml".source = storageManifest;
       }
       // lib.optionalAttrs (cfg.cri == "crio") {
         # CRI-O's own bridge sorts before `10-vivarium.conflist` and would win. The
@@ -1153,7 +1156,7 @@ in
       }
       // lib.optionalAttrs (cfg.runtimes != [ ]) {
         # Where `provision_runtimes` looks, on the same terms.
-        "kubernetes/vivarium-runtimes.yaml".source = runtimeManifest;
+        "vivarium-k8s/runtimes.yaml".source = runtimeManifest;
       }
       // {
         # What every pod gets as its /etc/resolv.conf, and what CoreDNS
@@ -1162,7 +1165,7 @@ in
         # this names one that is guaranteed both to parse and to go
         # nowhere.  Nothing in a test needs a name from outside the
         # cluster; cluster.local is served locally.
-        "kubernetes/resolv.conf".text = ''
+        "vivarium-k8s/resolv.conf".text = ''
           # RFC 5737 TEST-NET-1: unroutable on purpose.
           nameserver 192.0.2.1
         '';
@@ -1175,7 +1178,7 @@ in
         '';
       }
       // lib.optionalAttrs (cfg.role == "control-plane") {
-        "kubernetes/kubeadm-config.yaml".source = kubeadmConfig;
+        "vivarium-k8s/kubeadm-config.yaml".source = kubeadmConfig;
       };
 
     environment.systemPackages = [
