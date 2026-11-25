@@ -69,6 +69,8 @@ def fake_vms(*names: str) -> Machines:
     vms.access = Path("/nonexistent")
     vms.knobs = {}
     vms.shared = {}
+    vms.state = {}
+    vms.previous = {}
     vms.phase = None
     return vms
 

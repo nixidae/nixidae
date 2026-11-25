@@ -327,6 +327,33 @@ A sandboxed `nix build` of the same attribute never holds: it runs the
 phases and gives the verdict, so the check proves the environment comes
 up.
 
+### Let a phase see what an earlier run did
+
+A named environment keeps `state.json` in its directory across runs, and
+`rm` deletes it. A phase reads two things from it:
+
+- `vms.state`: a dict of the phase's own keys. The run writes it after
+  each phase. A value must be JSON; another fails the phase that set it.
+- `vms.previous`: each phase's state in the environment's last run that
+  reached a verdict, such as `{"init": "passed"}`.
+
+A phase whose work is done ends with `vms.skip(reason)`. It shows as
+`unneeded` in `phases.json`, with the reason. The phases after it run,
+and the run can pass; `skipped` still means that a dependency failed.
+Every other run, a sandboxed check included, starts with both empty and
+writes nothing, so a check proves the first run.
+
+```python
+async def test(vms):
+    if vms.previous.get("cluster") == "passed" and await kept_cluster_answers(vms):
+        vms.skip("the cluster on the kept disks answers")
+    ...
+    vms.state["initialized"] = True
+```
+
+Check the guest as well as the state: the state describes the last run,
+not what is on the disk now.
+
 ### Reach a cluster's Services by name
 
 `vivarium.recipes.kubernetes.loadBalancer.enable` puts the cluster behind

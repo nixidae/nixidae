@@ -53,7 +53,7 @@ from vivarium_runner.machine_spec import Socks
 from vivarium_runner.report import Report
 from vivarium_runner.run import Run, RunError, Segment, shut_down
 
-from . import access, exports, journal, junit_in, trust
+from . import access, exports, journal, junit_in, kept, trust
 from .cloud import Cloud, CloudService
 from .events import Event, Kind, Level
 from .phases import (
@@ -269,6 +269,8 @@ class Session:
         self.errors: dict[str, str] = {}
         self.reasons: dict[str, str] = {}
         """Why each `unneeded` phase had nothing to do."""
+        self.kept = kept.Kept()
+        """A named environment's `state.json`; read at `prepare`."""
         self.stopped: Stop | None = None
         """What ended the run before its verdict, if anything did."""
         # Which phase holds each guest, so a command or a journal entry
@@ -542,6 +544,9 @@ class Session:
         # One phase's findings for a later one -- a process census taken
         # before the suites, read by the phase that looks for leaks.
         vms.shared = {}
+        self.kept = await kept.load(self.out)
+        vms.state = self.kept.keys
+        vms.previous = MappingProxyType(self.kept.outcomes.copy())
         vms.segments = run.lans
         vms.launcher = self
         vms.cloud = self.cloud
@@ -873,6 +878,8 @@ class Session:
         vms.exports = self.vms.exports
         vms.knobs = self.vms.knobs
         vms.shared = self.vms.shared
+        vms.state = self.vms.state
+        vms.previous = self.vms.previous
         vms.segments = self.vms.segments
         vms.launcher = self.vms.launcher
         vms.cloud = self.vms.cloud
@@ -899,23 +906,13 @@ class Session:
         started = time.monotonic()
         deadline = None if phase.timeout is None else anyio.current_time() + phase.timeout
         try:
-            await self.ensure(nodes)
-            vms = self.view(phase, nodes)
-            if phase.pytest is not None:
-                await self._pytest(phase.name, phase.pytest, vms, deadline=deadline, timeout=phase.timeout)
-            elif phase.script is not None:
-                # Loaded inside the `try`: a script that does not import
-                # is this phase failing. Outside it, an ImportError took
-                # the whole drive down with no failed phase and no pause.
-                test = load_phase(phase.script)
-                limit = anyio.CancelScope(deadline=math.inf if deadline is None else deadline)
-                with self._capture(phase.name), limit:
-                    await test(vms)
-                if limit.cancelled_caught:
-                    raise PhaseTimeout(f"phase {phase.name} ran past its timeout of {phase.timeout:g}s")
-        except Unneeded as unneeded:
-            reason = unneeded.reason
+            reason = await self._body(phase, nodes, deadline)
+            # A key no JSON holds fails the phase that set it.
+            await self.kept.save()
         except Exception as error:  # noqa: BLE001 -- any error fails the phase, and the run goes on
+            # What a failed phase kept may describe its guests' disks too.
+            with contextlib.suppress(kept.KeptError):
+                await self.kept.save()
             took = time.monotonic() - started
             await self.settle(nodes=nodes)
             self._cases_from_guests(phase.name, nodes)
@@ -969,8 +966,6 @@ class Session:
             )
             self._release(nodes)
             raise
-        else:
-            reason = None
         took = time.monotonic() - started
         await self.settle(nodes=nodes)
         self._cases_from_guests(phase.name, nodes)
@@ -997,6 +992,27 @@ class Session:
             state=str(PhaseState.PASSED),
         )
         return PhaseState.PASSED
+
+    async def _body(self, phase: PhaseSpec, nodes: list[str], deadline: float | None) -> str | None:
+        """Run *phase*'s tests; why it was unneeded, or None for a pass."""
+        await self.ensure(nodes)
+        vms = self.view(phase, nodes)
+        try:
+            if phase.pytest is not None:
+                await self._pytest(phase.name, phase.pytest, vms, deadline=deadline, timeout=phase.timeout)
+            elif phase.script is not None:
+                # Loaded inside the caller's `try`: a script that does not
+                # import is this phase failing. Outside it, an ImportError
+                # took the whole drive down with no failed phase and no pause.
+                test = load_phase(phase.script)
+                limit = anyio.CancelScope(deadline=math.inf if deadline is None else deadline)
+                with self._capture(phase.name), limit:
+                    await test(vms)
+                if limit.cancelled_caught:
+                    raise PhaseTimeout(f"phase {phase.name} ran past its timeout of {phase.timeout:g}s")
+        except Unneeded as unneeded:
+            return unneeded.reason
+        return None
 
     def needs(self, phase: PhaseSpec) -> list[str]:
         """The guests *phase* runs on, which must be up before it starts."""
@@ -1033,6 +1049,9 @@ class Session:
         (self.out / "status").write_text("0\n" if self.passed else "1\n")
         stopped = None if self.stopped is None else self.stopped.reason
         (self.out / VERDICT).write_text(Verdict.of(self.state, self.errors, stopped, self.reasons).to_json())
+        if self.stopped is None:
+            # A stopped run's outcomes say nothing about the next one.
+            self.kept.finish(self.state)
         self.write_report()
         verdict = "passed" if self.passed else "failed"
         if self.stopped is not None:

@@ -111,6 +111,16 @@ class Machines(dict[str, Machine]):
     process census taken before the suites -- reaches the phase that
     compares against it only through here."""
 
+    # Any: each phase defines its own keys; they need only be JSON.
+    state: dict[str, Any]
+    """What a named environment's phases keep across its runs, beside its
+    disks: a phase's own keys. Empty in every other run. A phase reads it
+    to decide whether its work is done, and ends with `skip` if it is."""
+
+    previous: Mapping[str, str]
+    """Each phase's state (`passed`, `unneeded`, `failed` ...) in the
+    environment's last run that reached a verdict. Empty in every other run."""
+
     phase: str | None
     """The phase running now. One script can serve several phases, told
     apart by name: ``mkTest`` phases generated from one list in Nix.
