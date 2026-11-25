@@ -15,6 +15,10 @@ rec {
   subnet = "${net}.0/${toString prefixLength}";
   gateway = "${net}.2";
   dns = "${net}.3";
+  # The router's own address for services the guests reach: the router
+  # sends a guest's TCP to `gateway` on to the host, as QEMU's user
+  # network does.
+  services = "${net}.4";
   # A routed guest's host part, by its `vivarium.index`; every other guest
   # takes index 0's.
   host = index: 15 + index;

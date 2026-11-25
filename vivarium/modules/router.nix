@@ -39,6 +39,7 @@ let
     subnet
     gateway
     dns
+    services
     prefix6
     gateway6
     ;
@@ -300,6 +301,16 @@ in
         forwards its guests' traffic to them: a cluster's Service range, say.
       '';
     };
+    forwards = mkOption {
+      type = types.listOf types.port;
+      default = [ ];
+      example = [ 6443 ];
+      description = ''
+        Ports of services on the router, in the uplink's VRF, that the host
+        reaches as it reaches `socks`: through a forward to the gateway
+        address. A guest reaches them on the uplink's `services` address.
+      '';
+    };
     inside = mkOption {
       type = types.listOf types.str;
       default = [ ];
@@ -405,8 +416,10 @@ in
       # and no vec0 (`router` in its spec). Forced over a run's `defaults`
       # that name the other guests' uplink.
       vivarium.uplink.proxy = lib.mkForce "vsock";
-      # No ssh: the proxy, if it runs, is the one thing to reach.
-      vivarium.inbound = lib.mkForce (lib.optional cfg.socks.enable { guest = cfg.socks.port; });
+      # No ssh: the proxy and `forwards` are the things to reach.
+      vivarium.inbound = lib.mkForce (
+        map (port: { guest = port; }) (lib.optional cfg.socks.enable cfg.socks.port ++ cfg.forwards)
+      );
       vivarium.launch.config.egress = "${egress}/bin/egress";
 
       vivarium.interfaces = lib.mapAttrs' (
@@ -484,6 +497,7 @@ in
           address = [
             "${gateway}/24"
             "${dns}/24"
+            "${services}/24"
             "${gateway6}/64"
           ];
           networkConfig = {
