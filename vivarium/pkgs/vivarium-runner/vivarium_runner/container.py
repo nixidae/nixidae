@@ -794,8 +794,10 @@ ETHTOOL_SFEATURES = 0x3B
 ETH_P_ALL = 0x0003
 SOL_PACKET = 263
 PACKET_IGNORE_OUTGOING = 23
-RELAY_END = "lan"
-"""The relay's end of the pair, in the relay's own network namespace."""
+RELAY_ENDS = ("relay0", "relay1")
+"""Names for the relay's end of the pair, in the relay's own network
+namespace. Both ends exist there before the move, so the relay takes the
+first one that is not the guest's name."""
 
 
 def _rtattr(kind: int, payload: bytes) -> bytes:
@@ -865,6 +867,7 @@ def _open_link(guest_net: int, name: str, mtu: int, mac: str) -> socket.socket:
     - AF_PACKET hands a socket the frames it sent itself, too:
       PACKET_IGNORE_OUTGOING.
     """
+    relay_end = next(end for end in RELAY_ENDS if end != name)
     os.unshare(os.CLONE_NEWNET)
     for scope in ("all", "default"):
         Path(f"/proc/sys/net/ipv6/conf/{scope}/disable_ipv6").write_text("1")
@@ -872,16 +875,16 @@ def _open_link(guest_net: int, name: str, mtu: int, mac: str) -> socket.socket:
     peer = _ifinfomsg() + _rtattr(IFLA_IFNAME, name.encode() + b"\0") + mtu_attr
     peer += _rtattr(IFLA_ADDRESS, bytes.fromhex(mac.replace(":", "")))
     kind = _rtattr(IFLA_INFO_KIND, b"veth") + _rtattr(IFLA_INFO_DATA, _rtattr(VETH_INFO_PEER, peer))
-    link = _ifinfomsg() + _rtattr(IFLA_IFNAME, RELAY_END.encode() + b"\0") + mtu_attr + _rtattr(IFLA_LINKINFO, kind)
+    link = _ifinfomsg() + _rtattr(IFLA_IFNAME, relay_end.encode() + b"\0") + mtu_attr + _rtattr(IFLA_LINKINFO, kind)
     _rtnetlink(RTM_NEWLINK, link, NLM_F_CREATE | NLM_F_EXCL)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
         _features_off(control, name)
         index = struct.unpack_from("i", fcntl.ioctl(control, SIOCGIFINDEX, struct.pack("16s16x", name.encode())), 16)[0]
-        _up(control, RELAY_END)
+        _up(control, relay_end)
     _rtnetlink(RTM_SETLINK, _ifinfomsg(index) + _rtattr(IFLA_NET_NS_FD, struct.pack("I", guest_net)))
     end = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))
     end.setsockopt(SOL_PACKET, PACKET_IGNORE_OUTGOING, 1)
-    end.bind((RELAY_END, ETH_P_ALL))
+    end.bind((relay_end, ETH_P_ALL))
     return end
 
 
