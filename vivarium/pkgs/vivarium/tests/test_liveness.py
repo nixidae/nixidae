@@ -27,6 +27,17 @@ def test_a_held_lock_is_a_live_run_and_a_closed_one_an_ended_run(tmp_path: Path)
     assert liveness.life(tmp_path) is Life.FREE
 
 
+def test_readers_do_not_see_each_other_as_a_run(tmp_path: Path) -> None:
+    os.close(liveness.hold(tmp_path))
+    with liveness.dead(tmp_path) as ended:
+        assert ended
+        assert liveness.life(tmp_path) is Life.FREE
+        # A new run takes its own file, renamed over the old one.
+        fd = liveness.hold(tmp_path, environ={})
+        assert liveness.life(tmp_path) is Life.HELD
+    os.close(fd)
+
+
 def test_forget_removes_only_an_ended_runs_lock(tmp_path: Path) -> None:
     fd = liveness.hold(tmp_path)
     liveness.forget(tmp_path)

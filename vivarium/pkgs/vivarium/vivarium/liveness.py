@@ -50,9 +50,9 @@ def life(out: Path) -> Life:
 
 @contextlib.contextmanager
 def dead(out: Path) -> Iterator[bool]:
-    """True when the run in *out* has ended, and then the lock stays taken
-    for the block: no run starts in *out* while a reader removes what the
-    ended one left."""
+    """True when the run in *out* has ended. The reader's shared lock stays
+    for the block: the ended run's lock file does not turn up held while
+    the reader removes what that run left."""
     with _attempt(out) as got:
         yield got is Life.FREE
 
@@ -65,8 +65,10 @@ def _attempt(out: Path) -> Iterator[Life]:
         yield Life.ABSENT
         return
     try:
+        # Shared: readers never see each other as a run, and the run's
+        # exclusive lock still refuses them.
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
             yield Life.HELD
             return
