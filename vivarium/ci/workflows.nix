@@ -382,6 +382,11 @@ let
       timeoutMinutes = 45;
       after = [ "test-containerd" ];
     };
+    k8s-ha = {
+      description = "three control planes behind the router outlive one API server";
+      timeoutMinutes = 45;
+      after = [ "test-containerd" ];
+    };
     k8s-kept = {
       description = "a second run of a Kubernetes environment resumes its cluster";
       timeoutMinutes = 60;

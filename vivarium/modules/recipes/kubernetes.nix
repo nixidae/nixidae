@@ -12,6 +12,10 @@
 # (../k8s-lb.nix) and resolves `cluster.local` for its SOCKS5 proxy
 # (nixidae/nixidae#1584).
 #
+# Several control planes sit behind the run's router too (`router.enable`):
+# the router balances the API endpoint over them (../k8s-api.nix), and every node
+# reaches the API there (`controlPlaneEndpoint`, nixidae/nixidae#1592).
+#
 # `certManager` runs cert-manager with a ClusterIssuer, `vivarium`, on the
 # run's intermediate CA (`vms.trust`), so the host trusts what it issues
 # through `access/ca-bundle.pem`.
@@ -35,6 +39,13 @@ let
   controlPlanes = lib.attrNames (
     lib.filterAttrs (_: system: system.config.services.vivarium-k8s.role == "control-plane") nodes
   );
+  several = lib.length controlPlanes > 1;
+  uplink = import ../../nix/uplink.nix;
+  apiPort = 6443;
+  # Each node's address on the router's network.
+  behindRouter = lib.mapAttrs (
+    _: system: system.config.vivarium.router.address system.config.vivarium.index
+  ) nodes;
 
   prefixes = import ../../nix/prefixes.nix lib;
   # The pool, the cluster's ranges and the uplink: no two may share an
@@ -108,10 +119,17 @@ in
               node = system.config.services.vivarium-k8s;
             in
             {
-              inherit (node) cni images skipAddons;
+              inherit (node)
+                cni
+                images
+                skipAddons
+                role
+                persist
+                ;
             }
           ) nodes;
         }
+        // lib.optionalAttrs several { api.router = routerName; }
         // lib.optionalAttrs cfg.loadBalancer.enable { loadBalancer.router = routerName; }
         // lib.optionalAttrs cfg.certManager.enable {
           certManager = {
@@ -132,6 +150,32 @@ in
               lib.attrValues vivariumPackages.certManager.binaries ++ [ vivariumPackages.certManager.manifest ]
             );
           };
+      })
+      {
+        assertions = [
+          {
+            assertion = !several || config.router.enable == true;
+            message = "vivarium.recipes.kubernetes: several control planes (${lib.concatStringsSep ", " controlPlanes}) sit behind the run's router: set router.enable.";
+          }
+        ];
+      }
+      # On `router.enable`, not on `several`: which guests are control
+      # planes is read from the guests these options make. `true`, not
+      # the run's own decision on `null`, which reads the guests too.
+      (lib.mkIf (config.router.enable == true) {
+        defaults =
+          { config, ... }:
+          lib.mkIf config.services.vivarium-k8s.enable {
+            services.vivarium-k8s.controlPlaneEndpoint = lib.mkIf several "${uplink.services}:${toString apiPort}";
+          };
+        nodes.${routerName} = {
+          imports = [ ../k8s-api.nix ];
+          vivarium.k8sApi = lib.mkIf several {
+            enable = true;
+            port = apiPort;
+            controlPlanes = lib.genAttrs controlPlanes (name: "${behindRouter.${name}}:${toString apiPort}");
+          };
+        };
       })
       (lib.mkIf cfg.loadBalancer.enable {
         assertions = [
@@ -158,9 +202,7 @@ in
             enable = true;
             inherit (cfg.loadBalancer) pool;
             apiAddress = nthService 1;
-            nodes = lib.mapAttrs (
-              _: system: system.config.vivarium.router.address system.config.vivarium.index
-            ) nodes;
+            nodes = behindRouter;
           };
           vivarium.router = {
             routes = [

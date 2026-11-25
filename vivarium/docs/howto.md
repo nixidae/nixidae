@@ -437,6 +437,32 @@ Each image must hold its own files. An image whose layers link into
 With `persist`, a node keeps what was loaded: after `down` and `up` the
 pods run again with no new load (`checks.k8s-kept`).
 
+### Run several control planes
+
+Give more than one node `services.vivarium-k8s.role = "control-plane"`
+and put the run behind its router (nixidae/nixidae#1592):
+
+```nix
+mkTest {
+  vivarium.recipes.kubernetes.enable = true;
+  router.enable = true;
+  nodes.cp1 = { services.vivarium-k8s = { enable = true; role = "control-plane"; }; };
+  nodes.cp2 = { services.vivarium-k8s = { enable = true; role = "control-plane"; }; };
+  nodes.cp3 = { services.vivarium-k8s = { enable = true; role = "control-plane"; }; };
+}
+```
+
+The router balances the API endpoint, 10.0.2.4:6443, over the
+control planes whose `/readyz` answers (`modules/k8s-api.nix`). Every
+node reaches the API there (`controlPlaneEndpoint`). `bring_up` runs
+`kubeadm init` on `cp_name`, or the first control plane by name, and
+joins the others one at a time with `--control-plane`. Each runs etcd.
+The host's `access/kubeconfig` goes through the router's forward, so it
+outlives any one control plane. In an environment, the control planes
+keep their cluster together or not at all: `persist` is the same on
+each. `checks.k8s-ha` stops one API server and reads and writes through
+the endpoint.
+
 ### Reach a cluster's Services by name
 
 `vivarium.recipes.kubernetes.loadBalancer.enable` puts the cluster behind

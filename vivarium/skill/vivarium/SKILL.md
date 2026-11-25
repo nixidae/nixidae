@@ -71,6 +71,7 @@ vivarium rm N / vivarium clean      # delete one stopped environment / every one
 - A host port reaches only `vivarium.inbound`, fixed at boot; `{ guest = N; }` (no `host`) takes any free port, named in `access.json` and `vm.reachable(N, protocol)`. A fixed `host` another process holds fails the boot; `--random-ports` (MCP `start`'s default, every sandboxed check) binds any free port. `ctl`, `switch`, `reload` work at ready as at a pause; `continue` at ready runs what a reload added and holds again; only `stop` ends it.
 - Plain Nix: `nix run --file . <test>.up -- --out DIR`, in the foreground.
 - `checks.k8s-host`: a one-node cluster, ready to `up`.
+- Several control planes (`role = "control-plane"` on more than one node) need `router.enable = true`: the router balances the API endpoint, `10.0.2.4:6443` (`controlPlaneEndpoint`), over every `/readyz` that answers; `access/kubeconfig` goes through the router. `persist` is the same on every control plane. `checks.k8s-ha`.
 
 ## At a pause
 

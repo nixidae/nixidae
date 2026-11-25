@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import time
@@ -45,6 +46,12 @@ class NodeFacts(TypedDict):
     cni: str
     images: str
     skipAddons: list[str]  # noqa: N815 -- Nix writes it, so Nix spells it
+    role: str
+    persist: bool
+
+
+CONTROL_PLANE = "control-plane"
+"""`services.vivarium-k8s.role` of a control plane."""
 
 
 def nodes(vms: Machines) -> dict[str, NodeFacts]:
@@ -388,8 +395,8 @@ async def patch_kube_proxy(cp: Machine) -> None:
     cp.say("[k8s] cp: kube-proxy has the store")
 
 
-async def join(cp: Machine, workers: Sequence[Machine]) -> None:
-    """Bring the workers in with a token minted for this run.
+async def join(cp: Machine, workers: Sequence[Machine], control_planes: Sequence[Machine] = ()) -> None:
+    """Bring the workers and *control_planes* in with a token minted for this run.
 
     The token and the CA hash come from kubeadm rather than being read
     out of /etc/kubernetes, but the join itself does not use the command
@@ -409,29 +416,42 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
     Passing the config we ran init with avoids the question rather than
     answering it: ResolveBindAddress returns an advertise address that
     is already concrete without looking at an interface at all.
+
+    A control plane joins with the key of certificates uploaded now, as
+    the token is minted now: kubeadm deletes them after two hours. They
+    join one at a time, since each adds an etcd member, and before the
+    workers.
     """
-    if not workers:
+    if not workers and not control_planes:
         return
     printed = (await cp.succeed(f"kubeadm token create --print-join-command --config {KUBEADM_CONFIG}")).stdout
     fields = printed.split()
     try:
+        # The control plane endpoint, or the control plane's own address.
+        endpoint = fields[fields.index("join") + 1]
         token = fields[fields.index("--token") + 1]
         # Pins the cluster CA, so a worker cannot be talked into
         # bootstrapping against something else answering on that address.
         digest = fields[fields.index("--discovery-token-ca-cert-hash") + 1]
     except (ValueError, IndexError):
         raise MachineError(f"[cp] could not read a join command out of:\n{printed}") from None
-    if cp.ip is None:
-        raise MachineError("[cp] has no address to join")
-    endpoint = f"[{cp.ip}]:6443" if ":" in cp.ip else f"{cp.ip}:6443"
+    key = ""
+    if control_planes:
+        # kubeadm makes the key: it refuses `--certificate-key` beside `--config`.
+        upload = f"kubeadm init phase upload-certs --upload-certs --config {KUBEADM_CONFIG}"
+        uploaded = (await cp.succeed(upload)).stdout
+        key = uploaded.split()[-1] if uploaded.split() else ""
+        if not re.fullmatch(r"[0-9a-f]{64}", key):
+            raise MachineError(f"[{cp.name}] could not read a certificate key out of:\n{uploaded}")
 
-    async def one(worker: Machine) -> None:
+    async def one(worker: Machine, certificate_key: str = "") -> None:
         worker.say(f"[k8s] {worker.name}: kubeadm join ...")
         # Kept on the node for the same reason as `INIT_LOG`.
         log = "/tmp/kubeadm-join.log"
         try:
             done = await worker.execute(
-                f"vivarium-k8s-join {endpoint} {token} {digest} > {log} 2>&1; rc=$?; cat {log}; exit $rc",
+                f"vivarium-k8s-join {endpoint} {token} {digest} {certificate_key}"
+                f" > {log} 2>&1; rc=$?; cat {log}; exit $rc",
                 timeout=JOIN_TIMEOUT,
                 label="kubeadm join",
             )
@@ -450,6 +470,8 @@ async def join(cp: Machine, workers: Sequence[Machine]) -> None:
             )
         worker.say(f"[k8s] {worker.name}: joined")
 
+    for control_plane in control_planes:
+        await one(control_plane, key)
     async with anyio.create_task_group() as group:
         for worker in workers:
             group.start_soon(one, worker)
@@ -705,9 +727,14 @@ async def bring_up(
     resolve instead, which is the thing a pulling node cannot start
     without.  See `wait_for_dns`.
 
-    *schedulable* removes the control plane's taint.  The default decides by
-    size: a single-node cluster has nowhere else to put a pod, and one with
-    workers should keep the control plane for the control plane.
+    *schedulable* removes the control planes' taint.  The default decides by
+    size: a cluster of control planes has nowhere else to put a pod, and
+    one with workers should keep the control planes for the control plane.
+
+    *cp_name* runs `kubeadm init`, or the first control plane by name when
+    no control plane has that name; the others join it with
+    `--control-plane`, behind the endpoint the run's router balances
+    (`vivarium.recipes.kubernetes`, nixidae/nixidae#1592).
 
     *addons* are the addon pods to wait for, as label selectors.  Pass `()`
     for a cluster that runs neither -- see `DEFAULT_ADDONS`.  It has to
@@ -745,8 +772,17 @@ async def bring_up(
     sources = {node["images"] for node in facts.values()}
     if len(sources) != 1:
         raise MachineError(f"services.vivarium-k8s.images differs between nodes ({sorted(sources)}); set one for all")
-    cp = cluster[cp_name]
-    workers = [vm for name, vm in cluster.items() if name != cp_name]
+    control_planes = sorted(name for name, node in facts.items() if node["role"] == CONTROL_PLANE)
+    if not control_planes:
+        raise MachineError("this run has no control plane: set services.vivarium-k8s.role on a node")
+    # Each control plane keeps etcd, or none: one that kept nothing would
+    # join again beside its own old etcd member.
+    if len({facts[name]["persist"] for name in control_planes}) != 1:
+        raise MachineError(f"services.vivarium-k8s.persist differs between the control planes {control_planes}")
+    first = cp_name if cp_name in control_planes else control_planes[0]
+    cp = cluster[first]
+    others = [cluster[name] for name in control_planes if name != first]
+    workers = [vm for name, vm in cluster.items() if name not in control_planes]
     if schedulable is None:
         schedulable = not workers
 
@@ -758,14 +794,14 @@ async def bring_up(
         for vm in cluster.values():
             await wait_for_dns(vm)
 
-    joining = await kept_cluster(cp, workers, vms)
+    joining = await kept_cluster(cp, others + workers, vms)
     if joining is None:
         await init_control_plane(
             cp,
-            patch_proxy=sources == {"nix"} and "kube-proxy" not in facts[cp_name]["skipAddons"],
+            patch_proxy=sources == {"nix"} and "kube-proxy" not in facts[first]["skipAddons"],
         )
         vms.state[STATE_KEY] = {"kubeadm": await _fingerprint(cp)}
-        joining = workers
+        joining = others + workers
     else:
         await wait_for_api(cp)
         # A worker that kept nothing left its Node behind, maybe still
@@ -790,12 +826,11 @@ async def bring_up(
         await wait_for_pods(cp, selector)
 
     # Every run, both ways: a kept cluster keeps whatever its last run left.
-    if schedulable:
-        await untaint(cp)
-    else:
-        await taint(cp)
+    for name in control_planes:
+        await (untaint if schedulable else taint)(cluster[name])
 
-    await host_kubeconfig(cp, vms)
+    api = vms.settings.get("kubernetes", {}).get("api", {}).get("router")
+    await host_kubeconfig(cp, vms, through=None if api is None else vms[api])
     router = vms.settings.get("kubernetes", {}).get("loadBalancer", {}).get("router")
     if router is not None:
         await connect_load_balancer(cp, vms[router])
@@ -893,14 +928,15 @@ the server on a forward address, `127.0.0.N`, which the certificate does
 not hold, so the kubeconfig checks this name instead."""
 
 
-async def host_kubeconfig(cp: Machine, vms: Machines) -> Path | None:
+async def host_kubeconfig(cp: Machine, vms: Machines, through: Machine | None = None) -> Path | None:
     """`<out>/access/kubeconfig`: *cp*'s admin kubeconfig, aimed at the
-    host's forward of the API server. `None`, with a note, when nothing
-    forwards it: `modules/k8s.nix` forwards 6443 on a control plane unless
-    the test sets its own `vivarium.inbound`."""
-    reachable = cp.reachable(APISERVER_PORT)
+    host's forward of the API server on *through*, *cp* itself by default:
+    the router, for a cluster with several control planes. `None`, with a
+    note, when nothing forwards it: `modules/k8s.nix` forwards 6443 on a
+    control plane unless the test sets its own `vivarium.inbound`."""
+    reachable = (through or cp).reachable(APISERVER_PORT)
     if not reachable:
-        cp.say(f"[k8s] {cp.name}: no host forward of {APISERVER_PORT}; no kubeconfig for the host")
+        cp.say(f"[k8s] {(through or cp).name}: no host forward of {APISERVER_PORT}; no kubeconfig for the host")
         return None
     config = json.loads((await cp.succeed("kubectl config view --raw --flatten --output json")).stdout)
     for cluster in config["clusters"]:

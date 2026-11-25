@@ -254,6 +254,7 @@ let
         };
       };
     }
+    // lib.optionalAttrs (cfg.controlPlaneEndpoint != null) { inherit (cfg) controlPlaneEndpoint; }
     // lib.optionalAttrs (cfg.featureGates != { }) {
       apiServer.extraArgs = args { feature-gates = featureGatesArg; };
       controllerManager.extraArgs = args { feature-gates = featureGatesArg; };
@@ -398,34 +399,50 @@ let
     }
   );
 
-  # A JoinConfiguration with no discovery: `vivarium-k8s-join` adds it.
-  joinBase = {
-    apiVersion = "kubeadm.k8s.io/v1beta4";
-    kind = "JoinConfiguration";
-    inherit nodeRegistration timeouts;
-  }
-  // withPatches;
+  # A JoinConfiguration with no discovery: `vivarium-k8s-join` adds it,
+  # and a control plane's certificate key.
+  joinBase =
+    controlPlane:
+    {
+      apiVersion = "kubeadm.k8s.io/v1beta4";
+      kind = "JoinConfiguration";
+      inherit nodeRegistration timeouts;
+    }
+    // lib.optionalAttrs controlPlane {
+      controlPlane.localAPIEndpoint = {
+        inherit advertiseAddress;
+        bindPort = 6443;
+      };
+    }
+    // withPatches;
 
   joinConfig =
     {
+      controlPlane,
       endpoint,
       token,
       hash,
     }:
     yaml.generate "kubeadm-join.yaml" (
-      joinBase
-      // {
-        discovery.bootstrapToken = {
-          apiServerEndpoint = endpoint;
-          inherit token;
-          caCertHashes = [ hash ];
-        };
-      }
+      lib.recursiveUpdate (joinBase controlPlane) (
+        {
+          discovery.bootstrapToken = {
+            apiServerEndpoint = endpoint;
+            inherit token;
+            caCertHashes = [ hash ];
+          };
+        }
+        // lib.optionalAttrs controlPlane {
+          controlPlane.certificateKey = lib.concatStrings (lib.genList (_: "00") 32);
+        }
+      )
     );
 
   joinNode = pkgs.writers.writePython3Bin "vivarium-k8s-join" { flakeIgnore = [ "E501" ]; } (
     pkgs.replaceVars ./k8s-join.py {
-      template = pkgs.writeText "kubeadm-join.json" (builtins.toJSON joinBase);
+      template = pkgs.writeText "kubeadm-join.json" (
+        builtins.toJSON (joinBase (cfg.role == "control-plane"))
+      );
       kubeadm = lib.getExe' kubernetes "kubeadm";
     }
   );
@@ -574,8 +591,9 @@ in
       description = ''
         Whether this node runs the control plane.  The difference is
         small: a control plane gets the kubeadm init configuration and a
-        tmpfs for etcd, and a worker gets `vivarium-k8s-join`.  Both run the
-        same kubelet and containerd.
+        tmpfs for etcd.  Both run the same kubelet and containerd, and
+        either joins with `vivarium-k8s-join`: one control plane runs
+        `kubeadm init`, and every other node joins it.
       '';
     };
 
@@ -886,6 +904,18 @@ in
         `kubeadm init` or `join` again. A run that is not an environment
         starts blank, as without this option, but etcd still writes to a
         disk.
+      '';
+    };
+
+    controlPlaneEndpoint = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "10.0.2.4:6443";
+      description = ''
+        The address every node reaches the API servers at, as `host:port`.
+        kubeadm joins a second control plane only to a cluster made with
+        one. `vivarium.recipes.kubernetes` sets it for a run with several
+        control planes: the run's router balances it over them.
       '';
     };
 
@@ -1259,8 +1289,8 @@ in
       pkgs.ipset
       cniSetup
       importImages
-    ]
-    ++ lib.optional (cfg.role == "worker") joinNode;
+      joinNode
+    ];
 
     # ── control plane ──────────────────────────────────────────────
 
@@ -1289,14 +1319,22 @@ in
       cluster's values, so the check gives it well-formed ones -- only
       the shape is under test.
     */
-    system.build.kubeadmConfigs = {
-      init = kubeadmConfig;
-      join = joinConfig {
-        endpoint = hostPort advertiseAddress 6443;
-        token = "abcdef.0123456789abcdef";
-        hash = "sha256:${lib.concatStrings (lib.genList (_: "00") 32)}";
+    system.build.kubeadmConfigs =
+      let
+        join =
+          controlPlane:
+          joinConfig {
+            inherit controlPlane;
+            endpoint = hostPort advertiseAddress 6443;
+            token = "abcdef.0123456789abcdef";
+            hash = "sha256:${lib.concatStrings (lib.genList (_: "00") 32)}";
+          };
+      in
+      {
+        init = kubeadmConfig;
+        join = join false;
+        joinControlPlane = join true;
       };
-    };
 
     vivarium.persist = lib.mkIf cfg.persist (
       [
