@@ -392,6 +392,11 @@ let
       timeoutMinutes = 45;
       after = [ "test-containerd" ];
     };
+    k8s-add-routed = {
+      description = "a worker added behind the router answers by its pod's and a LoadBalancer's address";
+      timeoutMinutes = 45;
+      after = [ "test-containerd" ];
+    };
     k8s-kept = {
       description = "a second run of a Kubernetes environment resumes its cluster";
       timeoutMinutes = 60;

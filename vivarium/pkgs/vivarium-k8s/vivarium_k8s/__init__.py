@@ -105,6 +105,10 @@ _SAY_EVERY = 30
 # The taint kubeadm puts on a control plane so that nothing schedules there.
 CONTROL_PLANE_TAINT = "node-role.kubernetes.io/control-plane"
 
+UPLINK_LABEL = "vivarium.dev/uplink-address"
+"""A node's address behind the router, which the router's LoadBalancer
+controller routes to: `uplinkLabel` in modules/k8s.nix, `UPLINK_LABEL` in vivarium_lb."""
+
 # The two addon pods, as label selectors, for `bring_up`'s `addons`.
 #
 # **kube-proxy is not optional in the way it looks.** It makes ClusterIP
@@ -425,7 +429,9 @@ async def join(
     workers.
 
     *node_ip* gives each worker kubelet's `--node-ip` from its `ip`: a
-    template's instance, whose address Nix does not know.
+    template's instance, whose address Nix does not know. Behind the
+    router it also gets the label `UPLINK_LABEL`, which every other node
+    has from Nix.
     """
     if not workers and not control_planes:
         return
@@ -458,6 +464,8 @@ async def join(
             if worker.ip is None:
                 raise MachineError(f"[{worker.name}] has no address on the lan to register with")
             flags = f"--node-ip {worker.ip} "
+            if worker.spec.uplink_address is not None:
+                flags += f"--node-labels {UPLINK_LABEL}={worker.spec.uplink_address} "
         try:
             done = await worker.execute(
                 f"vivarium-k8s-join {flags}{endpoint} {token} {digest} {certificate_key}"
@@ -865,12 +873,11 @@ def templates(vms: Machines) -> dict[str, NodeFacts]:
 
 
 def _control_plane(vms: Machines) -> Machine:
-    """The cluster's one control plane: a node added at run time is no
-    member of a cluster with several (`vivarium.recipes.kubernetes`)."""
+    """A control plane of this phase, to mint the join token and ask the API."""
     facts = nodes(vms)
-    planes = sorted(name for name, node in facts.items() if node["role"] == CONTROL_PLANE)
-    if len(planes) != 1 or planes[0] not in vms:
-        raise MachineError(f"adding a node needs one control plane in this phase; the run has {planes}")
+    planes = sorted(name for name, node in facts.items() if node["role"] == CONTROL_PLANE and name in vms)
+    if not planes:
+        raise MachineError(f"adding a node needs a control plane in this phase; the phase has {sorted(vms)}")
     return vms[planes[0]]
 
 

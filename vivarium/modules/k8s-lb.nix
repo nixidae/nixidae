@@ -23,7 +23,7 @@ let
   configFile = pkgs.writeText "vivarium-lb.json" (
     builtins.toJSON {
       serviceaccount = cfg.credentials;
-      inherit (cfg) pool nodes loadBalancerClass;
+      inherit (cfg) pool loadBalancerClass;
       inherit (vrf) table;
       ip = "${pkgs.iproute2}/bin/ip";
     }
@@ -36,10 +36,6 @@ in
       type = types.str;
       example = "10.200.0.0/24";
       description = "The addresses LoadBalancer Services get.";
-    };
-    nodes = mkOption {
-      type = types.attrsOf types.str;
-      description = "Each node's address on the router's network, by node name.";
     };
     apiAddress = mkOption {
       type = types.str;

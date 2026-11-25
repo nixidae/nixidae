@@ -10,6 +10,11 @@ from typing import Any
 type ServiceKey = tuple[str, str]
 """namespace, name"""
 
+UPLINK_LABEL = "vivarium.dev/uplink-address"
+"""The Node label that holds the node's address on the router's network. Its
+kubelet sets it at registration (modules/k8s.nix, `vivarium-k8s-join`), so a
+node added at run time carries it too."""
+
 
 @dataclass(frozen=True, slots=True)
 class Service:
@@ -25,6 +30,8 @@ class Service:
 class Node:
     name: str
     pod_cidrs: tuple[ipaddress.IPv4Network, ...]
+    # Its address on the router's network; None for a node not behind the router.
+    uplink: ipaddress.IPv4Address | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +72,8 @@ def parse_node(raw: Mapping[str, Any]) -> Node:
         network = ipaddress.ip_network(cidr)
         if isinstance(network, ipaddress.IPv4Network):
             networks.append(network)
-    return Node(name=raw["metadata"]["name"], pod_cidrs=tuple(networks))
+    labels: Mapping[str, str] = raw["metadata"].get("labels") or {}
+    return Node(name=raw["metadata"]["name"], pod_cidrs=tuple(networks), uplink=_ipv4(labels.get(UPLINK_LABEL)))
 
 
 def allocate(services: Iterable[Service], pool: ipaddress.IPv4Network) -> dict[ServiceKey, ipaddress.IPv4Address]:
@@ -102,22 +110,17 @@ def allocate(services: Iterable[Service], pool: ipaddress.IPv4Network) -> dict[S
     return chosen
 
 
-def plan_routes(
-    assigned: Mapping[ServiceKey, ipaddress.IPv4Address],
-    nodes: Iterable[Node],
-    addresses: Mapping[str, str],
-) -> set[Route]:
-    """The routes the router needs: each Service address to every node the
-    router knows (kube-proxy on any node takes it), and each node's pod
+def plan_routes(assigned: Mapping[ServiceKey, ipaddress.IPv4Address], nodes: Iterable[Node]) -> set[Route]:
+    """The routes the router needs: each Service address to every node
+    behind it (kube-proxy on any node takes it), and each node's pod
     ranges to that node."""
-    present = sorted(node.name for node in nodes if node.name in addresses)
-    gateways = tuple(addresses[name] for name in present)
+    behind = sorted((node for node in nodes if node.uplink is not None), key=lambda node: node.name)
+    gateways = tuple(str(node.uplink) for node in behind)
     routes = set()
     if gateways:
         routes |= {Route(ipaddress.IPv4Network(f"{address}/32"), gateways) for address in assigned.values()}
-    for node in nodes:
-        if node.name in addresses:
-            routes |= {Route(cidr, (addresses[node.name],)) for cidr in node.pod_cidrs}
+    for node in behind:
+        routes |= {Route(cidr, (str(node.uplink),)) for cidr in node.pod_cidrs}
     return routes
 
 

@@ -42,8 +42,6 @@ class Config:
     serviceaccount: Path
     pool: ipaddress.IPv4Network
     table: int
-    # Each node's address on the router's network, by node name.
-    nodes: Mapping[str, str]
     load_balancer_class: str
     ip: str
 
@@ -54,7 +52,6 @@ class Config:
             serviceaccount=Path(raw["serviceaccount"]),
             pool=ipaddress.IPv4Network(raw["pool"]),
             table=int(raw["table"]),
-            nodes=dict(raw["nodes"]),
             load_balancer_class=raw["loadBalancerClass"],
             ip=raw["ip"],
         )
@@ -96,7 +93,7 @@ class Controller:
                 "no address for %s: the pool %s is full or the asked address taken", unplaced, self.config.pool
             )
         # Routes first: a client that reads the status finds the address routed.
-        added, removed = await self.table.converge(plan_routes(assigned, nodes, self.config.nodes))
+        added, removed = await self.table.converge(plan_routes(assigned, nodes))
         for route in added:
             _log.info("route %s via %s", route.destination, ", ".join(route.gateways))
         for route in removed:

@@ -17,9 +17,9 @@
 # reaches the API there (`controlPlaneEndpoint`, nixidae/nixidae#1592).
 #
 # A template with `services.vivarium-k8s.enable` is a node added at run
-# time: `vivarium_k8s.add_node` launches and joins one. Its instance does
-# not sit behind the router, so neither several control planes nor
-# `loadBalancer` take one.
+# time: `vivarium_k8s.add_node` launches and joins one. Several control
+# planes and `loadBalancer` take one only behind the router, as every
+# other node is.
 #
 # `certManager` runs cert-manager with a ClusterIssuer, `vivarium`, on the
 # run's intermediate CA (`vms.trust`), so the host trusts what it issues
@@ -39,6 +39,9 @@ let
     name: system: name != routerName && system.config.services.vivarium-k8s.enable
   ) systems;
   templates = lib.filterAttrs (_: node: node.services.vivarium-k8s.enable) templateNodes;
+  notRouted = lib.attrNames (
+    lib.filterAttrs (_: node: node.vivarium.uplink.proxy != "router") templates
+  );
   # What `vivarium_k8s` reads of one node: its `NodeFacts`.
   facts =
     node:
@@ -163,8 +166,8 @@ in
             message = "vivarium.recipes.kubernetes: several control planes (${lib.concatStringsSep ", " controlPlanes}) sit behind the run's router: set router.enable.";
           }
           {
-            assertion = templates == { } || !(several || cfg.loadBalancer.enable);
-            message = "vivarium.recipes.kubernetes: a template's instance (${lib.concatStringsSep ", " (lib.attrNames templates)}) does not sit behind the run's router, so several control planes and loadBalancer cannot take one.";
+            assertion = notRouted == [ ] || !(several || cfg.loadBalancer.enable);
+            message = "vivarium.recipes.kubernetes: the instances of ${lib.concatStringsSep ", " notRouted} do not sit behind the run's router, so several control planes and loadBalancer cannot take one. Leave their vivarium.uplink.proxy to the router.";
           }
         ];
       }
@@ -211,7 +214,6 @@ in
             enable = true;
             inherit (cfg.loadBalancer) pool;
             apiAddress = nthService 1;
-            nodes = behindRouter;
           };
           vivarium.router = {
             routes = [

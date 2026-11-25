@@ -59,7 +59,15 @@ let
   # `vivarium-k8s-join --node-ip` sets it, and kubeadm writes it to
   # kubeadm-flags.env. A `--node-ip` here as well would come last and win.
   inherit (config.vivarium) template;
-  nodeIpArgs = lib.optionalAttrs (!template) { node-ip = nodeIp; };
+  # Behind the router, the node's address there, as a label the router's
+  # LoadBalancer controller reads (`UPLINK_LABEL` in vivarium_lb/model.py).
+  # An instance's comes from `vivarium-k8s-join --node-labels` too.
+  uplinkLabel = "vivarium.dev/uplink-address";
+  kubeletArgs =
+    lib.optionalAttrs (!template) { node-ip = nodeIp; }
+    // lib.optionalAttrs (!template && config.vivarium.uplink.proxy == "router") {
+      node-labels = "${uplinkLabel}=${config.vivarium.router.address config.vivarium.index}";
+    };
   # host:port, with an IPv6 host in brackets.
   hostPort =
     host: port:
@@ -201,7 +209,7 @@ let
       "NumCPU"
       "Mem"
     ];
-    kubeletExtraArgs = args nodeIpArgs;
+    kubeletExtraArgs = args kubeletArgs;
   };
 
   /*

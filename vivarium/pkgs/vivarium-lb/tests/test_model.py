@@ -4,6 +4,7 @@ import ipaddress
 from typing import Any
 
 from vivarium_lb.model import (
+    UPLINK_LABEL,
     Node,
     Route,
     Service,
@@ -58,6 +59,12 @@ def test_parse_node_pod_ranges() -> None:
     assert parse_node({"metadata": {"name": "cp"}, "spec": {}}).pod_cidrs == ()
 
 
+def test_parse_node_reads_its_uplink_label() -> None:
+    labelled = {"metadata": {"name": "w1", "labels": {UPLINK_LABEL: "10.0.2.16"}}, "spec": {}}
+    assert parse_node(labelled).uplink == ip("10.0.2.16")
+    assert parse_node({"metadata": {"name": "w1", "labels": {UPLINK_LABEL: "nonsense"}}}).uplink is None
+
+
 def test_allocate_keeps_requests_and_fills_lowest_free() -> None:
     chosen = allocate(
         [
@@ -86,13 +93,13 @@ def test_two_asking_for_one_address() -> None:
     assert chosen == {("default", "a"): ip("10.200.0.2")}
 
 
-def test_routes_go_to_every_known_node_and_pods_to_their_node() -> None:
+def test_routes_go_to_every_node_behind_the_router_and_pods_to_their_node() -> None:
     nodes = [
-        Node("cp", (ipaddress.IPv4Network("10.244.0.0/24"),)),
-        Node("w1", (ipaddress.IPv4Network("10.244.1.0/24"),)),
+        Node("w1", (ipaddress.IPv4Network("10.244.1.0/24"),), ip("10.0.2.16")),
+        Node("cp", (ipaddress.IPv4Network("10.244.0.0/24"),), ip("10.0.2.15")),
         Node("stranger", (ipaddress.IPv4Network("10.244.9.0/24"),)),
     ]
-    routes = plan_routes({("default", "a"): ip("10.200.0.1")}, nodes, {"cp": "10.0.2.15", "w1": "10.0.2.16"})
+    routes = plan_routes({("default", "a"): ip("10.200.0.1")}, nodes)
     assert routes == {
         Route(ipaddress.IPv4Network("10.200.0.1/32"), ("10.0.2.15", "10.0.2.16")),
         Route(ipaddress.IPv4Network("10.244.0.0/24"), ("10.0.2.15",)),

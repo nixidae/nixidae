@@ -502,9 +502,12 @@ removes its routes and stops the instance. A phase does the same with
 has more than one.
 
 A template's worker has no `persistentVolumes` and no `persist`: each
-needs a fact the instance has only at run time. Its instance does not sit
-behind the run's router, so a cluster with several control planes or a
-`loadBalancer` takes no template. When an environment comes up again,
+needs a fact the instance has only at run time. In a run with a router,
+the instance sits behind it as every node does, so a cluster with several
+control planes or a `loadBalancer` takes it too. The router leases it the
+address of its index, and its Node carries that address in the label
+`vivarium.dev/uplink-address`, which the router's LoadBalancer controller
+routes to. When an environment comes up again,
 `bring_up` deletes the Node of each instance, since no guest is it then.
 `checks.k8s-add` adds two workers, checks their addresses and their pods,
 and removes one.

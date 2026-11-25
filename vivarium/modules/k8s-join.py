@@ -1,4 +1,4 @@
-"""vivarium-k8s-join [--node-ip IPS] ENDPOINT TOKEN CA_CERT_HASH [CERTIFICATE_KEY]: join this node to a cluster.
+"""vivarium-k8s-join [--node-ip IPS] [--node-labels LABELS] ENDPOINT TOKEN CA_CERT_HASH [CERTIFICATE_KEY]: join a cluster.
 
 The three values `kubeadm token create --print-join-command` prints, as
 arguments rather than a command line, so the timeouts and the node's own
@@ -9,9 +9,9 @@ bootstrap after five minutes.
 A control plane also takes the key of the certificates the cluster
 uploaded (`kubeadm init phase upload-certs`).
 
-`--node-ip` is kubelet's, for a template's instance: Nix does not know
-its address. kubeadm writes it to kubeadm-flags.env, which kubelet reads
-on every start.
+`--node-ip` and `--node-labels` are kubelet's, for a template's
+instance: Nix does not know its addresses. kubeadm writes them to
+kubeadm-flags.env, which kubelet reads on every start.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ def main(argv: list[str]) -> int:
     control_plane = "controlPlane" in config
     parser = argparse.ArgumentParser(prog="vivarium-k8s-join")
     parser.add_argument("--node-ip", help="kubelet's --node-ip, comma-separated")
+    parser.add_argument("--node-labels", help="kubelet's --node-labels, KEY=VALUE comma-separated")
     parser.add_argument("endpoint")
     parser.add_argument("token")
     parser.add_argument("digest", metavar="ca-cert-hash")
@@ -44,10 +45,12 @@ def main(argv: list[str]) -> int:
     }
     if control_plane:
         config["controlPlane"]["certificateKey"] = args.certificate_key
-    if args.node_ip is not None:
+    flags = (("node-ip", args.node_ip), ("node-labels", args.node_labels))
+    given = {name: value for name, value in flags if value is not None}
+    if given:
         registration = config.setdefault("nodeRegistration", {})
-        extra = [arg for arg in registration.get("kubeletExtraArgs", []) if arg["name"] != "node-ip"]
-        registration["kubeletExtraArgs"] = [*extra, {"name": "node-ip", "value": args.node_ip}]
+        extra = [arg for arg in registration.get("kubeletExtraArgs", []) if arg["name"] not in given]
+        registration["kubeletExtraArgs"] = [*extra, *({"name": n, "value": v} for n, v in given.items())]
     # JSON is YAML, so kubeadm reads it as written.
     with tempfile.NamedTemporaryFile("w", prefix="kubeadm-join-", suffix=".json", delete=False) as file:
         json.dump(config, file)
