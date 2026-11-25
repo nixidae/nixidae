@@ -46,7 +46,7 @@ import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
 from huggorm_bindings import DerivedPathBuilt, OutputsSpec
-from vivarium import access, cli as runner_cli, control, environments, monitor, places, registry
+from vivarium import access, cli as runner_cli, control, environments, logs, monitor, places, registry
 from vivarium.exits import Exit, describe
 from vivarium.phases import VERDICT, Verdict
 from vivarium_runner.forward import InboundJson
@@ -205,6 +205,7 @@ def parser() -> argparse.ArgumentParser:
     add_reload(sub)
     runner_cli.add_ctl(sub)
     runner_cli.add_monitor(sub)
+    logs.add(sub)
     return top
 
 
@@ -529,6 +530,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(anyio.run(runner_cli.ctl, args))
         if args.command == "monitor":
             raise SystemExit(runner_cli.watch(args))
+        if args.command == "logs":
+            raise SystemExit(logs.main(args))
         if args.command == "reload":
             raise SystemExit(reload(args))
         if args.command == "down":

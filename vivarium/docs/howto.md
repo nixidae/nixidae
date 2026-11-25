@@ -594,6 +594,24 @@ and `end_capture()`. By hand: `vivarium ctl --out O segment core cut leaf1`.
 
 ## Find out what went wrong
 
+`vivarium logs` prints a run's events as its `log` file shows them. It
+takes an environment's name, a run's `--out` or its id, and works on a
+live run, a stopped environment and a kept `.attempt` output:
+
+```console
+$ vivarium logs k8s-lb --guest cp --unit kubelet -n 20   # the last 20 kubelet lines on cp
+$ vivarium logs k8s-lb --kind phase_finished --kind error
+$ vivarium logs k8s-lb -f --guest client                 # then each new one, until the run ends
+```
+
+`--guest`, `--unit` (`kubelet`, `kubelet.service` or a syslog
+identifier), `--kind`, `--phase`, `--case` and `--grep TEXT` narrow; a
+filter given twice matches either value. `--json` prints each event's
+line from `events.jsonl`. `--follow` reads new events until the run's
+process ends. With no `events.jsonl` it exits 3.
+
+The same with `jq`:
+
 ```console
 $ jq -r 'select(.kind=="phase_finished") | "\(.phase)\t\(.data.state)"' out/events.jsonl
 $ jq -c 'select(.kind=="journal" and .data.priority <= 3)' out/events.jsonl   # every error, every guest

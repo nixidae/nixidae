@@ -43,7 +43,7 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
-from vivarium import places, registry
+from vivarium import logs, places, registry
 from vivarium.control import PARENT, RUN_FILE, SOCKET, Op, Reply, RunFile, WatchRefused, request, watch
 from vivarium.events import Event, Kind, NotAnEvent
 from vivarium.exits import describe
@@ -130,26 +130,15 @@ def select(
     limit: int = 50,
 ) -> list[EventLine]:
     """The last `limit` events that match every filter given."""
-    found: list[EventLine] = []
-    for line in lines:
-        try:
-            event: EventLine = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        data = event.get("data") or {}
-        if kind is not None and event.get("kind") != kind:
-            continue
-        if machine is not None and event.get("machine") != machine:
-            continue
-        if phase is not None and event.get("phase") != phase:
-            continue
-        if unit is not None and data.get("unit") != unit:
-            continue
-        if case is not None and case not in str(data.get("case", "")):
-            continue
-        if contains is not None and contains not in str(event.get("text", "")):
-            continue
-        found.append(event)
+    wanted = logs.Filter(
+        kinds=() if kind is None else (kind,),
+        machines=() if machine is None else (machine,),
+        units=() if unit is None else (unit,),
+        phase=phase,
+        case=case,
+        contains=contains,
+    )
+    found: list[EventLine] = [json.loads(line) for line, event in logs.parsed(lines) if wanted.matches(event)]
     return found[-limit:] if limit > 0 else found
 
 

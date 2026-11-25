@@ -55,6 +55,7 @@ Guests that stay up after the phases, for work from the host (a cluster to `kube
 vivarium up <test> [--name N]       # background; exits 0 at ready with access.json on stdout, 4 if a phase failed (paused)
 vivarium shell N [-- CMD]           # $SHELL or CMD with the run's variables: KUBECONFIG, SSL_CERT_FILE, ALL_PROXY...
 vivarium env N [--json]             # the same as `export` lines
+vivarium logs N [-g GUEST] [-u UNIT] [-k KIND] [--grep T] [-n N] [-f]   # events as `log` shows them; any run, live or not
 vivarium ps                         # live runs (state, environment, test, dir), then environments that are down
 vivarium down N                     # 0 if every phase passed; the directory stays
 vivarium rm N / vivarium clean      # delete one stopped environment / every one

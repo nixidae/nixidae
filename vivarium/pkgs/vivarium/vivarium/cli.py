@@ -31,7 +31,7 @@ import anyio
 from vivarium_runner import MachineError
 from vivarium_runner.machine_spec import Cpus
 
-from . import access, monitor, namespace, places, registry, remote, repl, runroot
+from . import access, logs, monitor, namespace, places, registry, remote, repl, runroot
 from .control import (
     ORIGIN,
     PARENT,
@@ -154,6 +154,7 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
 
     add_ctl(sub)
     add_monitor(sub)
+    logs.add(sub)
     args = parser.parse_args(argv)
     args.pytest_args = extra
     return args
@@ -942,6 +943,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(anyio.run(ctl, args))
     if args.command == "monitor":
         raise SystemExit(watch(args))
+    if args.command == "logs":
+        raise SystemExit(logs.main(args))
     try:
         if args.command == "phases":
             raise SystemExit(anyio.run(phases, args))
