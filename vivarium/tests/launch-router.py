@@ -1,11 +1,35 @@
 """Instances behind the router: the lease of their index on `vec0`, an IPv6 address each, and reach.
 
-A terminated instance's index comes back with its address.
+A host forward to an instance answers through the router's egress
+(nixidae/nixidae#1609). A terminated instance's index comes back with its
+address.
 """
 
 from __future__ import annotations
 
+import anyio
 from vivarium_runner import Machine, Machines
+
+SERVE = (
+    "py=$(readlink /proc/$(systemctl show -p MainPID --value vivarium-agent)/exe);"
+    " mkdir -p /srv && echo hello-$(hostname) > /srv/index.html"
+    " && systemd-run --unit=serve -- $py -m http.server 8080 --directory /srv"
+)
+
+
+async def forwarded(vm: Machine) -> str:
+    """What the host reads from a forward opened to *vm*'s port 8080 while it runs."""
+    await vm.succeed(SERVE)
+    await vm.wait_until_succeeds("ss -ltn | grep -q :8080", timeout=30)
+    [where] = await vm.open_inbound(8080)
+    host, _, port = where.rpartition(":")
+    with anyio.fail_after(30):
+        async with await anyio.connect_tcp(host, int(port)) as stream:
+            await stream.send(b"GET / HTTP/1.0\r\n\r\n")
+            got = b""
+            async for chunk in stream:
+                got += chunk
+    return got.decode(errors="replace").splitlines()[-1]
 
 
 async def addresses(vm: Machine) -> tuple[str, str]:
@@ -33,6 +57,11 @@ async def test(vms: Machines) -> None:
         raise RuntimeError(f"w1 and w2 share {seen['w1']}")
     await first.succeed(f"ping -c2 -W5 {seen['w2'][0]}")
     print(f"[test] behind the router: {seen}")
+
+    reply = await forwarded(second)
+    if reply != "hello-w2":
+        raise RuntimeError(f"the forward to w2 read {reply!r}")
+    print("[test] a host forward to an instance answers")
 
     await vms.terminate("w1")
     third = await vms.launch("worker", "w3")

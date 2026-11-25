@@ -290,7 +290,27 @@ class Machine:
         `MachineError` for a guest no egress serves."""
         if not self.spec.forwards_through_egress:
             raise MachineError(f"[{self.name}] inbound: no egress serves this guest's uplink")
+        if self.behind is None and self.spec.uplink_address is not None and not self.spec.router:
+            # Its own egress does not exist: a forward told to it is lost.
+            raise MachineError(f"[{self.name}] inbound: this guest sits behind a router the run has not given it")
         return self.behind or self
+
+    async def route_through(self, router: Machine) -> None:
+        """Serve this guest's forwards from *router*'s egress, which runs
+        already when an instance is launched behind it."""
+        self.behind = router
+        router.routed = router.routed + (self,)  # noqa: RUF005 -- zuban types the unpacked form tuple[object, ...]
+        relay, address = router.egress_relay, self.uplink_ip
+        if relay is not None and address is not None:
+            await self._tell_egress(router, list(forward.egress_adds(self.claims, address, relay)))
+
+    async def leave_router(self) -> None:
+        """Take this guest's forwards off its router's egress: the guest goes away."""
+        router, self.behind = self.behind, None
+        if router is None:
+            return
+        router.routed = tuple(vm for vm in router.routed if vm is not self)
+        await self._tell_egress(router, [forward.Remove(claim) for claim in self.claims])
 
     async def _tell_egress(self, owner: Machine, messages: list[forward.Add | forward.Remove]) -> None:
         """*messages* to *owner*'s egress. None while it is down: the next
@@ -797,6 +817,10 @@ class Machine:
             os.close(fd)
         self._disk_fds = ()
         self._lan_kept = {}
+        self.close_claims()
+
+    def close_claims(self) -> None:
+        """Close the host sockets of this guest's forwards."""
         for held in self.claims:
             held.sock.close()
         self.claims = []

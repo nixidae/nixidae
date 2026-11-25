@@ -553,10 +553,7 @@ class Session:
         vms.phase = None
         vms.pytest_args = self.pytest_args
 
-        def guests() -> dict[str, access.Guest]:
-            return {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in run.machines.items()}
-
-        vms.access = access.write(guests(), self.out)
+        vms.access = access.write(self._access_guests(), self.out)
         vms.exports = exports.Exports(vms.access)
         vms.trust = trust.Trust(self.spec.name, vms.access, trust.directory(), vms.exports)
         for vm in run.machines.values():
@@ -564,8 +561,16 @@ class Session:
                 port = await self.tasks.start(vivarium_socks.serve, LOOPBACK, 0, _split(vm.spec.socks, forward[0]))
                 await vms.export(exports.PROXY, f"socks5h://{LOOPBACK}:{port}")
         for vm in run.machines.values():
-            vm.on_inbound = lambda _vm: access.refresh(guests(), self.out)
+            vm.on_inbound = self._refresh_access
         self.vms = vms
+
+    def _access_guests(self) -> dict[str, access.Guest]:
+        machines = {} if self._run is None else self._run.machines
+        return {name: access.guest(vm.reachable(vm.spec.ssh_port), vm.forward) for name, vm in machines.items()}
+
+    def _refresh_access(self, _vm: Machine | None = None) -> None:
+        """`access.json` again: a guest's forwards changed, or a guest came or went."""
+        access.refresh(self._access_guests(), self.out)
 
     def _machine(self, one: MachineSpec, lan_fds: dict[str, int] | None) -> Machine:
         """The `Machine` of one guest, with its journal tail: a node at `prepare`, an instance at `launch`."""
@@ -605,10 +610,12 @@ class Session:
         """
         if self._run is None or self.vms is None:
             raise SessionError("launch before prepare")
-        one = self._run.add(template, name)
+        one = await self._run.add(template, name)
+        self._run.machines[name].on_inbound = self._refresh_access
         (self._guest_artifacts(name) / "instance.json").write_text(json.dumps(seed(one, template, user_data)))
         self.emit(Kind.BOOT, f"launching {name} from {template}, index {one.index}", machine=name, template=template)
         await self.ensure([name])
+        self._refresh_access()
         return self.vms[name]
 
     @property
@@ -628,6 +635,7 @@ class Session:
         self.emit(Kind.BOOT, f"terminating {name}", machine=name)
         await self.drain()
         await self._run.terminate(name)
+        self._refresh_access()
         self._journals.pop(name, None)
 
     async def ensure(self, names: Collection[str]) -> None:

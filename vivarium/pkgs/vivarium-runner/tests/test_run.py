@@ -22,6 +22,7 @@ class FakeMachine:
         self.spec = spec
         self.name = spec.name
         self.routed: tuple[Machine, ...] = ()
+        self.behind: FakeMachine | None = None
         self.log = log
         self.fails = fails
         self.stuck = stuck
@@ -29,6 +30,18 @@ class FakeMachine:
 
     def resolve_forward(self) -> None:
         pass
+
+    def close_claims(self) -> None:
+        self.log.append(f"close {self.name}")
+
+    async def route_through(self, router: FakeMachine) -> None:
+        self.log.append(f"route {self.name} through {router.name}")
+        self.behind = router
+
+    async def leave_router(self) -> None:
+        if self.behind is not None:
+            self.log.append(f"unroute {self.name} from {self.behind.name}")
+        self.behind = None
 
     async def start(self) -> None:
         self.log.append(f"start {self.name}")
@@ -131,23 +144,53 @@ def test_an_instance_takes_the_lowest_free_index_and_gives_it_back() -> None:
 
     async def main() -> None:
         await run.prepare()
-        first = run.add("worker", "w1")
+        first = await run.add("worker", "w1")
         await run.ensure(["w1"])
         assert (first.index, run.holds("w1"), run.holds("a")) == (2, True, False)
-        assert run.add("worker", "w2").index == 3
+        assert (await run.add("worker", "w2")).index == 3
         await run.terminate("w1")
         assert "w1" not in run.up
         assert not run.holds("w1")
-        assert run.add("worker", "w3").index == 2
+        assert (await run.add("worker", "w3")).index == 2
         with pytest.raises(InstanceError, match="no template 'nope'"):
-            run.add("nope", "w4")
+            await run.add("nope", "w4")
         with pytest.raises(InstanceError, match="already called 'w2'"):
-            run.add("worker", "w2")
+            await run.add("worker", "w2")
         with pytest.raises(InstanceError, match="'a' is no instance"):
             await run.terminate("a")
 
     anyio.run(main)
     assert log == ["start w1", "stop w1"]
+
+
+def test_an_instance_behind_the_router_is_served_by_its_egress_until_terminated() -> None:
+    """nixidae/nixidae#1609: without this the router's egress never heard
+    of the instance, and a forward to it accepted and never answered."""
+    router = machine_spec("router", index=254, router=True, uplink_address="10.0.2.2")
+    worker = machine_spec("worker", index=1, uplink_address="10.0.2.16")
+    run, log, made = _run([router], [worker])
+
+    async def main() -> None:
+        await run.prepare()
+        await run.add("worker", "w1")
+        assert made["w1"].behind is made["router"]
+        await run.ensure(["w1"])
+        await run.terminate("w1")
+
+    anyio.run(main)
+    assert log == ["route w1 through router", "start w1", "unroute w1 from router", "stop w1"]
+
+
+def test_an_instance_on_its_own_uplink_has_no_router() -> None:
+    run, log, made = _run([machine_spec("a")], [machine_spec("worker", index=1)])
+
+    async def main() -> None:
+        await run.prepare()
+        await run.add("worker", "w1")
+
+    anyio.run(main)
+    assert made["w1"].behind is None
+    assert log == []
 
 
 def test_teardown_is_safe_twice_and_ends_the_run() -> None:

@@ -8,6 +8,7 @@ everything down. What the run says goes through the callbacks it is given.
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 from collections import defaultdict
 from dataclasses import dataclass
@@ -242,8 +243,9 @@ class Run:
         if down:
             raise MachineError(f"{', '.join(down)} did not boot")
 
-    def add(self, template: str, name: str) -> MachineSpec:
-        """Make the guest *name* from *template* and plug it in; `ensure` boots it.
+    async def add(self, template: str, name: str) -> MachineSpec:
+        """Make the guest *name* from *template*, plug it in and bind its
+        forwards, as `prepare` does for a node; `ensure` boots it.
 
         It gets the lowest free index, so a terminated instance's MACs and
         addresses come back. nixidae/nixidae#1408.
@@ -261,9 +263,30 @@ class Run:
         if one.uplink is not None:
             members.append(("vec0", one.uplink))
         lan_fds = {nic: lans[segment].add_member(f"{name}/{nic}") for nic, segment in members}
-        machines[name] = self._machine(one, lan_fds)
+        vm = self._machine(one, lan_fds)
+        try:
+            vm.resolve_forward()
+            if one.uplink_address is not None and (router := self._router()) is not None:
+                await vm.route_through(router)
+        except BaseException:
+            # The error that stopped the add is the one to raise, not a
+            # second one from an egress that refused it already.
+            with anyio.CancelScope(shield=True), contextlib.suppress(MachineError):
+                await vm.leave_router()
+            vm.close_claims()
+            self._unplug(name)
+            raise
+        machines[name] = vm
         self._requires[name] = list(one.requires)
         return one
+
+    def _router(self) -> Machine | None:
+        return next((vm for vm in self._prepared().values() if vm.spec.router), None)
+
+    def _unplug(self, name: str) -> None:
+        for lan in self._lans:
+            for member in [m for m in lan.members if m.startswith(f"{name}/")]:
+                lan.remove_member(member)
 
     def holds(self, name: str) -> bool:
         """Whether *name* is an instance the run still holds, booted or not."""
@@ -281,10 +304,12 @@ class Run:
         vm = self.instance(name)
         # Shielded: a terminate that a cancel cuts short leaves a guest running and its ports plugged.
         with anyio.CancelScope(shield=True):
+            try:
+                await vm.leave_router()
+            except MachineError as error:
+                self._on_stop_error(name, error)
             await shut_down([vm], self._on_stop_error, kill=False)
-        for lan in self._lans:
-            for member in [m for m in lan.members if m.startswith(f"{name}/")]:
-                lan.remove_member(member)
+        self._unplug(name)
         self.up.pop(name, None)
         del self._prepared()[name]
         self._attempts.discard(name)

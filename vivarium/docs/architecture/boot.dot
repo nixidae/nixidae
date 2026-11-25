@@ -9,7 +9,7 @@ digraph boot {
   lans     [label = "one Lan per segment\nnet.py: build_lans", file = "pkgs/vivarium-runner/vivarium_runner/net.py", symbol = "build_lans"];
   machines [label = "a Machine per guest\nSession._machine", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session._machine"];
   forwards [label = "bind each vivarium.inbound port\nMachine.resolve_forward", file = "pkgs/vivarium-runner/vivarium_runner/machine.py", symbol = "Machine.resolve_forward"];
-  routed   [label = "router.routed, guest.behind\nRun.prepare", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "Run.prepare"];
+  routed   [label = "router.routed, guest.behind\nRun.prepare (an instance: Run.add)", file = "pkgs/vivarium-runner/vivarium_runner/run.py", symbol = "Run.add"];
   access   [label = "access.json, SOCKS proxy\nSession.prepare", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.prepare"];
 
   ensure   [label = "Session.ensure", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.ensure"];

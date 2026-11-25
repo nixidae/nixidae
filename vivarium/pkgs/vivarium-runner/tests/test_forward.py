@@ -202,13 +202,16 @@ class _EgressSpec:
 
     forwards_through_egress: bool
     uplink_address: str | None = "10.0.2.16"
+    # The router: the one guest with an uplink address whose egress is its own.
+    router: bool = True
 
 
 class Runtime(Machine):
     """A guest whose forwards an egress serves, and nothing else."""
 
-    def __init__(self, control: socket.socket | None, *, egress: bool = True) -> None:
-        self.spec = cast(MachineSpec, _EgressSpec(forwards_through_egress=egress))
+    def __init__(self, control: socket.socket | None, *, egress: bool = True, router: bool = True) -> None:
+        self.spec = cast(MachineSpec, _EgressSpec(forwards_through_egress=egress, router=router))
+        self.routed = ()
         self.on_console = None
         self.on_inbound = None
         self.random_ports = False
@@ -248,6 +251,40 @@ def egress() -> Iterator[tuple[socket.socket, list[tuple[bytes, int]]]]:
     ours.close()
     thread.join(5)
     theirs.close()
+
+
+def test_a_guest_behind_no_router_refuses_a_runtime_add() -> None:
+    """Its own egress does not exist, so the add would be lost without a word."""
+    vm = Runtime(None, router=False)
+
+    async def main() -> None:
+        with pytest.raises(MachineError, match="behind a router the run has not given it"):
+            await vm.open_inbound(8080)
+
+    anyio.run(main)
+    assert vm.claims == []
+
+
+def test_a_guest_routed_at_run_time_reaches_its_routers_egress(
+    egress: tuple[socket.socket, list[tuple[bytes, int]]],
+) -> None:
+    """nixidae/nixidae#1609: an instance launched behind a running router."""
+    control, heard = egress
+    router = Runtime(control)
+    guest = Runtime(None, router=False)
+
+    async def main() -> None:
+        await guest.route_through(router)
+        assert (guest.behind, router.routed) == (router, (guest,))
+        await guest.open_inbound(8080)
+        await guest.leave_router()
+        assert (guest.behind, router.routed) == (None, ())
+        # Routed again with a claim held: the egress hears it at once.
+        await guest.route_through(router)
+        guest.close_claims()
+
+    anyio.run(main)
+    assert [(line.split()[0], fds) for line, fds in heard] == [(b"add", 1), (b"remove", 0), (b"add", 1)]
 
 
 def test_a_runtime_add_and_remove_reach_the_egress_and_the_port(

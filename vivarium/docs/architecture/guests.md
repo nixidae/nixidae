@@ -59,10 +59,13 @@ run goes. `Run.add` takes the lowest free index (`free_index`), makes
 the instance's spec (`instance_spec` in `vivarium_runner/instances.py`)
 and plugs it into its segments with `Lan.add_member`. Each of those
 segments is a hub. `Session.terminate` powers the instance off and
-frees its index. `Run.add` does not do steps 3 and 4 of the
-preparation. So the template's own `vivarium.inbound` is never bound,
-and an instance behind the router has no working host forward at all
-(nixidae/nixidae#1609).
+frees its index. An instance has no `vivarium.inbound` of its own:
+`instance_spec` drops the template's, because a fixed host port cannot
+serve two instances. `Run.add` binds its forwards and, behind the
+router, hands it to the router (`Machine.route_through`), as steps 3
+and 4 do for a node. So `Machine.open_inbound` reaches an instance
+through the router's egress; `Run.terminate` takes the instance off
+again (`Machine.leave_router`).
 
 **Teardown.** `Run.teardown` calls `Machine.shutdown` for each guest
 whose boot began. The agent is asked to power the guest off, and the
