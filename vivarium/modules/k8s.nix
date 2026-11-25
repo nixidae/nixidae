@@ -877,9 +877,10 @@ in
       description = ''
         Keep this node's cluster across the runs of a named environment
         (`vivarium up --name`). The node adds kubeadm's state to
-        `vivarium.persist`: `/etc/kubernetes` and `/var/lib/kubelet`, and on
-        the control plane `/var/lib/etcd` on a disk and not on a tmpfs.
-        With `persistentVolumes`, their directories too.
+        `vivarium.persist`: `/etc/kubernetes`, `/var/lib/kubelet` and the
+        runtime's images, and on the control plane `/var/lib/etcd` on a
+        disk and not on a tmpfs. With `persistentVolumes`, their directories
+        too.
 
         `vivarium_k8s.bring_up` sees a kept cluster and does not run
         `kubeadm init` or `join` again. A run that is not an environment
@@ -1304,6 +1305,9 @@ in
       ]
       ++ lib.optional (cfg.role == "control-plane") "/var/lib/etcd"
       ++ lib.optional (cfg.persistentVolumes > 0) storageRoot
+      # The runtime's images, as a node keeps them across a reboot: an
+      # image `vivarium load` imported is there for the kept Deployment.
+      ++ [ criImages.store ]
     );
 
     # So a test can say `kubectl get nodes` rather than carrying the
