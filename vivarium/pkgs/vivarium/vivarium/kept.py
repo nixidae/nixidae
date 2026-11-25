@@ -45,13 +45,26 @@ class Kept:
     outcomes: dict[str, str] = field(default_factory=dict)
     """The last run's, until this run writes its own at its verdict."""
     _lock: anyio.Lock = field(default_factory=anyio.Lock)
+    _saved: str = ""
+    """The keys as last written, as JSON."""
+
+    def __post_init__(self) -> None:
+        self._saved = json.dumps(self.keys)
 
     def document(self) -> str:
-        """Raises KeptError on a key no JSON holds."""
+        """Raises KeptError on a key no JSON holds, after it puts `keys` back
+        as they were last saved: in place, since `vms.state` is the same
+        dict. The phase that set the value fails; the phases after it, and
+        the verdict, write what is good."""
         try:
-            return json.dumps({KEYS: self.keys, OUTCOMES: self.outcomes}, indent=2, sort_keys=True) + "\n"
+            keys = json.dumps(self.keys)
         except (TypeError, ValueError) as error:
-            raise KeptError(f"vms.state holds a value JSON cannot: {error}") from error
+            bad = sorted(key for key, value in self.keys.items() if not _encodes(value))
+            self.keys.clear()
+            self.keys.update(json.loads(self._saved))
+            raise KeptError(f"vms.state{bad} holds a value JSON cannot: {error}") from error
+        self._saved = keys
+        return json.dumps({KEYS: self.keys, OUTCOMES: self.outcomes}, indent=2, sort_keys=True) + "\n"
 
     async def save(self) -> None:
         """Write the keys now: a run that dies later still kept them."""
@@ -67,9 +80,22 @@ class Kept:
         if self.file is None:
             return
         self.outcomes = {name: str(value) for name, value in state.items()}
+        try:
+            document = self.document()
+        except KeptError:
+            # The phase that set the value failed for it already.
+            document = self.document()
         partial = self.file.with_name(f".{FILE}.partial")
-        partial.write_text(self.document())
+        partial.write_text(document)
         partial.rename(self.file)
+
+
+def _encodes(value: object) -> bool:
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def parse(file: Path, text: str) -> Kept:

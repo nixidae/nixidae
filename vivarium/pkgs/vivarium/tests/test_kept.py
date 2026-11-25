@@ -63,16 +63,23 @@ async def test_a_plain_out_keeps_nothing(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_a_value_json_cannot_hold_fails_the_phase(tmp_path: Path) -> None:
+async def test_a_value_json_cannot_hold_fails_the_phase_and_nothing_after(tmp_path: Path) -> None:
     (tmp_path / "bad.py").write_text("async def test(vms):\n    vms.state['x'] = object()\n")
     out = places.environment("lab")
     out.mkdir(parents=True)
+    (out / kept.FILE).write_text(json.dumps({"keys": {"kept": 1}, "outcomes": {}}))
     session = session_of(out, tmp_path / "bad.py")
     session.kept = await kept.load(out)
     assert session.vms is not None
     session.vms.state = session.kept.keys
     assert await session.run(session.spec.phases[0]) is PhaseState.FAILED
-    assert "JSON" in session.errors["init"]
+    assert "vms.state['x']" in session.errors["init"]
+    # Back as last saved, in the dict the phases hold.
+    assert session.vms.state == {"kept": 1}
+    # The verdict writes everything after it: the report, and the outcomes.
+    session.write_output()
+    assert (out / "report.json").exists()
+    assert json.loads((out / kept.FILE).read_text()) == {"keys": {"kept": 1}, "outcomes": {"init": "failed"}}
 
 
 @pytest.mark.parametrize("text", ["", "[]", '{"keys": {}}', '{"keys": {}, "outcomes": {"a": 1}}'])
