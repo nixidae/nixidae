@@ -789,8 +789,9 @@ class Session:
         """Stream the guests' journals into the events, until cancelled.
 
         Run beside the phases by whatever drives the session -- `drive`
-        in a task group, an MCP server in a task of its own. The session
-        holds no task of its own, so it has no lifetime to get wrong.
+        in a task group, an MCP server in a task of its own. Not a task of
+        `live`: those end with the phases, and the journals stream until
+        the drive ends.
         """
         try:
             while True:

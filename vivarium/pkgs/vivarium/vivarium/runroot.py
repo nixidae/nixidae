@@ -30,9 +30,9 @@ import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
+from vivarium_runner.machine import KEEP as KEEP
+
 ENV = "VIVARIUM_RUN_ROOT"
-KEEP = "VIVARIUM_KEEP"
-"""Set, nothing is removed: not by the runner, not by the cleaner."""
 PREFIX = "vivarium-run-"
 OWNERS = "owners"
 """`<runner pid> <start> <cleaner pid> <start>`: who may still use a root.

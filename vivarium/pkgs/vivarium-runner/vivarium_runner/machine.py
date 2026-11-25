@@ -63,6 +63,10 @@ POWEROFF_GRACE = 20
 ROLLBACK_WITHIN = 2 * EGRESS_ANSWER
 """Seconds a failed switch's forwards have to close again."""
 
+KEEP = "VIVARIUM_KEEP"
+"""Set, nothing is removed: not a guest's run directory, not the run root
+(`vivarium.runroot`), not by the cleaner."""
+
 RESETS_BEFORE_UP = 3
 """Resets a guest may make before it comes up, before the runner gives up.
 OVMFFull resets once on its first boot through the firmware (measured on
@@ -807,7 +811,7 @@ class Machine:
                 self._store.remove()
                 self._store = None
             if self._rundir is not None:
-                if not os.environ.get("VIVARIUM_KEEP"):
+                if not os.environ.get(KEEP):
                     shutil.rmtree(self._rundir, ignore_errors=True)
                 self._rundir = None
 

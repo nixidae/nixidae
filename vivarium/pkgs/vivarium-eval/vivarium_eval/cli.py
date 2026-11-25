@@ -307,13 +307,13 @@ def parse(argv: list[str]) -> Request:
 
 
 async def resolve(file: Path, attr: list[str], command: str, recorder: Recorder) -> str:
-    """Evaluate, build the attribute's `.run` or `.phases`, and return
+    """Evaluate, build the attribute's `.driver` or `.phases`, and return
     the program in it.
 
     That program, and not this package's `vivarium`, is what runs: it carries
     the `vivarium` of the library that was evaluated, which knows every field
-    of the spec. Building `.run` also runs the type check of every phase
-    script, exactly as `nix run --file . <attr>.run` does.
+    of the spec. Building `.driver` also runs the type check of every phase
+    script, exactly as `nix run --file . <attr>.driver` does.
     """
     async with evaluator(recorder) as (state, store):
         target = await session_of(state, file, attr)
