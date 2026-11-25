@@ -4,6 +4,10 @@
   ConfigMap, the second resumes it and finds the ConfigMap. The control
   plane keeps its cluster (`persist`) and the worker keeps nothing, so the
   second run also joins the worker in place of its old Node.
+
+  The first run also loads an image no node has (`load_images`), after a
+  pod that asks for it shows ErrImageNeverPull; the second finds the pod
+  running on the control plane, from its kept containerd.
   tests/checks/k8s-kept.py, nixidae/nixidae#1588.
 
   10.111: every other cluster test has its own subnet.
@@ -25,9 +29,16 @@ let
       inherit address;
     };
   };
+  # Self-contained: its layers hold busybox, not links into the store.
+  loaded = pkgs.dockerTools.buildLayeredImage {
+    name = "vivarium.test/loaded";
+    tag = "1";
+    contents = [ pkgs.pkgsStatic.busybox ];
+  };
   run = mkTest {
     name = "k8s-kept";
     vivarium.recipes.kubernetes.enable = true;
+    settings.loaded = "${loaded}";
     phases.up = {
       script = ../k8s-kept.py;
       after = [ "boot" ];
