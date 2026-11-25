@@ -559,10 +559,12 @@ async def untaint(cp: Machine) -> None:
     kubeadm taints it so that nothing schedules there, which is right for a
     cluster with workers and leaves a single-node cluster unable to run
     anything at all.  The trailing ``-`` is kubectl's syntax for removing a
-    taint.  It names the control plane alone: on a node without the taint,
-    such as a worker, kubectl fails with "not found".
+    taint.  A node without it, such as a kept control plane a first run
+    untainted, is left alone: kubectl would fail with "not found".
     """
-    await kubectl(cp, f"taint node {cp.name} {CONTROL_PLANE_TAINT}-")
+    taints = await kubectl(cp, f"get node {cp.name} --output jsonpath={{.spec.taints[*].key}}")
+    if CONTROL_PLANE_TAINT in taints.split():
+        await kubectl(cp, f"taint node {cp.name} {CONTROL_PLANE_TAINT}-")
     cp.say("[k8s] control plane will schedule workloads")
 
 
@@ -701,9 +703,10 @@ async def bring_up(
     rest of the run, a cache guest for one, is left alone.
 
     A cluster kept with `services.vivarium-k8s.persist` skips `kubeadm
-    init`, the kube-proxy patch and the taint, and joins only a worker that
-    kept nothing: see `kept_cluster`. The rest runs again, since the guests'
-    roots, the host's forwards and the router start blank each run.
+    init` and the kube-proxy patch, and joins only a worker that kept
+    nothing, in place of its old Node: see `kept_cluster`. The rest runs
+    again and leaves what is already done, since the guests' roots, the
+    host's forwards and the router start blank each run.
 
     Nodes with `services.vivarium-k8s.cni = "external"` get no pod network
     from here: the test deploys its own CNI. Until it does, no node is
@@ -737,7 +740,6 @@ async def bring_up(
             await wait_for_dns(vm)
 
     joining = await kept_cluster(cp, workers, vms)
-    kept = joining is not None
     if joining is None:
         await init_control_plane(
             cp,
@@ -747,6 +749,10 @@ async def bring_up(
         joining = workers
     else:
         await wait_for_api(cp)
+        # A worker that kept nothing left its Node behind, maybe still
+        # Ready: kubeadm refuses to join a second Node of that name.
+        for vm in joining:
+            await kubectl(cp, f"delete node {vm.name} --ignore-not-found --wait")
     await join(cp, joining)
     if not external:
         await wire_pod_network(cp, cluster)
@@ -758,8 +764,9 @@ async def bring_up(
             continue
         await wait_for_pods(cp, selector)
 
-    # The taint is the cluster's, and a kept cluster lost it at its first run.
-    if schedulable and not kept:
+    # Every run: a kept cluster whose first run ended before this step still
+    # has the taint.
+    if schedulable:
         await untaint(cp)
 
     await host_kubeconfig(cp, vms)
