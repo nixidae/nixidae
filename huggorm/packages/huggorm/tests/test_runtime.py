@@ -337,7 +337,7 @@ def test_a_job_posted_to_a_pool_thread_runs_on_it() -> None:
         for target in threads:
             ran: list[threading.Thread] = []
             for _ in range(20):
-                job = _runtime._Job(lambda: ran.append(threading.current_thread()))
+                job = _runtime._Job(lambda seen=ran: seen.append(threading.current_thread()))
                 pool.post_to(target, job)
                 job.future.result(5)
             assert set(ran) == {target}
