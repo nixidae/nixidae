@@ -14,9 +14,13 @@
 }:
 let
   cfg = config.services.vivarium-k8s;
-  images = pkgs.callPackage ./k8s-images.nix { inherit (cfg) imageTags; };
+  images = pkgs.callPackage ./k8s-images.nix {
+    inherit (cfg) imageTags;
+    kubernetes = cfg.package;
+    pause = cfg.pausePackage;
+  };
 
-  inherit (pkgs) kubernetes;
+  kubernetes = cfg.package;
   # The unit that serves the CRI, and where. `vivarium-k8s-cri.target` names the
   # unit, so `bring_up` waits for either without knowing which.
   cri =
@@ -785,6 +789,35 @@ in
       '';
     };
 
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = pkgs.kubernetes;
+      defaultText = lib.literalExpression "pkgs.kubernetes";
+      example = lib.literalExpression "(import kubernetes4nix { inherit pkgs; }).outputs.server.\"1.36.5\"";
+      description = ''
+        The Kubernetes this node runs: kubeadm, kubelet and the binaries in
+        the control plane's and kube-proxy's images. The package needs
+        `version` and `bin/` with `kubeadm`, `kubelet`, `kube-apiserver`,
+        `kube-controller-manager`, `kube-scheduler` and `kube-proxy`. Set it
+        on every node of a cluster.
+
+        Another version names other etcd, CoreDNS and pause tags. The node
+        build runs `kubeadm config images list` and fails with the tags it
+        wants; set them in `imageTags`.
+      '';
+    };
+
+    pausePackage = lib.mkOption {
+      type = lib.types.package;
+      default = cfg.package.pause or pkgs.kubernetes.pause;
+      defaultText = lib.literalExpression "config.services.vivarium-k8s.package.pause or pkgs.kubernetes.pause";
+      description = ''
+        The pod sandbox's `pause`, as `bin/pause`. A Kubernetes built from
+        source has it as an output; a release archive has none, and then
+        nixpkgs' serves.
+      '';
+    };
+
     persist = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -1197,6 +1230,10 @@ in
       // lib.optionalAttrs (cfg.role == "control-plane") {
         "vivarium-k8s/kubeadm-config.yaml".source = kubeadmConfig;
       };
+
+    # Each node build asks this kubeadm which images it wants: a version
+    # whose etcd or CoreDNS tag differs fails here, not as ImagePullBackOff.
+    system.checks = [ images.check ];
 
     environment.systemPackages = [
       kubernetes

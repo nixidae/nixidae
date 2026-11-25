@@ -20,6 +20,7 @@
   runCommand,
   dockerTools,
   kubernetes,
+  pause ? kubernetes.pause,
   etcd,
   coredns,
   iptables,
@@ -146,7 +147,7 @@ let
       name = "registry.k8s.io/pause";
       tag = tags.pause;
       command = "pause";
-      package = kubernetes.pause;
+      package = pause;
       # The one image that has to carry its own closure.  pause runs as
       # the pod sandbox, and containerd builds the sandbox's OCI spec
       # without consulting base_runtime_spec -- so it is the one
@@ -254,8 +255,9 @@ in
         if ! diff --unified "$expectedPath" actual; then
           echo
           echo "error: the images built by modules/k8s-images.nix are not the ones"
-          echo "kubeadm ${version} will look for.  Update the tags in that file to"
-          echo "the right-hand side above."
+          echo "kubeadm ${version} will look for.  Set the right-hand side above in"
+          echo "services.vivarium-k8s.imageTags, or for nixpkgs' own Kubernetes in"
+          echo "the tags in that file."
           exit 1
         fi
         touch $out
