@@ -217,6 +217,15 @@ def parser() -> argparse.ArgumentParser:
     loading.add_argument("words", nargs="+", metavar="[NAME] IMAGE", help="the environment, then the tarballs")
     loading.add_argument("--out", type=Path, help="the run's --out, for a run that is no named environment")
     loading.add_argument("--node", action="append", default=[], help="this node only; repeatable. Default: every node")
+    noding = sub.add_parser("node", help="add a worker to a live cluster from a template, or remove one added so")
+    actions = noding.add_subparsers(dest="action", required=True)
+    adding = actions.add_parser("add", help="`node add NAME NODE` or `node add --out DIR NODE`: launch and join NODE")
+    adding.add_argument("--template", help="the template to launch; default: the run's one Kubernetes template")
+    removing = actions.add_parser("rm", help="`node rm NAME NODE` or `node rm --out DIR NODE`: delete and stop NODE")
+    for action in (adding, removing):
+        action.add_argument("words", nargs="+", metavar="[NAME] NODE", help="the environment, then the node")
+        action.add_argument("--out", type=Path, help="the run's --out, for a run that is no named environment")
+    removing.set_defaults(template=None)
     closing = sub.add_parser(
         "closure", help="every store path these reach, one a line: what a test in a guest needs of the host's store"
     )
@@ -567,6 +576,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(enter(args))
         if args.command == "load":
             raise SystemExit(load(args))
+        if args.command == "node":
+            raise SystemExit(node(args))
         if args.command == "closure":
             raise SystemExit(anyio.run(closure, args.paths))
         raise SystemExit(switch(args))
@@ -817,26 +828,51 @@ def enter(args: argparse.Namespace) -> int:
 
 
 LOADED: Final = "vivarium-load: "
-"""The prefix of the one output line that carries `load`'s result."""
+"""The prefix of the one output line that carries `load`'s or `node`'s result."""
+
+
+def live_run(command: str, words: list[str], out: Path | None) -> Path | Exit:
+    """The run `command` acts on: *out*, else the environment the first of
+    *words* names, which it takes; refused when it is not up."""
+    try:
+        found = out.absolute() if out is not None else places.environment(words.pop(0))
+    except places.PlaceError as error:
+        print(f"vivarium {command}: {error}", file=sys.stderr)
+        return Exit.USAGE
+    if not anyio.run(environments.live, found):
+        print(f"vivarium {command}: {found} is not up; `vivarium up` it first", file=sys.stderr)
+        return Exit.NO_RUN
+    return found
+
+
+def in_run(command: str, out: Path, code: str, function: str) -> Any | None:  # Any: the JSON the code printed
+    """Run *code* in the live run through `exec`, which a run takes while
+    its phases run as at a pause, and return the JSON it printed after
+    `LOADED`; None, said on stderr, when it failed. *function* is the
+    `vivarium_k8s` function it calls, for the error of an older run."""
+    reply = anyio.run(control.request, places.socket(out, control.SOCKET), control.Op.EXEC, code, (), None)
+    found = [line.removeprefix(LOADED) for line in reply.output.splitlines() if line.startswith(LOADED)]
+    if reply.ok and found:
+        return json.loads(found[-1])
+    said = reply.error or reply.output
+    if function in said and ("has no attribute" in said or "cannot import" in said):
+        said = f"this run's vivarium_k8s has no {function}: bring it up again with this vivarium"
+    elif "No module named 'vivarium_k8s'" in said:
+        said = "this run has no Kubernetes nodes (vivarium.recipes.kubernetes)"
+    print(f"vivarium {command}: {said.rstrip()}", file=sys.stderr)
+    return None
 
 
 def load(args: argparse.Namespace) -> int:
-    """`load`: `vivarium_k8s.load_images` in the live run, through `exec`,
-    which a run takes while its phases run as at a pause. stdout is the
+    """`load`: `vivarium_k8s.load_images` in the live run. stdout is the
     images each node has, as JSON."""
     words: list[str] = list(args.words)
-    name = None if args.out is not None else words.pop(0)
-    if not words:
+    if len(words) < (1 if args.out is not None else 2):
         print("vivarium load: name the image tarballs", file=sys.stderr)
         return Exit.USAGE
-    try:
-        out = places.environment(name) if name is not None else args.out.absolute()
-    except places.PlaceError as error:
-        print(f"vivarium load: {error}", file=sys.stderr)
-        return Exit.USAGE
-    if not anyio.run(environments.live, out):
-        print(f"vivarium load: {out} is not up; `vivarium up` it first", file=sys.stderr)
-        return Exit.NO_RUN
+    out = live_run("load", words, args.out)
+    if isinstance(out, Exit):
+        return out
     tarballs = [str(Path(word).absolute()) for word in words]
     if missing := [tarball for tarball in tarballs if not Path(tarball).is_file()]:
         print(f"vivarium load: no file {missing}", file=sys.stderr)
@@ -851,20 +887,49 @@ def load(args: argparse.Namespace) -> int:
         "_refs = sorted({ref for found in _loaded.values() for ref in found})\n"
         f"print({LOADED!r} + _json.dumps({{'loaded': _loaded, 'latest': [r for r in _refs if _latest(r)]}}))\n"
     )
-    reply = anyio.run(control.request, places.socket(out, control.SOCKET), control.Op.EXEC, code, (), None)
-    found = [line.removeprefix(LOADED) for line in reply.output.splitlines() if line.startswith(LOADED)]
-    if not reply.ok or not found:
-        said = reply.error or reply.output
-        if "load_images" in said and ("has no attribute" in said or "cannot import" in said):
-            said = "this run's vivarium_k8s has no load_images: bring it up again with this vivarium"
-        elif "No module named 'vivarium_k8s'" in said:
-            said = "this run has no Kubernetes nodes (vivarium.recipes.kubernetes)"
-        print(f"vivarium load: {said.rstrip()}", file=sys.stderr)
+    result = in_run("load", out, code, "load_images")
+    if result is None:
         return Exit.FAILED
-    result = json.loads(found[-1])
     for ref in result["latest"]:
         say(f"{ref} is `latest`: a pod needs imagePullPolicy IfNotPresent or Never to run it, or kubelet pulls")
     print(json.dumps(result["loaded"], indent=2, sort_keys=True))
+    return Exit.PASSED
+
+
+def node(args: argparse.Namespace) -> int:
+    """`node add` and `node rm`: `vivarium_k8s.add_node` or `remove_node`
+    in the live run. stdout is the node, as JSON."""
+    words: list[str] = list(args.words)
+    command = f"node {args.action}"
+    if len(words) != (1 if args.out is not None else 2):
+        print(f"vivarium {command}: name the environment, unless --out, then one node", file=sys.stderr)
+        return Exit.USAGE
+    out = live_run(command, words, args.out)
+    if isinstance(out, Exit):
+        return out
+    request = json.dumps([words[0], args.template])
+    if args.action == "add":
+        function = "add_node"
+        call = (
+            f"_name, _template = _json.loads({request!r})\n"
+            "_found = sorted(_k8s.templates(vms))\n"
+            "if _template is None and len(_found) != 1:\n"
+            "    raise ValueError(f'name a template with --template; this run has {_found}')\n"
+            "_vm = await _k8s.add_node(vms, _template or _found[0], _name)\n"
+            f"print({LOADED!r} + _json.dumps({{'name': _vm.name, 'ip': _vm.ip}}))\n"
+        )
+    else:
+        function = "remove_node"
+        call = (
+            f"_name, _ = _json.loads({request!r})\n"
+            "await _k8s.remove_node(vms, _name)\n"
+            f"print({LOADED!r} + _json.dumps({{'removed': _name}}))\n"
+        )
+    code = "import json as _json\nimport vivarium_k8s as _k8s\n" + call
+    result = in_run(command, out, code, function)
+    if result is None:
+        return Exit.FAILED
+    print(json.dumps(result, indent=2, sort_keys=True))
     return Exit.PASSED
 
 

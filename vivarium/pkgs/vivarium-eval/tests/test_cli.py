@@ -55,6 +55,21 @@ def test_load_wants_an_image_after_the_name() -> None:
     assert ended.value.code == Exit.USAGE
 
 
+def test_node_add_refuses_an_environment_that_is_not_up() -> None:
+    with pytest.raises(SystemExit) as ended:
+        main(["node", "add", "lab", "w1"])
+    assert ended.value.code == Exit.NO_RUN
+
+
+@pytest.mark.parametrize(
+    "words", [["node", "add", "lab"], ["node", "rm", "lab", "w1", "w2"], ["node", "add", "--out", "o", "lab", "w1"]]
+)
+def test_node_wants_one_node_after_the_environment(words: list[str]) -> None:
+    with pytest.raises(SystemExit) as ended:
+        main(words)
+    assert ended.value.code == Exit.USAGE
+
+
 class TestParse:
     def test_the_rest_goes_to_uml_untouched(self) -> None:
         request = parse(["run", "lan.qemu", "--out", "o", "-v", "--", "-k", "x"])
