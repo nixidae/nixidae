@@ -345,6 +345,59 @@ let
     flakeIgnore = [ "E501" ];
   } ./k8s-cni.py;
 
+  # The runtime's image import and list, and where it keeps its images.
+  # CRI-O reads containers-storage, which is podman's.
+  criImages =
+    let
+      ctr = lib.getExe' pkgs.containerd "ctr";
+      podman = lib.getExe pkgs.podman;
+    in
+    {
+      containerd = {
+        import = [
+          ctr
+          "--namespace"
+          "k8s.io"
+          "images"
+          "import"
+          "--local"
+          "--discard-unpacked-layers"
+          "-"
+        ];
+        list = [
+          ctr
+          "--namespace"
+          "k8s.io"
+          "images"
+          "list"
+          "-q"
+        ];
+        store = "/var/lib/containerd";
+      };
+      crio = {
+        import = [
+          podman
+          "load"
+        ];
+        list = [
+          podman
+          "images"
+          "--format"
+          "{{.Repository}}:{{.Tag}}"
+        ];
+        store = "/var/lib/containers";
+      };
+    }
+    .${cfg.cri};
+
+  # Images into the runtime, at boot and for `vivarium load`: see k8s-import.py.
+  importImages = pkgs.writers.writePython3Bin "vivarium-k8s-import" { flakeIgnore = [ "E501" ]; } (
+    pkgs.replaceVars ./k8s-import.py {
+      import = builtins.toJSON criImages.import;
+      list = builtins.toJSON criImages.list;
+    }
+  );
+
   # A JoinConfiguration with no discovery: `vivarium-k8s-join` adds it.
   joinBase = {
     apiVersion = "kubeadm.k8s.io/v1beta4";
@@ -1032,60 +1085,19 @@ in
       wants = [ "vivarium-k8s-cri.target" ];
       after = [ "vivarium-k8s-cri.target" ];
       before = [ "kubelet.service" ];
-      path = [
-        pkgs.gzip
-        (if cfg.cri == "containerd" then pkgs.containerd else pkgs.podman)
-      ];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
         TimeoutStartSec = "10min";
+        # Fast, because the images are symlink farms: the only real bytes
+        # here are the pause image's own closure.
+        ExecStart = lib.escapeShellArgs (
+          [ (lib.getExe importImages) ]
+          ++ map (path: builtins.unsafeDiscardStringContext "${path}") (
+            lib.optional (cfg.images == "nix") images.tarball ++ cfg.extraImages
+          )
+        );
       };
-      /*
-        Fast, because the images are symlink farms: the only real bytes
-        here are the pause image's own closure.
-
-        Piped rather than named, for two reasons.  `mergeImages` emits a
-        gzipped tar and `ctr images import` does not sniff for that, so
-        it reports `invalid tar header` on a file that is perfectly
-        good.  And `--discard-unpacked-layers`, which drops the
-        compressed copy once the snapshotter has it, is only offered on
-        the `--local` path -- importing here rather than handing the tar
-        to containerd's transfer service.
-      */
-      #
-      # CRI-O reads containers-storage, which is podman's; `podman load`
-      # takes a multi-image archive where `skopeo copy` wants one per tag.
-      script =
-        let
-          import =
-            {
-              containerd = "ctr --namespace k8s.io images import --local --discard-unpacked-layers -";
-              crio = "podman load";
-            }
-            .${cfg.cri};
-          list =
-            {
-              containerd = "ctr --namespace k8s.io images list -q";
-              crio = "podman images --format '{{.Repository}}:{{.Tag}}'";
-            }
-            .${cfg.cri};
-        in
-        ''
-          for tarball in ${
-            builtins.unsafeDiscardStringContext (
-              lib.escapeShellArgs (
-                map (path: "${path}") (lib.optional (cfg.images == "nix") images.tarball ++ cfg.extraImages)
-              )
-            )
-          }; do
-            echo "importing $tarball"
-            # `-f` so an uncompressed tarball passes straight through: a
-            # caller's images need not be gzipped to be listed here.
-            zcat -f "$tarball" | ${import}
-          done
-          ${list}
-        '';
     };
 
     # ── kubelet ────────────────────────────────────────────────────
@@ -1245,6 +1257,7 @@ in
       pkgs.socat
       pkgs.ipset
       cniSetup
+      importImages
     ]
     ++ lib.optional (cfg.role == "worker") joinNode;
 
