@@ -105,7 +105,11 @@ phase that a person runs by hand never races a scheduled one.
 
 `Session.run` runs one phase. It boots the phase's guests
 (`Session.ensure`), makes the phase's own `vms` (`Session.view`), and
-calls the script's `test(vms)` or runs pytest. On a failure, it marks
+calls the script's `test(vms)` or runs pytest. A phase's `vms` holds its
+own guests and phase name, and the run's one `RunContext`: `settings`,
+`artifacts`, `access`, `shared` and the other run values are properties
+that read it. `Session.prepare` makes the context once; a reload
+replaces it with the new `settings` and `knobs`. On a failure, it marks
 the dependents `skipped` (`skipped_by`).
 
 A phase changes state only by a move (`phases.Move`). The pure function

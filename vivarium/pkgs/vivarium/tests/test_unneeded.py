@@ -9,7 +9,7 @@ import pytest
 from vivarium.phases import PhaseState, passed
 from vivarium.session import Session
 from vivarium.spec import PhaseSpec, Spec
-from vivarium_runner import Machines
+from vivarium_runner import Machines, RunContext
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,10 +30,7 @@ async def test_skip_ends_the_phase_and_the_next_runs(tmp_path: Path) -> None:
     init = PhaseSpec(name="init", script=tmp_path / "init.py")
     check = PhaseSpec(name="check", script=tmp_path / "check.py", after=["init"])
     session = Session(Spec(machines=[], phases=[init, check]), tmp_path / "out")
-    session.vms = Machines()
-    for name in Machines.__annotations__:
-        setattr(session.vms, name, None)
-    session.vms.shared = {}
+    session.vms = Machines(context=RunContext(artifacts=tmp_path, access=tmp_path))
     state = await session.run(init)
     assert session.errors == {}
     assert state is PhaseState.UNNEEDED

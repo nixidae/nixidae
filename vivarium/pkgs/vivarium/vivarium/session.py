@@ -37,7 +37,7 @@ import sys
 import time
 import traceback
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
@@ -46,7 +46,7 @@ import anyio
 import pytest
 import vivarium_socks
 from anyio.from_thread import BlockingPortal
-from vivarium_runner import Machine, MachineError, Machines, MachineSpec, Unneeded, backends
+from vivarium_runner import Machine, MachineError, Machines, MachineSpec, RunContext, Unneeded, backends
 from vivarium_runner.backends import BackendError
 from vivarium_runner.instances import seed
 from vivarium_runner.machine_spec import Socks
@@ -114,6 +114,12 @@ class _CaseFields(TypedDict, total=False):
     """The case a line belongs to, as an event field. Spread into `emit`."""
 
     case: str
+
+
+def _knob_values(spec: Spec) -> dict[str, str]:
+    """`vms.knobs`: each knob's value, not its record. A script branching on
+    a steer should not have to know where the steer came from."""
+    return {name: knob.value for name, knob in spec.knobs.items()}
 
 
 class _Outcome(TypedDict, total=False):
@@ -546,27 +552,23 @@ class Session:
         # Only the guests that are up. `exec` and a phase's `vms` never
         # see a guest that has not booted, which would hang them.
         vms = run.up
-        vms.settings = self.spec.settings
-        vms.artifacts = self.artifacts
-        # A phase reads `vms.knobs["name"]` and gets the value, not the
-        # record: a script branching on a steer should not have to know
-        # where the steer came from.
-        vms.knobs = {name: knob.value for name, knob in self.spec.knobs.items()}
-        # One phase's findings for a later one -- a process census taken
-        # before the suites, read by the phase that looks for leaks.
-        vms.shared = {}
         self.kept = await kept.load(self.out)
-        vms.state = self.kept.keys
-        vms.previous = MappingProxyType(self.kept.outcomes.copy())
-        vms.segments = run.lans
-        vms.launcher = self
-        vms.cloud = self.cloud
-        vms.phase = None
-        vms.pytest_args = self.pytest_args
-
-        vms.access = access.write(self._access_guests(), self.out)
-        vms.exports = exports.Exports(vms.access)
-        vms.trust = trust.Trust(self.spec.name, vms.access, trust.directory(), vms.exports)
+        where = access.write(self._access_guests(), self.out)
+        exported = exports.Exports(where)
+        vms.context = RunContext(
+            artifacts=self.artifacts,
+            access=where,
+            settings=self.spec.settings,
+            knobs=_knob_values(self.spec),
+            state=self.kept.keys,
+            previous=MappingProxyType(self.kept.outcomes.copy()),
+            pytest_args=self.pytest_args,
+            segments=run.lans,
+            cloud=self.cloud,
+            launcher=self,
+            trust=trust.Trust(self.spec.name, where, trust.directory(), exported),
+            exports=exported,
+        )
         for vm in run.machines.values():
             if vm.spec.socks is not None and (forward := vm.reachable(vm.spec.socks.port)):
                 port = await self.tasks.start(vivarium_socks.serve, LOOPBACK, 0, _split(vm.spec.socks, forward[0]))
@@ -898,23 +900,7 @@ class Session:
             raise SessionError(
                 f"phase {phase.name} names {', '.join(missing)} in `nodes`; the guests are {', '.join(self.vms)}"
             )
-        vms = Machines((name, self.vms[name]) for name in wanted)
-        vms.settings = self.vms.settings
-        vms.artifacts = self.vms.artifacts
-        vms.access = self.vms.access
-        vms.trust = self.vms.trust
-        vms.exports = self.vms.exports
-        vms.knobs = self.vms.knobs
-        vms.shared = self.vms.shared
-        vms.state = self.vms.state
-        vms.previous = self.vms.previous
-        vms.segments = self.vms.segments
-        vms.launcher = self.vms.launcher
-        vms.cloud = self.vms.cloud
-        vms.pytest_args = self.pytest_args
-        # One script may serve several phases, told apart by this.
-        vms.phase = phase.name
-        return vms
+        return self.vms.view(wanted, phase.name)
 
     async def run(self, phase: PhaseSpec) -> PhaseState:
         """Run one phase, and record what its outcome means for the rest.
@@ -1126,9 +1112,8 @@ class Session:
         result = reloaded(self.spec.phases, spec.phases, self.state)
         self.spec = spec
         self.state = result.state
-        if self.vms is not None:
-            self.vms.settings = spec.settings
-            self.vms.knobs = {name: knob.value for name, knob in spec.knobs.items()}
+        if self.vms is not None and self.vms.context is not None:
+            self.vms.context = replace(self.vms.context, settings=spec.settings, knobs=_knob_values(spec))
         return result
 
     def pending(self) -> list[PhaseSpec]:

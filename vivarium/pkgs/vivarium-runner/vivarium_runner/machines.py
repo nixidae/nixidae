@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any, NoReturn, Protocol
 
 import anyio
@@ -72,18 +71,11 @@ class CloudControl(Protocol):
     async def interrupt(self, instance_id: str, seconds: float) -> None: ...
 
 
-class Machines(dict[str, Machine]):
-    """The run's machines by name, also reachable as attributes.
-
-    Parameterised because a bare ``dict`` makes ``values()`` and
-    ``items()`` Unknown, and a caller's pyright then checks nothing.
-    """
-
-    # Any: a test's own settings, read by the test that set them.
-    settings: dict[str, Any]
-    """Whatever the spec's ``settings`` held -- values a test needs that
-    only Nix knows, such as a package version or an image tag.  Empty
-    unless ``mkTest`` was given some."""
+@dataclass(frozen=True, slots=True)
+class RunContext:
+    """What one run gives every phase beside its guests. The session makes
+    it once; each phase's `Machines` holds the same object, and a reload
+    replaces it."""
 
     artifacts: Path
     """Where this run's evidence goes.  Each guest sees its own
@@ -95,7 +87,13 @@ class Machines(dict[str, Machine]):
     kubeconfig, a token. ``<out>/access/``, emptied as the run starts;
     ``<out>/access.json`` and ``<out>/ssh_config`` sit beside it."""
 
-    knobs: dict[str, str]
+    # Any: a test's own settings, read by the test that set them.
+    settings: dict[str, Any] = field(default_factory=dict)
+    """Whatever the spec's ``settings`` held -- values a test needs that
+    only Nix knows, such as a package version or an image tag.  Empty
+    unless ``mkTest`` was given some."""
+
+    knobs: dict[str, str] = field(default_factory=dict)
     """What this run was told from outside, by name.
 
     Declared in Nix and resolved there, so a knob can change what is
@@ -104,7 +102,7 @@ class Machines(dict[str, Machine]):
     what a sandboxed check always gets."""
 
     # Any: each phase defines its own findings, and the key says what type.
-    shared: dict[str, Any]
+    shared: dict[str, Any] = field(default_factory=dict)
     """One phase's findings for a later phase of the same run.
 
     The phases are separate modules, so a value one computes -- a
@@ -112,40 +110,122 @@ class Machines(dict[str, Machine]):
     compares against it only through here."""
 
     # Any: each phase defines its own keys; they need only be JSON.
-    state: dict[str, Any]
+    state: dict[str, Any] = field(default_factory=dict)
     """What a named environment's phases keep across its runs, beside its
     disks: a phase's own keys. Empty in every other run. A phase reads it
     to decide whether its work is done, and ends with `skip` if it is."""
 
-    previous: Mapping[str, str]
+    previous: Mapping[str, str] = field(default_factory=dict)
     """Each phase's state (`passed`, `unneeded`, `failed` ...) in the
     environment's last run that reached a verdict. Empty in every other run."""
 
-    phase: str | None
-    """The phase running now. One script can serve several phases, told
-    apart by name: ``mkTest`` phases generated from one list in Nix.
-    ``None`` between phases."""
-
-    pytest_args: list[str]
+    pytest_args: list[str] = field(default_factory=list)
     """What followed ``--`` on the run's command line. Every pytest phase
     gets them; a script that runs pytest inside a guest passes them on."""
 
-    segments: Mapping[str, Lan] = MappingProxyType({})
-    """The run's Ethernet segments by name. A class default, because
-    an unset attribute falls through to ``__getattr__`` as a guest."""
+    segments: Mapping[str, Lan] = field(default_factory=dict)
+    """The run's Ethernet segments by name."""
 
     cloud: CloudControl | None = None
-    """The run's cloud, which guests with `vivarium.cloud` call. A class default, as `segments`."""
+    """The run's cloud, which guests with `vivarium.cloud` call."""
 
     launcher: Launcher | None = None
-    """What boots a guest from a template while the run goes: the session. A class default, as `segments`."""
+    """What boots a guest from a template while the run goes: the session."""
 
     trust: Trust | None = None
-    """The run's lab CA. A class default, as `segments`."""
+    """The run's lab CA."""
 
     exports: Exports | None = None
-    """One object for the whole run, shared by every phase's copy of this
-    mapping. A class default, as `segments`."""
+    """What `export` writes to, one object for the whole run."""
+
+
+class Machines(dict[str, Machine]):
+    """The run's machines by name, also reachable as attributes.
+
+    Parameterised because a bare ``dict`` makes ``values()`` and
+    ``items()`` Unknown, and a caller's pyright then checks nothing.
+
+    The run's values (`settings`, `artifacts`, ...) are read-only
+    properties of `context`, so every phase's mapping reads one object.
+    They are properties and not attributes: an unset attribute falls
+    through to ``__getattr__`` and reads as a guest that does not exist.
+    """
+
+    def __init__(
+        self,
+        guests: Mapping[str, Machine] | Iterable[tuple[str, Machine]] = (),
+        /,
+        *,
+        context: RunContext | None = None,
+        phase: str | None = None,
+    ) -> None:
+        super().__init__(guests)
+        self.context = context
+        self.phase = phase
+        """The phase running now. One script can serve several phases, told
+        apart by name: ``mkTest`` phases generated from one list in Nix.
+        ``None`` between phases."""
+
+    def view(self, names: Iterable[str], phase: str) -> Machines:
+        """The guests *names*, as *phase* sees them, with this run's context."""
+        return Machines(((name, self[name]) for name in names), context=self.context, phase=phase)
+
+    def _run(self) -> RunContext:
+        if self.context is None:
+            raise MachineError("these guests belong to no run: nothing gave them its settings, artifacts or access")
+        return self.context
+
+    @property
+    def settings(self) -> dict[str, Any]:  # Any: see `RunContext.settings`
+        return self._run().settings
+
+    @property
+    def artifacts(self) -> Path:
+        return self._run().artifacts
+
+    @property
+    def access(self) -> Path:
+        return self._run().access
+
+    @property
+    def knobs(self) -> dict[str, str]:
+        return self._run().knobs
+
+    @property
+    def shared(self) -> dict[str, Any]:  # Any: see `RunContext.shared`
+        return self._run().shared
+
+    @property
+    def state(self) -> dict[str, Any]:  # Any: see `RunContext.state`
+        return self._run().state
+
+    @property
+    def previous(self) -> Mapping[str, str]:
+        return self._run().previous
+
+    @property
+    def pytest_args(self) -> list[str]:
+        return self._run().pytest_args
+
+    @property
+    def segments(self) -> Mapping[str, Lan]:
+        return {} if self.context is None else self.context.segments
+
+    @property
+    def cloud(self) -> CloudControl | None:
+        return None if self.context is None else self.context.cloud
+
+    @property
+    def launcher(self) -> Launcher | None:
+        return None if self.context is None else self.context.launcher
+
+    @property
+    def trust(self) -> Trust | None:
+        return None if self.context is None else self.context.trust
+
+    @property
+    def exports(self) -> Exports | None:
+        return None if self.context is None else self.context.exports
 
     async def export(self, name: str, value: str) -> None:
         """Give `vivarium shell` the variable *name*: a path in `access`,

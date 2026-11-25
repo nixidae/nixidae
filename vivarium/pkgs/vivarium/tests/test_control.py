@@ -36,7 +36,7 @@ from vivarium.control import (
 from vivarium.exits import Exit
 from vivarium.phases import PhaseState
 from vivarium.session import Session
-from vivarium_runner import Lan, Machines
+from vivarium_runner import Lan, Machines, RunContext
 from vivarium_runner.control import CommandResult
 from vivarium_runner.forward import InboundJson, PortMap, Rule
 
@@ -339,8 +339,7 @@ async def test_segment_cuts_and_shows_through_the_socket(tmp_path: Path) -> None
         return None
 
     lan = Lan("tri", ["a/eth1", "b/eth1", "c/eth1"], pcap=tmp_path / "tri.pcap")
-    vms = Machines()
-    vms.segments = {"tri": lan}
+    vms = Machines(context=RunContext(artifacts=tmp_path, access=tmp_path, segments={"tri": lan}))
     session = SimpleNamespace(out=tmp_path, state={}, errors={}, emit=emit, vms=vms)
     controller = Controller(cast("Session", session))
     try:

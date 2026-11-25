@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -8,7 +9,7 @@ from vivarium import kept, places
 from vivarium.phases import PhaseState
 from vivarium.session import Session
 from vivarium.spec import PhaseSpec, Spec
-from vivarium_runner import Machines
+from vivarium_runner import Machines, RunContext
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -22,18 +23,22 @@ INIT = """async def test(vms):
 
 def session_of(out: Path, script: Path) -> Session:
     session = Session(Spec(machines=[], phases=[PhaseSpec(name="init", script=script)]), out)
-    session.vms = Machines()
-    for name in Machines.__annotations__:
-        setattr(session.vms, name, None)
+    session.vms = Machines(context=RunContext(artifacts=out, access=out))
     return session
+
+
+def with_kept(session: Session) -> None:
+    """The kept keys and outcomes in the context, as `Session.prepare` puts them."""
+    assert session.vms is not None
+    assert session.vms.context is not None
+    keys, outcomes = session.kept.keys, dict(session.kept.outcomes)
+    session.vms.context = replace(session.vms.context, state=keys, previous=outcomes)
 
 
 async def drive(out: Path, script: Path) -> PhaseState:
     session = session_of(out, script)
     session.kept = await kept.load(out)
-    assert session.vms is not None
-    session.vms.state = session.kept.keys
-    session.vms.previous = dict(session.kept.outcomes)
+    with_kept(session)
     state = await session.run(session.spec.phases[0])
     session.write_output()
     return state
@@ -70,8 +75,8 @@ async def test_a_value_json_cannot_hold_fails_the_phase_and_nothing_after(tmp_pa
     (out / kept.FILE).write_text(json.dumps({"keys": {"kept": 1}, "outcomes": {}}))
     session = session_of(out, tmp_path / "bad.py")
     session.kept = await kept.load(out)
+    with_kept(session)
     assert session.vms is not None
-    session.vms.state = session.kept.keys
     assert await session.run(session.spec.phases[0]) is PhaseState.FAILED
     assert "vms.state['x']" in session.errors["init"]
     # Back as last saved, in the dict the phases hold.

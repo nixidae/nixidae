@@ -52,7 +52,8 @@ first boot.
    when the guest stops by itself.
 
 The guest is then in `Run.up`, the `Machines` object that phases and
-`exec` see. A guest that is still booting is not in it.
+`exec` see. A guest that is still booting is not in it. `Run.up` is one
+object for the whole run: the teardown empties it and does not replace it.
 
 **Instances.** `Session.launch` adds a guest from a template while the
 run goes. `Run.add` takes the lowest free index (`free_index`), makes

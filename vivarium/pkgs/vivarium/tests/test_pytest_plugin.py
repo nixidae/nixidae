@@ -23,7 +23,7 @@ from vivarium.events import Event, Kind, Level, junit
 from vivarium.phases import PhaseState
 from vivarium.session import CasesFailed, Session
 from vivarium.spec import PhaseSpec, PytestSpec, Spec
-from vivarium_runner import Machine, Machines
+from vivarium_runner import Machine, Machines, RunContext
 from vivarium_runner.consolelines import ConsoleLines
 from vivarium_runner.control import CommandResult
 
@@ -63,16 +63,8 @@ class FakeMachine(Machine):
 
 def fake_vms(*names: str) -> Machines:
     """What `Session.boot` would have set, on fake machines."""
-    vms = Machines((name, FakeMachine(name)) for name in names)
-    vms.settings = {}
-    vms.artifacts = Path("/nonexistent")
-    vms.access = Path("/nonexistent")
-    vms.knobs = {}
-    vms.shared = {}
-    vms.state = {}
-    vms.previous = {}
-    vms.phase = None
-    return vms
+    context = RunContext(artifacts=Path("/nonexistent"), access=Path("/nonexistent"))
+    return Machines(((name, FakeMachine(name)) for name in names), context=context)
 
 
 def guests(session: Session) -> Machines:

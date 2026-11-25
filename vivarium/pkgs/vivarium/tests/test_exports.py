@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import anyio
 import pytest
 from vivarium import exports
-from vivarium_runner import MachineError, Machines
+from vivarium_runner import MachineError, Machines, RunContext
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 @pytest.mark.anyio
 async def test_two_phases_at_once_both_land(tmp_path: Path) -> None:
     sink = exports.Exports(tmp_path)
-    first, second = Machines(), Machines()
-    first.exports = second.exports = sink
+    context = RunContext(artifacts=tmp_path, access=tmp_path, exports=sink)
+    first, second = Machines(context=context), Machines(context=context)
     async with anyio.create_task_group() as group:
         for index in range(20):
             group.start_soon((first if index % 2 else second).export, f"V{index}", str(index))

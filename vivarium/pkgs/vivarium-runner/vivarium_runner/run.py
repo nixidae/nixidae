@@ -323,7 +323,8 @@ class Run:
         `Machine.shutdown`.
         """
         await shut_down(self.attempted.values(), self._on_stop_error, kill=kill)
-        self.up = Machines()
+        # Emptied, not replaced: `up` is one object for the whole run.
+        self.up.clear()
         self._all = None
         self._attempts = set()
         self._starting = {}
