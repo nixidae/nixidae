@@ -262,6 +262,25 @@ run says `ready`. It exits 0 and prints `<out>/access.json` on stdout. A
 phase that fails pauses the run with the guests up, as
 `--break-on-failure` does, and `up` exits 4.
 
+The run detaches in a session of its own, but it stays in its caller's
+cgroup. When that cgroup stops (a terminal's scope, a CI job, an agent's
+session), the environment stops with it. `up --daemonize` runs it as a
+transient unit of your systemd user manager instead, outside the caller:
+
+```console
+$ vivarium up checks.k8s-host --daemonize
+[vivarium] started the run as vivarium-k8s-host.service, pid 378902, output in ...
+$ systemctl --user status vivarium-k8s-host
+```
+
+The unit gets your environment by name, never by value on the command
+line, and your working directory. `vivarium down` stops it as before;
+`systemctl --user stop vivarium-NAME` does too, with the same teardown.
+The unit ends when you log out, unless you enable lingering
+(`loginctl enable-linger`); vivarium does not enable it. Without a
+systemd user manager (macOS, most containers) `--daemonize` says so and
+the run detaches as without it.
+
 The way in is in `--out`, written before any guest boots:
 
 - `access.json`: each guest's ssh address and forwards. The runner picks

@@ -51,7 +51,7 @@ from vivarium.exits import Exit, describe
 from vivarium.phases import VERDICT, Verdict
 from vivarium_runner.forward import InboundJson
 
-from . import shell
+from . import daemon, shell
 from .build_log import FILE as BUILD_LOG, SHOWN, Recorder
 
 if TYPE_CHECKING:
@@ -72,6 +72,7 @@ class Request:
     """The runner's `--out`, read and left in `rest`: the build log and the
     first `run.json` go there. `run` and `up` take it; `phases` does not."""
     until_pause: bool = False
+    daemonize: bool = False
 
 
 def split_attr(text: str) -> list[str]:
@@ -159,6 +160,15 @@ def parser() -> argparse.ArgumentParser:
                 help=(
                     "the environment's name, when no --out is given: its directory is"
                     " <state>/envs/NAME. The default is the test's `name`"
+                ),
+            )
+            evaluate.add_argument(
+                "--daemonize",
+                action="store_true",
+                help=(
+                    "run it as a transient unit of the user's systemd, vivarium-NAME.service, so it"
+                    " outlives the caller's cgroup; it ends at logout unless the user lingers."
+                    " Without a user systemd, the run detaches as without the flag"
                 ),
             )
         elif command in RUNS:
@@ -273,6 +283,7 @@ def parse(argv: list[str]) -> Request:
         [*words.parse_known_args(head)[0].forward, *unknown, *tail],
         args.out if args.command in RUNS else None,
         until_pause=args.command == "up" or (args.command == "run" and args.until_pause),
+        daemonize=args.command == "up" and args.daemonize,
     )
 
 
@@ -593,20 +604,32 @@ def until_pause(argv: list[str], request: Request) -> int:
         raise RuntimeError(f"{request.command}: argparse lets no run start without --out")
     request.out.mkdir(parents=True, exist_ok=True)
     child_argv = [str(this_cli()), *child_args(argv)]
-    with (request.out / LOG).open("wb") as log:
-        child = subprocess.Popen(  # noqa: S603 -- this program, with the caller's own arguments
-            child_argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
-        )
-    # Reaped as it ends: an unreaped child stays a zombie, and the monitor's
-    # `kill(pid, 0)` then finds the run alive until --wait runs out
-    # (nixidae/nixidae#1353). Daemon: the run outlives this process.
-    threading.Thread(target=child.wait, name="reap-run", daemon=True).start()
+    systemd_run = daemon.manager() if request.daemonize else None
+    if request.daemonize and systemd_run is None:
+        say("no user systemd answers: the run detaches in a session of its own, as without --daemonize")
+    if systemd_run is not None:
+        try:
+            unit, pid = daemon.start(systemd_run, request.out, request.out / LOG, Path.cwd(), os.environ, child_argv)
+        except daemon.DaemonError as error:
+            say(str(error))
+            return Exit.NO_RUN
+        how = f"as {unit}"
+    else:
+        with (request.out / LOG).open("wb") as log:
+            child = subprocess.Popen(  # noqa: S603 -- this program, with the caller's own arguments
+                child_argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+            )
+        # Reaped as it ends: an unreaped child stays a zombie, and the monitor's
+        # `kill(pid, 0)` then finds the run alive until --wait runs out
+        # (nixidae/nixidae#1353). Daemon: the run outlives this process.
+        threading.Thread(target=child.wait, name="reap-run", daemon=True).start()
+        pid, how = child.pid, "in a session of its own"
     # Its pid now, before the child writes it: a child that dies at once
     # is then a run gone, not a run never seen.
     origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
-    about = control.run_file(this_cli(), request.out, child.pid, control=False, origin=origin)
+    about = control.run_file(this_cli(), request.out, pid, control=False, origin=origin)
     (request.out / control.RUN_FILE).write_text(about.to_json())
-    say(f"started the run, pid {child.pid}, output in {request.out / LOG}")
+    say(f"started the run {how}, pid {pid}, output in {request.out / LOG}")
     args = argparse.Namespace(target=str(request.out), json=False, quiet=True, through_pauses=False, wait=monitor.WAIT)
     if request.command != "up":
         return runner_cli.watch(args)
@@ -633,7 +656,7 @@ def not_ready(code: int, out: Path) -> str:
 def child_args(argv: list[str]) -> list[str]:
     """The `run` that `run --until-pause` or `up` starts in the background:
     `up` is `run --hold`, with the flag before any `--`."""
-    head, tail = split_dashdash([arg for arg in argv if arg != "--until-pause"])
+    head, tail = split_dashdash([arg for arg in argv if arg not in ("--until-pause", "--daemonize")])
     if head and head[0] == "up":
         head = ["run", *head[1:], "--hold"]
     return [*head, *tail]
