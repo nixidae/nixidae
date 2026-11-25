@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+from vivarium_runner.backends.base import BackendError
 from vivarium_runner.backends.host import make_kept_store
 
 if TYPE_CHECKING:
@@ -41,3 +43,14 @@ def test_a_container_keeps_a_directory(tmp_path: Path) -> None:
     store = make_kept_store(1, tmp_path / "one", tmp_path, directory=True)
     assert store is not None
     assert store.is_dir()
+
+
+def test_a_store_does_not_change_backend(tmp_path: Path) -> None:
+    disk = make_kept_store(1, tmp_path / "one", tmp_path)
+    assert disk is not None
+    with pytest.raises(BackendError, match="is a disk"):
+        make_kept_store(1, disk, tmp_path, directory=True)
+    folder = make_kept_store(1, tmp_path / "two", tmp_path, directory=True)
+    assert folder is not None
+    with pytest.raises(BackendError, match="is a directory"):
+        make_kept_store(1, folder, tmp_path)

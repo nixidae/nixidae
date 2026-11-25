@@ -270,6 +270,14 @@ def make_kept_store(size: int | None, kept: Path | None, rundir: Path, *, direct
         return None
     path = kept or rundir / "kept"
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # A container guest's store is a directory and every other a disk, and
+    # neither turns into the other: the data stays with the backend.
+    if path.exists() and path.is_dir() != directory:
+        made, wanted = ("a directory", "a disk") if path.is_dir() else ("a disk", "a directory")
+        raise BackendError(
+            f"{path} is {made}, made by an earlier run on another backend, and this backend keeps {wanted};"
+            " run the environment on that backend, or `vivarium rm` it"
+        )
     if directory:
         path.mkdir(mode=0o700, exist_ok=True)
         return path
