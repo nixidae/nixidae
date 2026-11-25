@@ -134,12 +134,14 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run = sub.add_parser("run", help="boot the guests and run every phase")
-    run.add_argument("--spec", type=_absolute, required=True, help="the spec Nix wrote")
-    add_run_options(run.add_argument)
+    running = sub.add_parser("run", help="boot the guests and run every phase")
+    running.add_argument("--spec", type=_absolute, required=True, help="the spec Nix wrote")
+    add_run_options(running.add_argument)
+    running.set_defaults(handler=run_command)
 
-    phases = sub.add_parser("phases", help="list the phases and exit")
-    phases.add_argument("--spec", type=_absolute, required=True)
+    listing = sub.add_parser("phases", help="list the phases and exit")
+    listing.add_argument("--spec", type=_absolute, required=True)
+    listing.set_defaults(handler=functools.partial(anyio.run, phases))
 
     add_ctl(sub)
     add_monitor(sub)
@@ -288,10 +290,10 @@ def add_run_options(add: Callable[..., argparse.Action]) -> None:
 
 def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """`ctl`: one request to a run. The runner and the `vivarium` CLI both take it."""
-    ctl = sub.add_parser("ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused")
-    ctl.add_argument("--out", type=_absolute, required=True, help="the run's --out")
-    ctl.add_argument("--json", action="store_true", help="the whole reply as one JSON object on stdout")
-    ctl.add_argument(
+    command = sub.add_parser("ctl", help="reach into a run: exec, inject, state and stop any time, the rest while paused")
+    command.add_argument("--out", type=_absolute, required=True, help="the run's --out")
+    command.add_argument("--json", action="store_true", help="the whole reply as one JSON object on stdout")
+    command.add_argument(
         "--wait",
         action="store_true",
         help=(
@@ -299,7 +301,7 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
             f" and exit with its status ({describe()})"
         ),
     )
-    ctl.add_argument(
+    command.add_argument(
         "--reload",
         action="append",
         default=[],
@@ -310,8 +312,8 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
             " drop the modules it provides, so an edited helper is read again; repeatable"
         ),
     )
-    ctl.add_argument("op", choices=[str(op) for op in Op])
-    ctl.add_argument(
+    command.add_argument("op", choices=[str(op) for op in Op])
+    command.add_argument(
         "arg",
         nargs="?",
         default="",
@@ -322,7 +324,7 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
             " segment: a segment's name"
         ),
     )
-    ctl.add_argument(
+    command.add_argument(
         "segment_args",
         nargs="*",
         metavar="ACTION [MEMBER]",
@@ -331,11 +333,12 @@ def add_ctl(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
             " capture or end-capture"
         ),
     )
+    command.set_defaults(handler=functools.partial(anyio.run, ctl))
 
 
 def add_monitor(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """`monitor`: a run's events until its verdict. The runner and the `vivarium` CLI both take it."""
-    watch = sub.add_parser(
+    command = sub.add_parser(
         "monitor",
         help="print a run's events, one line each, until its verdict",
         description=(
@@ -345,25 +348,26 @@ def add_monitor(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> Non
             " `; echo` after it, or a pause reads as success."
         ),
     )
-    watch.add_argument("target", help="the run's --out directory, or its id")
-    watch.add_argument("--json", action="store_true", help="each event as a JSON object")
-    watch.add_argument(
+    command.add_argument("target", help="the run's --out directory, or its id")
+    command.add_argument("--json", action="store_true", help="each event as a JSON object")
+    command.add_argument(
         "--quiet",
         action="store_true",
         help="only pauses, failures and the verdict, not each phase that starts or passes",
     )
-    watch.add_argument(
+    command.add_argument(
         "--through-pauses",
         action="store_true",
         help="print a pause and go on to the verdict, instead of exiting 4 at the pause",
     )
-    watch.add_argument(
+    command.add_argument(
         "--wait",
         type=float,
         default=monitor.WAIT,
         metavar="SECONDS",
         help="how long to wait for a run that has not started (default: %(default)g)",
     )
+    command.set_defaults(handler=watch)
 
 
 def announce(session: Session) -> None:
@@ -678,29 +682,25 @@ def watch(args: argparse.Namespace) -> int:
         return 130
 
 
+def run_command(args: argparse.Namespace) -> int:
+    if args.keep:
+        os.environ[runroot.KEEP] = "1"
+    registry.pin()
+    # First, before anything boots or any thread starts.
+    namespace.enter(Spec.read(args.spec).unshare, private_net=args.offline)
+    args.out.mkdir(parents=True, exist_ok=True)
+    # Held to the end of the process; the kernel lets go of it then.
+    liveness.hold(args.out)
+    try:
+        return anyio.run(run, args)
+    finally:
+        runroot.remove_own()
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse(argv)
-    if args.command == "ctl":
-        raise SystemExit(anyio.run(ctl, args))
-    if args.command == "monitor":
-        raise SystemExit(watch(args))
-    if args.command == "logs":
-        raise SystemExit(logs.main(args))
     try:
-        if args.command == "phases":
-            raise SystemExit(anyio.run(phases, args))
-        if args.keep:
-            os.environ[runroot.KEEP] = "1"
-        registry.pin()
-        # First, before anything boots or any thread starts.
-        namespace.enter(Spec.read(args.spec).unshare, private_net=args.offline)
-        args.out.mkdir(parents=True, exist_ok=True)
-        # Held to the end of the process; the kernel lets go of it then.
-        liveness.hold(args.out)
-        try:
-            raise SystemExit(anyio.run(run, args))
-        finally:
-            runroot.remove_own()
+        raise SystemExit(args.handler(args))
     except KeyboardInterrupt:
         raise SystemExit(130) from None
     except (SessionError, SpecError, namespace.NamespaceError, liveness.RunLive) as error:

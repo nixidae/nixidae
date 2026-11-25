@@ -175,6 +175,7 @@ def add(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     logs.add_argument("--lines", "-n", type=int, metavar="N", help="only the last N matches so far")
     logs.add_argument("--follow", "-f", action="store_true", help="then print new events until the run ends")
     logs.add_argument("--json", action="store_true", help="each event as its JSON line")
+    logs.set_defaults(handler=main)
 
 
 def main(args: argparse.Namespace) -> int:

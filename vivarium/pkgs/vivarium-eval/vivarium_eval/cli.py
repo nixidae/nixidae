@@ -183,16 +183,20 @@ def parser() -> argparse.ArgumentParser:
                     " The run goes on after a pause"
                 ),
             )
-    down = sub.add_parser("down", help="stop an environment `up` started; exit 0 if its phases passed")
-    add_target(down)
+    stopping = sub.add_parser("down", help="stop an environment `up` started; exit 0 if its phases passed")
+    add_target(stopping)
+    stopping.set_defaults(handler=lambda args: anyio.run(down, target_of(args)))
     for command in ("ps", "ls"):
-        listing = sub.add_parser(command, help="the runs up on this host: their state, environment, test and --out")
-        listing.add_argument("--json", action="store_true", help="one JSON object per run")
+        lister = sub.add_parser(command, help="the runs up on this host: their state, environment, test and --out")
+        lister.add_argument("--json", action="store_true", help="one JSON object per run")
+        lister.set_defaults(handler=lambda args: anyio.run(listing, args.json))
     removing = sub.add_parser("rm", help="delete stopped environments' directories")
     removing.add_argument("names", nargs="+", metavar="NAME")
     removing.add_argument("--force", "-f", action="store_true", help="stop one that is up first")
+    removing.set_defaults(handler=lambda args: anyio.run(remove, args.names, args.force))
     cleaning = sub.add_parser("clean", help="delete every environment that is not up, and stale run entries")
     cleaning.add_argument("--dry-run", action="store_true", help="say what would go, delete nothing")
+    cleaning.set_defaults(handler=lambda args: anyio.run(clean, args.dry_run))
     for command, what in (
         ("env", "a live run's variables as `export` lines, for a shell's `eval`"),
         ("shell", "the user's shell, or the command after --, with a live run's variables"),
@@ -207,6 +211,7 @@ def parser() -> argparse.ArgumentParser:
         )
         if command == "env":
             entering.add_argument("--json", action="store_true", help="one JSON object")
+        entering.set_defaults(handler=enter)
     loading = sub.add_parser(
         "load",
         help=(
@@ -217,7 +222,9 @@ def parser() -> argparse.ArgumentParser:
     loading.add_argument("words", nargs="+", metavar="[NAME] IMAGE", help="the environment, then the tarballs")
     loading.add_argument("--out", type=Path, help="the run's --out, for a run that is no named environment")
     loading.add_argument("--node", action="append", default=[], help="this node only; repeatable. Default: every node")
+    loading.set_defaults(handler=load)
     noding = sub.add_parser("node", help="add a worker to a live cluster from a template, or remove one added so")
+    noding.set_defaults(handler=node)
     actions = noding.add_subparsers(dest="action", required=True)
     adding = actions.add_parser("add", help="`node add NAME NODE` or `node add --out DIR NODE`: launch and join NODE")
     adding.add_argument("--template", help="the template to launch; default: the run's one Kubernetes template")
@@ -230,6 +237,7 @@ def parser() -> argparse.ArgumentParser:
         "closure", help="every store path these reach, one a line: what a test in a guest needs of the host's store"
     )
     closing.add_argument("paths", nargs="+", help="store paths")
+    closing.set_defaults(handler=lambda args: anyio.run(closure, args.paths))
     add_switch(sub)
     add_reload(sub)
     runner_cli.add_ctl(sub)
@@ -418,6 +426,7 @@ def add_switch(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     switching.add_argument("--node", required=True, help="the guest to change")
     switching.add_argument("--module", type=Path, required=True, help="a NixOS module file")
     switching.add_argument("--action", choices=control.SWITCH_ACTIONS, default="switch")
+    switching.set_defaults(handler=switch)
 
 
 def add_reload(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -435,6 +444,7 @@ def add_reload(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     )
     reloading.add_argument("--file", "-f", type=Path, help="with an attribute: as `run` takes it (default `.`)")
     reloading.add_argument("--out", type=Path, required=True, help="the paused session's --out")
+    reloading.set_defaults(handler=reload)
 
 
 async def build_spec(file: Path, attr: list[str]) -> Path:
@@ -556,31 +566,7 @@ def main(argv: list[str] | None = None) -> None:
             top.error(f"unrecognized arguments: {' '.join(rest)}")
         # `vivarium ctl --out o pytest ./tests -- -k x`, as the runner takes it.
         args.pytest_args = tail[1:]
-        if args.command == "ctl":
-            raise SystemExit(anyio.run(runner_cli.ctl, args))
-        if args.command == "monitor":
-            raise SystemExit(runner_cli.watch(args))
-        if args.command == "logs":
-            raise SystemExit(logs.main(args))
-        if args.command == "reload":
-            raise SystemExit(reload(args))
-        if args.command == "down":
-            raise SystemExit(anyio.run(down, target_of(args)))
-        if args.command in ("ps", "ls"):
-            raise SystemExit(anyio.run(listing, args.json))
-        if args.command == "rm":
-            raise SystemExit(anyio.run(remove, args.names, args.force))
-        if args.command == "clean":
-            raise SystemExit(anyio.run(clean, args.dry_run))
-        if args.command in ("env", "shell"):
-            raise SystemExit(enter(args))
-        if args.command == "load":
-            raise SystemExit(load(args))
-        if args.command == "node":
-            raise SystemExit(node(args))
-        if args.command == "closure":
-            raise SystemExit(anyio.run(closure, args.paths))
-        raise SystemExit(switch(args))
+        raise SystemExit(args.handler(args))
     if head and head[0] == "up":
         argv = name_environment(argv)
     request = parse(argv)
