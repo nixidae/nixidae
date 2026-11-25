@@ -722,7 +722,8 @@ async def bring_up(
 
     A cluster kept with `services.vivarium-k8s.persist` skips `kubeadm
     init` and the kube-proxy patch, and joins only a worker that kept
-    nothing, in place of its old Node: see `kept_cluster`. The rest runs
+    nothing, in place of its old Node: see `kept_cluster`. It deletes a
+    Node that no guest of this run is. The rest runs
     again and leaves what is already done, since the guests' roots, the
     host's forwards and the router start blank each run.
 
@@ -768,10 +769,16 @@ async def bring_up(
     else:
         await wait_for_api(cp)
         # A worker that kept nothing left its Node behind, maybe still
-        # Ready: kubeadm refuses to join a second Node of that name.
-        for vm in joining:
-            await kubectl(cp, f"delete node {vm.name} --ignore-not-found --wait")
-    await join(cp, joining)
+        # Ready: kubeadm refuses to join a second Node of that name. A
+        # Node no guest is (a worker gone from the test, an instance a
+        # live run added) would hold a podCIDR nothing routes.
+        listed = (await kubectl(cp, "get nodes --output jsonpath={.items[*].metadata.name}")).split()
+        stale = sorted({vm.name for vm in joining} | (set(listed) - set(cluster)))
+        for name in stale:
+            await kubectl(cp, f"delete node {name} --ignore-not-found --wait")
+        if stale:
+            cp.say(f"[k8s] {cp.name}: deleted the Nodes {stale}")
+    await join(cp, [vm for vm in joining if vm in workers], [vm for vm in joining if vm in others])
     if not external:
         await wire_pod_network(cp, cluster)
         await wait_for_ready_nodes(cp, len(cluster))

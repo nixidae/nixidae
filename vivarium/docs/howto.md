@@ -387,7 +387,9 @@ CRI-O), the control plane's `/var/lib/etcd` and its PersistentVolumes. `bring_up
 `admin.conf` on the kept disk and does not run `kubeadm init` or `join`
 again; it waits for the API server and does the rest as before. A worker
 that keeps nothing (`persist` on the control plane alone) joins again on
-each run, in place of its old Node. It refuses a kept cluster made from
+each run, in place of its old Node. A Node that no guest of the run is,
+such as a worker removed from the test, is deleted. It refuses a kept
+cluster made from
 another kubeadm configuration (another Kubernetes version, address or
 kubelet setting): kubeadm reads that only at init. `vivarium rm` the
 environment then. `checks.k8s-kept` runs one environment twice. `checks.k8s-host` keeps its cluster:

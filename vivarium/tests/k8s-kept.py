@@ -2,8 +2,9 @@
 
 The control plane keeps its cluster and the worker keeps nothing, so a
 second run resumes on the control plane and joins the worker again in
-place of its old Node. The first run loads an image; the second finds a
-pod of it running from the control plane's kept containerd.
+place of its old Node, and deletes a Node no guest is. The first run
+loads an image; the second finds a pod of it running from the control
+plane's kept containerd.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from vivarium_k8s import CONTROL_PLANE_TAINT, bring_up, kubectl, load_images, un
 from vivarium_runner import Machine, Machines
 
 PROBE = "kept-probe"
+# A Node no guest is, as a worker gone from the test leaves one.
+GONE = "gone"
 IMAGE = "vivarium.test/loaded:1"
 WAIT = 180
 
@@ -76,10 +79,15 @@ async def test(vms: Machines) -> None:
         vms.state["probe"] = uid
         print(f"[k8s-kept] made {PROBE} {uid}", flush=True)
         await load(vms, cp)
+        await cp.succeed(
+            f"kubectl create --filename - <<'EOF'\n{{apiVersion: v1, kind: Node, metadata: {{name: {GONE}}}}}\nEOF"
+        )
     elif uid != made:
         raise RuntimeError(f"the kept cluster has {PROBE} {uid or '(none)'}, the last run made {made}")
     else:
         print(f"[k8s-kept] found {PROBE} {uid} from the last run", flush=True)
+        if (await kubectl(cp, f"get node {GONE} --ignore-not-found --output name")).strip():
+            raise RuntimeError(f"the resumed cluster keeps the Node {GONE}, which no guest is")
         await state(cp, "loaded", "phase", "Running")
         print(f"[k8s-kept] the pod of {IMAGE} runs again, from the kept containerd", flush=True)
     taints = await kubectl(cp, f"get node {cp.name} --output jsonpath={{.spec.taints[*].key}}")
