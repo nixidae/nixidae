@@ -20,6 +20,9 @@ MAX_INDEX = 255
 LAN = "vec1"
 """The interface `vivarium.lan` makes: its first address is the guest's `address`."""
 
+ROUTED_INDEXES = 200
+"""The router leases an address to indexes below this (`maxGuests` in modules/router.nix)."""
+
 
 class InstanceError(ValueError):
     """A launch this run cannot do: no such template, a name taken, no index free."""
@@ -52,6 +55,8 @@ def instance_spec(
 
     A forward binds a host port, and two instances of one template would bind the same one.
     The first address on `LAN` is the instance's `address`, as `vivarium.lan.address` is a node's.
+    Behind the router, the router's lease for the index is its `uplink_address`: the
+    template's, moved by as many indexes as the instance's is from the template's.
     """
     interfaces = tuple(
         replace(
@@ -62,15 +67,31 @@ def instance_spec(
         for nic in template.interfaces
     )
     lan = next((nic.addresses[0] for nic in interfaces if nic.name == LAN and nic.addresses), None)
-    return replace(template, name=name, index=index, interfaces=interfaces, inbound=(), address=lan)
+    uplink = template.uplink_address
+    if uplink is not None:
+        if index >= ROUTED_INDEXES:
+            raise InstanceError(f"index {index}: the router leases an address to indexes below {ROUTED_INDEXES}")
+        uplink = str(ipaddress.ip_address(uplink) + (index - template.index))
+    return replace(
+        template, name=name, index=index, interfaces=interfaces, inbound=(), address=lan, uplink_address=uplink
+    )
 
 
 def seed(spec: MachineSpec, template: str, user_data: str | None) -> dict[str, object]:
-    """What the guest's `vivarium-instance` unit reads from `/artifacts/instance.json`."""
+    """What the guest's `vivarium-instance` unit reads from `/artifacts/instance.json`.
+
+    `uplink_token`: behind the router, the IPv6 token that puts the
+    instance's `vec0` on `uplink.address6 index` (nix/uplink.nix), whose
+    host part is the IPv4 address's.
+    """
+    token = None
+    if spec.uplink_address is not None:
+        token = f"static:::{ipaddress.IPv4Address(spec.uplink_address).packed[-1]}"
     return {
         "name": spec.name,
         "template": template,
         "index": spec.index,
         "interfaces": {nic.name: list(nic.addresses) for nic in spec.interfaces},
+        "uplink_token": token,
         "user_data": user_data,
     }

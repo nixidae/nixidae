@@ -55,5 +55,20 @@ def test_the_seed_names_each_interface_and_the_user_data() -> None:
         "template": "worker",
         "index": 7,
         "interfaces": {"eth1": []},
+        "uplink_token": None,
         "user_data": "x",
     }
+
+
+def test_an_instance_behind_the_router_takes_the_lease_of_its_index() -> None:
+    template = machine_spec("worker", index=3, uplink="uplink-worker", uplink_address="10.0.2.18")
+    one = instance_spec(template, "w1", 7, {}, slot=0)
+    # uplink.address 7 is 10.0.2.(15 + 7), and its IPv6 host part the same.
+    assert one.uplink_address == "10.0.2.22"
+    assert seed(one, "worker", None)["uplink_token"] == "static:::22"
+
+
+def test_the_router_leases_no_index_from_200() -> None:
+    template = machine_spec("worker", index=3, uplink="uplink-worker", uplink_address="10.0.2.18")
+    with pytest.raises(InstanceError, match="indexes below 200"):
+        instance_spec(template, "w1", 200, {}, slot=0)

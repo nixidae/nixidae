@@ -20,6 +20,7 @@
   pkgs,
   hostPkgs,
   nodes,
+  templateNodes,
   utils,
   ...
 }:
@@ -56,8 +57,32 @@ let
     name: node: name != config.networking.hostName && node.vivarium.uplink.proxy == "router"
   ) nodes;
 
-  # The router's port to a guest: at most 15 characters, so its index.
+  # The templates whose instances sit behind this router. Each has one
+  # port here, on the hub segment its instances join at launch.
+  routedTemplates = lib.filterAttrs (_: node: node.vivarium.uplink.proxy == "router") templateNodes;
+  ported = guests // routedTemplates;
+
+  # The router's port to a guest or a template: at most 15 characters, so
+  # its index. A template's evaluation index is no node's.
   port = node: "g${toString node.vivarium.index}";
+
+  # `uplink.address index` stays below the DHCP pool at .215.
+  maxGuests = 200;
+
+  # An instance's index is the runner's, so the router leases every index
+  # no node holds. The MAC and the address are both the index's: the
+  # runner's `MachineSpec.mac(0)` and `instance_spec`.
+  instanceLeases =
+    map
+      (index: {
+        MACAddress = "52:54:00:12:00:${lib.toLower (lib.fixedWidthString 2 "0" (lib.toHexString index))}";
+        Address = cfg.address index;
+      })
+      (
+        lib.subtractLists (lib.mapAttrsToList (_: node: node.vivarium.index) nodes) (
+          lib.range 0 (maxGuests - 1)
+        )
+      );
 
   # The uplink's routing table on the router: the bridge is a port of
   # this VRF, and the relay binds every socket to it (nixidae/nixidae#1523).
@@ -388,18 +413,11 @@ in
 
   config = lib.mkMerge [
     # A guest behind the router: its address from the router's
-    # advertisement, the host part fixed by its index.
-    (lib.mkIf (config.vivarium.uplink.proxy == "router") {
+    # advertisement, the host part fixed by its index. An instance's index
+    # is the runner's, so its seed sets the token (instance.py).
+    (lib.mkIf (config.vivarium.uplink.proxy == "router" && !config.vivarium.template) {
       systemd.network.networks."40-vec0".ipv6AcceptRAConfig.Token =
         "static:::${toString (uplink.host config.vivarium.index)}";
-      # The router's port, lease and forwards for a guest are fixed at
-      # evaluation; an instance arrives later and would get none.
-      assertions = [
-        {
-          assertion = !config.vivarium.template;
-          message = "a template's instances cannot sit behind the router (nixidae/nixidae#1404); set its vivarium.uplink.proxy.";
-        }
-      ];
     })
     (lib.mkIf cfg.enable {
       # 256M on krun runs out of memory at boot, and on QEMU under load,
@@ -424,7 +442,7 @@ in
 
       vivarium.interfaces = lib.mapAttrs' (
         _: node: lib.nameValuePair (port node) { segment = node.vivarium.uplink.segment; }
-      ) guests;
+      ) ported;
 
       assertions = [
         {
@@ -553,15 +571,17 @@ in
             Gateway = cfg.address nodes.${route.via}.vivarium.index;
             Table = 1000;
           }) cfg.routes;
-          dhcpServerStaticLeases = lib.mapAttrsToList (_: node: {
-            MACAddress = node.vivarium.uplinkMac;
-            Address = cfg.address node.vivarium.index;
-          }) guests;
+          dhcpServerStaticLeases =
+            lib.mapAttrsToList (_: node: {
+              MACAddress = node.vivarium.uplinkMac;
+              Address = cfg.address node.vivarium.index;
+            }) guests
+            ++ lib.optionals (routedTemplates != { }) instanceLeases;
         };
       }
       // lib.mapAttrs' (
         _: node: lib.nameValuePair "40-${port node}" { networkConfig.Bridge = bridge; }
-      ) guests;
+      ) ported;
 
       networking.nftables = {
         enable = true;

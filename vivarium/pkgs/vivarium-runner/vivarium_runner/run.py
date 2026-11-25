@@ -262,7 +262,7 @@ class Run:
             members.append(("vec0", one.uplink))
         lan_fds = {nic: lans[segment].add_member(f"{name}/{nic}") for nic, segment in members}
         machines[name] = self._machine(one, lan_fds)
-        self._requires[name] = []
+        self._requires[name] = list(one.requires)
         return one
 
     def holds(self, name: str) -> bool:

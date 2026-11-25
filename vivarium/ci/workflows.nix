@@ -493,6 +493,7 @@ let
     features = [
       "checks.cloud"
       "checks.launch"
+      "checks.launch-router"
       "checks.python-packages"
       "checks.cache"
       "checks.lan-router"

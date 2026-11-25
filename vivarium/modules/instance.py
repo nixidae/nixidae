@@ -20,6 +20,11 @@ def main(seed_path: str) -> None:
         drop_in.mkdir(parents=True, exist_ok=True)
         lines = "".join(f"Address={address}\n" for address in addresses)
         (drop_in / "50-instance.conf").write_text(f"[Network]\n{lines}")
+    token = seed.get("uplink_token")
+    if token is not None:
+        drop_in = NETWORK / "40-vec0.network.d"
+        drop_in.mkdir(parents=True, exist_ok=True)
+        (drop_in / "50-instance-token.conf").write_text(f"[IPv6AcceptRA]\nToken={token}\n")
     OWN.mkdir(mode=0o755, exist_ok=True)
     (OWN / "instance.json").write_text(json.dumps({key: seed[key] for key in ("name", "template", "index")}))
     user_data = seed.get("user_data")

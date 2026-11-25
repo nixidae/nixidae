@@ -711,7 +711,9 @@ rec {
           lib.lists.findFirstIndex (name: name == hostName) null guestNames;
 
       # What `router.enable` does to a guest. A guest of the router's
-      # name merges into the router.
+      # name merges into the router. A template's instances share the
+      # segment `uplink-<template>`, a hub that takes them while frames
+      # flow, and the router has one port on it (router.nix).
       routerModule =
         hostName:
         { config, ... }:
@@ -726,9 +728,7 @@ rec {
               }
             else
               {
-                # A template's instance is never behind it (router.nix says why),
-                # and keeps the uplink a guest has without a router.
-                vivarium.uplink.proxy = lib.mkIf (!config.vivarium.template) (lib.mkDefault "router");
+                vivarium.uplink.proxy = lib.mkDefault "router";
                 # Here and not in the guest module: the `wantsRouter` probe
                 # evaluates a guest without a router, and reads a null
                 # segment as "the router serves my uplink".
@@ -754,6 +754,8 @@ rec {
           ]
           ++ extra;
           _module.args.nodes = nodes;
+          # The router reads which templates sit behind it.
+          _module.args.templateNodes = templates;
           # For `vivarium.lateClosure`: a guest names the settings paths it reads.
           _module.args.settings = cfg.settings;
           networking.hostName = lib.mkDefault hostName;
@@ -793,8 +795,10 @@ rec {
                 cfg.defaults
                 cfg.templates.${name}
                 peersModule
+                (routerModule name)
               ];
               _module.args.nodes = nodes;
+              _module.args.templateNodes = templates;
               _module.args.settings = cfg.settings;
               networking.hostName = lib.mkDefault name;
               vivarium.sshPort = lib.mkDefault (4325 + lib.length (lib.attrNames cfg.nodes) + ordinal);
@@ -807,7 +811,11 @@ rec {
       );
 
       templateSegments = lib.unique (
-        lib.concatMap (template: map (nic: nic.segment) template.vivarium.nics) (lib.attrValues templates)
+        lib.concatMap (
+          template:
+          map (nic: nic.segment) template.vivarium.nics
+          ++ lib.optional (template.vivarium.uplink.segment != null) template.vivarium.uplink.segment
+        ) (lib.attrValues templates)
       );
 
       machines = lib.attrValues nodes;
@@ -915,6 +923,9 @@ rec {
             machineSpec template
             // lib.optionalAttrs (!template.vivarium.hostStore.enable && template.vivarium.closure != null) {
               storePaths = "${template.vivarium.closure}/store-paths";
+            }
+            // lib.optionalAttrs (template.vivarium.requires != [ ]) {
+              inherit (template.vivarium) requires;
             }
           ) (lib.attrValues templates);
           unshare = "${lib.getBin pkgs.util-linux}/bin/unshare";
