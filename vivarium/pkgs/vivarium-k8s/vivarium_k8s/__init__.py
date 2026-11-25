@@ -22,7 +22,11 @@ writes the nodes to the run's settings, where `bring_up` reads them.
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import shutil
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -30,6 +34,8 @@ from typing import Any, TypedDict, cast
 import anyio
 from vivarium_runner.machine import Machine, MachineError
 from vivarium_runner.machines import Issuer, Machines
+
+from .images import ImageError as ImageError, image_refs, latest, listed_as, store_path
 
 
 class NodeFacts(TypedDict):
@@ -795,6 +801,83 @@ async def bring_up(
     return cp
 
 
+LOADS = "load"
+"""Where a host tarball waits in a node's `/artifacts` while it is imported."""
+
+IMPORT_TIMEOUT = 10 * 60
+"""Seconds one node has to import what `load_images` gives it."""
+
+
+async def load_images(vms: Machines, tarballs: Sequence[str | Path], on: Sequence[str] = ()) -> dict[str, list[str]]:
+    """Import *tarballs* into the container runtime of the nodes *on*, by
+    default every node: `docker save` or OCI archives, gzipped or not, each
+    image whole. Returns the images each node now has, by node.
+
+    A tarball in the host's store reaches a node through its store view;
+    one outside it is linked into the node's `/artifacts` and removed after
+    the import. A pod that runs a loaded image asks for its tag with
+    `imagePullPolicy: IfNotPresent` or `Never`, as on kind. An image whose
+    layers point into `/nix/store` (`includeStorePaths = false`) is no case
+    for this: give it to `services.vivarium-k8s.extraImages`.
+    """
+    targets = list(on) or list(nodes(vms))
+    absent = sorted(set(targets) - set(vms))
+    if absent:
+        raise MachineError(f"no node {absent} in this run")
+    sources = [Path(tarball).resolve() for tarball in tarballs]
+    try:
+        refs = {source: await anyio.to_thread.run_sync(image_refs, source) for source in sources}
+    except ImageError as error:
+        raise MachineError(str(error)) from error
+    loaded: dict[str, list[str]] = {}
+
+    async def one(vm: Machine) -> None:
+        staged: list[Path] = []
+        inside: list[str] = []
+        try:
+            for source in sources:
+                kept = store_path(source)
+                if kept is not None:
+                    await vm.add_paths([str(kept)])
+                    inside.append(str(source))
+                    continue
+                folder = vms.artifacts / vm.name / LOADS
+                target = folder / f"{uuid.uuid4().hex[:8]}-{source.name}"
+                await anyio.to_thread.run_sync(_stage, source, target)
+                staged.append(target)
+                inside.append(f"/artifacts/{LOADS}/{target.name}")
+            vm.say(f"[k8s] {vm.name}: importing {', '.join(source.name for source in sources)}")
+            listed = await vm.succeed("vivarium-k8s-import " + shlex.join(inside), timeout=IMPORT_TIMEOUT)
+        finally:
+            for target in staged:
+                target.unlink(missing_ok=True)
+        present = set(listed.stdout.split())
+        wanted = sorted({ref for found in refs.values() for ref in found})
+        missing = [ref for ref in wanted if not listed_as(ref) & present]
+        if missing:
+            raise MachineError(f"[{vm.name}] the runtime lists no {missing} after the import:\n{listed.stdout}")
+        loaded[vm.name] = wanted
+
+    async with anyio.create_task_group() as group:
+        for name in targets:
+            group.start_soon(one, vms[name])
+    for ref in sorted({ref for found in refs.values() for ref in found}):
+        if latest(ref):
+            vms[targets[0]].say(
+                f"[k8s] {ref} is `latest`: a pod needs imagePullPolicy IfNotPresent or Never to run it, or kubelet pulls"
+            )
+    return loaded
+
+
+def _stage(source: Path, target: Path) -> None:
+    """*source* at *target*: a hard link, which costs no space, else a copy."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copyfile(source, target)
+
+
 APISERVER_PORT = 6443
 
 APISERVER_NAME = "kubernetes"
@@ -969,6 +1052,7 @@ __all__ = [
     "join",
     "kept_cluster",
     "kubectl",
+    "load_images",
     "nodes",
     "provision_runtimes",
     "provision_storage",

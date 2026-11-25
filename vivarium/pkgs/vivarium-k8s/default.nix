@@ -12,6 +12,7 @@ python3Packages.buildPythonPackage {
     root = ./.;
     fileset = lib.fileset.unions [
       ./pyproject.toml
+      ./tests
       ./vivarium_k8s
     ];
   };
@@ -24,6 +25,7 @@ python3Packages.buildPythonPackage {
     python3Packages.anyio
   ];
 
+  nativeCheckInputs = [ python3Packages.pytestCheckHook ];
   pythonImportsCheck = [ "vivarium_k8s" ];
 
   meta = {
