@@ -562,10 +562,22 @@ async def untaint(cp: Machine) -> None:
     taint.  A node without it, such as a kept control plane a first run
     untainted, is left alone: kubectl would fail with "not found".
     """
-    taints = await kubectl(cp, f"get node {cp.name} --output jsonpath={{.spec.taints[*].key}}")
-    if CONTROL_PLANE_TAINT in taints.split():
+    if await _tainted(cp):
         await kubectl(cp, f"taint node {cp.name} {CONTROL_PLANE_TAINT}-")
     cp.say("[k8s] control plane will schedule workloads")
+
+
+async def taint(cp: Machine) -> None:
+    """Keep workloads off the control plane, as kubeadm does: for a kept
+    cluster that an earlier run made schedulable."""
+    if not await _tainted(cp):
+        await kubectl(cp, f"taint node {cp.name} {CONTROL_PLANE_TAINT}:NoSchedule")
+        cp.say("[k8s] control plane is tainted again")
+
+
+async def _tainted(cp: Machine) -> bool:
+    taints = await kubectl(cp, f"get node {cp.name} --output jsonpath={{.spec.taints[*].key}}")
+    return CONTROL_PLANE_TAINT in taints.split()
 
 
 async def provision_storage(cp: Machine, vms: Mapping[str, Machine]) -> None:
@@ -764,10 +776,11 @@ async def bring_up(
             continue
         await wait_for_pods(cp, selector)
 
-    # Every run: a kept cluster whose first run ended before this step still
-    # has the taint.
+    # Every run, both ways: a kept cluster keeps whatever its last run left.
     if schedulable:
         await untaint(cp)
+    else:
+        await taint(cp)
 
     await host_kubeconfig(cp, vms)
     router = vms.settings.get("kubernetes", {}).get("loadBalancer", {}).get("router")
@@ -959,6 +972,7 @@ __all__ = [
     "nodes",
     "provision_runtimes",
     "provision_storage",
+    "taint",
     "untaint",
     "until",
     "wait_for_api",
