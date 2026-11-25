@@ -605,6 +605,67 @@ async def _apply_node_manifests(cp: Machine, vms: Mapping[str, Machine], path: s
     return applied
 
 
+STATE_KEY = "vivarium_k8s"
+"""This package's entry in `vms.state`: `{"kubeadm": <sha256 of the
+control plane's KUBEADM_CONFIG>}`, written once `kubeadm init` succeeds."""
+
+ADMIN_CONF = "/etc/kubernetes/admin.conf"
+KUBELET_CONF = "/etc/kubernetes/kubelet.conf"
+
+
+async def _has(vm: Machine, path: str) -> bool:
+    return (await vm.execute(f"test -e {path}")).returncode == 0
+
+
+async def _fingerprint(cp: Machine) -> str:
+    return (await cp.succeed(f"sha256sum {KUBEADM_CONFIG}")).stdout.split()[0]
+
+
+async def kept_cluster(cp: Machine, workers: Sequence[Machine], vms: Machines) -> list[Machine] | None:
+    """The workers to join into the cluster *cp* kept, or `None` when *cp*
+    kept none and the cluster starts blank.
+
+    A node keeps kubeadm's state only with `services.vivarium-k8s.persist`,
+    in a named environment. The fingerprint is the kubeadm configuration
+    the cluster was made from: kubeadm reads it at `init` and nowhere else,
+    so a kept cluster with another one would ignore this run's.
+    """
+    fingerprint = await _fingerprint(cp)
+    joined = {vm.name for vm in workers if await _has(vm, KUBELET_CONF)}
+    if not await _has(cp, ADMIN_CONF):
+        if joined:
+            raise MachineError(
+                f"{sorted(joined)} kept a cluster that the control plane {cp.name} did not;"
+                " remove the environment with `vivarium rm` and bring it up again"
+            )
+        vms.state.pop(STATE_KEY, None)
+        return None
+    recorded = vms.state.get(STATE_KEY, {}).get("kubeadm")
+    if recorded != fingerprint:
+        why = (
+            "an earlier `kubeadm init` did not finish"
+            if recorded is None
+            else "it was made from another kubeadm configuration, and kubeadm reads that only at init"
+        )
+        raise MachineError(
+            f"[{cp.name}] the kept cluster does not fit this run: {why}."
+            " Remove the environment with `vivarium rm` and bring it up again"
+        )
+    cp.say(f"[k8s] {cp.name}: resumes the kept cluster")
+    return [vm for vm in workers if vm.name not in joined]
+
+
+async def wait_for_api(cp: Machine) -> None:
+    """A kept control plane starts its static pods at boot; wait until the
+    API server answers."""
+
+    async def check() -> tuple[bool, str]:
+        done = await cp.execute("kubectl get --raw /readyz 2>&1")
+        return done.returncode == 0, done.stdout.strip()
+
+    await until("the kept API server", check, INIT_TIMEOUT, cp)
+
+
 async def bring_up(
     vms: Machines,
     cp_name: str = "cp",
@@ -639,6 +700,11 @@ async def bring_up(
     `vms.settings`: every guest with `services.vivarium-k8s` enabled. The
     rest of the run, a cache guest for one, is left alone.
 
+    A cluster kept with `services.vivarium-k8s.persist` skips `kubeadm
+    init`, the kube-proxy patch and the taint, and joins only a worker that
+    kept nothing: see `kept_cluster`. The rest runs again, since the guests'
+    roots, the host's forwards and the router start blank each run.
+
     Nodes with `services.vivarium-k8s.cni = "external"` get no pod network
     from here: the test deploys its own CNI. Until it does, no node is
     Ready and no pod-network pod runs, CoreDNS included, so this returns
@@ -670,11 +736,18 @@ async def bring_up(
         for vm in cluster.values():
             await wait_for_dns(vm)
 
-    await init_control_plane(
-        cp,
-        patch_proxy=sources == {"nix"} and "kube-proxy" not in facts[cp_name]["skipAddons"],
-    )
-    await join(cp, workers)
+    joining = await kept_cluster(cp, workers, vms)
+    kept = joining is not None
+    if joining is None:
+        await init_control_plane(
+            cp,
+            patch_proxy=sources == {"nix"} and "kube-proxy" not in facts[cp_name]["skipAddons"],
+        )
+        vms.state[STATE_KEY] = {"kubeadm": await _fingerprint(cp)}
+        joining = workers
+    else:
+        await wait_for_api(cp)
+    await join(cp, joining)
     if not external:
         await wire_pod_network(cp, cluster)
         await wait_for_ready_nodes(cp, len(cluster))
@@ -685,7 +758,8 @@ async def bring_up(
             continue
         await wait_for_pods(cp, selector)
 
-    if schedulable:
+    # The taint is the cluster's, and a kept cluster lost it at its first run.
+    if schedulable and not kept:
         await untaint(cp)
 
     await host_kubeconfig(cp, vms)
@@ -842,6 +916,7 @@ async def connect_issuer(cp: Machine, issuer: Issuer, name: str) -> None:
 
 
 __all__ = [
+    "ADMIN_CONF",
     "APISERVER_NAME",
     "APISERVER_PORT",
     "CA_SECRET",
@@ -850,6 +925,8 @@ __all__ = [
     "DEFAULT_ADDONS",
     "INIT_TIMEOUT",
     "JOIN_TIMEOUT",
+    "KUBEADM_CONFIG",
+    "KUBELET_CONF",
     "KUBE_DNS",
     "KUBE_PROXY",
     "LOAD_BALANCER_CREDENTIALS",
@@ -857,6 +934,7 @@ __all__ = [
     "POLL",
     "READY_TIMEOUT",
     "RUNTIME_MANIFEST",
+    "STATE_KEY",
     "STORAGE_MANIFEST",
     "UNIT_TIMEOUT",
     "NodeFacts",
@@ -869,12 +947,14 @@ __all__ = [
     "init_control_plane",
     "install_cert_manager",
     "join",
+    "kept_cluster",
     "kubectl",
     "nodes",
     "provision_runtimes",
     "provision_storage",
     "untaint",
     "until",
+    "wait_for_api",
     "wait_for_dns",
     "wait_for_images",
     "wait_for_pods",

@@ -333,7 +333,7 @@ Each run of an environment boots fresh guests: the root is the run's own.
 A guest keeps the paths it lists:
 
 ```nix
-nodes.cp.vivarium.persist = [ "/var/lib/etcd" "/etc/kubernetes" ];
+nodes.cp.vivarium.persist = [ "/var/lib/data" ];
 ```
 
 Each path is a bind mount of a directory on one store per guest,
@@ -371,6 +371,25 @@ async def test(vms):
 
 Check the guest as well as the state: the state describes the last run,
 not what is on the disk now.
+
+A Kubernetes node sets `services.vivarium-k8s.persist = true` and lists
+nothing itself: the node keeps `/etc/kubernetes`, `/var/lib/kubelet`, the
+control plane's `/var/lib/etcd` and its PersistentVolumes. `bring_up` sees
+`admin.conf` on the kept disk and does not run `kubeadm init` or `join`
+again; it waits for the API server and does the rest as before. It refuses
+a kept cluster made from another kubeadm configuration (another Kubernetes
+version, address or kubelet setting): kubeadm reads that only at init.
+`vivarium rm` the environment then. `checks.k8s-host` keeps its cluster:
+
+```console
+$ vivarium up checks.k8s-host
+$ vivarium shell k8s-host -- kubectl create configmap probe
+$ vivarium down k8s-host
+$ vivarium up checks.k8s-host        # [k8s] cp: resumes the kept cluster
+$ vivarium shell k8s-host -- kubectl get configmap probe
+```
+
+etcd then writes to a disk and not to a tmpfs, in every run.
 
 ### Reach a cluster's Services by name
 

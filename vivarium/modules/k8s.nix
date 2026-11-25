@@ -785,6 +785,23 @@ in
       '';
     };
 
+    persist = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Keep this node's cluster across the runs of a named environment
+        (`vivarium up --name`). The node adds kubeadm's state to
+        `vivarium.persist`: `/etc/kubernetes` and `/var/lib/kubelet`, and on
+        the control plane `/var/lib/etcd` on a disk and not on a tmpfs.
+        With `persistentVolumes`, their directories too.
+
+        `vivarium_k8s.bring_up` sees a kept cluster and does not run
+        `kubeadm init` or `join` again. A run that is not an environment
+        starts blank, as without this option, but etcd still writes to a
+        disk.
+      '';
+    };
+
     workloadImage = lib.mkOption {
       type = lib.types.str;
       readOnly = true;
@@ -1199,7 +1216,7 @@ in
     # etcd on a UML block device spends its life apologising for fsync
     # latency.  A test cluster has nothing to lose across a reboot, and
     # the whole keyspace fits in a few tens of megabytes.
-    fileSystems = lib.mkIf (cfg.role == "control-plane") {
+    fileSystems = lib.mkIf (cfg.role == "control-plane" && !cfg.persist) {
       "/var/lib/etcd" = {
         device = "tmpfs";
         fsType = "tmpfs";
@@ -1229,6 +1246,15 @@ in
         hash = "sha256:${lib.concatStrings (lib.genList (_: "00") 32)}";
       };
     };
+
+    vivarium.persist = lib.mkIf cfg.persist (
+      [
+        "/etc/kubernetes"
+        "/var/lib/kubelet"
+      ]
+      ++ lib.optional (cfg.role == "control-plane") "/var/lib/etcd"
+      ++ lib.optional (cfg.persistentVolumes > 0) storageRoot
+    );
 
     # So a test can say `kubectl get nodes` rather than carrying the
     # kubeconfig through every command.  Commands from the host run as
