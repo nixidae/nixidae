@@ -313,10 +313,16 @@ Without the `vivarium` CLI, `nix run --file . checks.k8s-host.up -- --out
 `down` stops it, waits for the run to exit and exits 0 if every phase
 passed, and keeps its directory. `vivarium ctl --out <dir> stop` does the
 same. A stop before `ready` is an ordinary stop: exit 5. `ps` (or `ls`)
-lists every run on this host that has a control socket, with its state:
-`ready`, `paused` or `running`; then each environment that is `down`.
-`rm NAME` deletes a stopped environment's directory (`--force` stops it
-first), and `clean` deletes every one that is down.
+lists every live run on this host, with its state: `ready`, `paused` or
+`running`, or `unanswered` for a run that is evaluating or busy; then
+each environment that is `down`. `rm NAME` deletes a stopped
+environment's directory (`--force` stops it first, and refuses when it
+is still up after that), and `clean` deletes every one that is down.
+
+A run holds a lock on `<dir>/run.lock` from before it evaluates to its
+exit; the kernel lets go of it however the run ends, SIGKILL included.
+That lock, not a pid or a socket, says whether a run is live. `up`
+refuses a directory whose run is live, by name or by `--out`.
 
 A live run's sockets are in the user's runtime directory
 (`$XDG_RUNTIME_DIR/vivarium/runs/<key>`, `~/Library/Caches/TemporaryItems`
@@ -341,7 +347,9 @@ Each path is a bind mount of a directory on one store per guest,
 sparse raw disk (`vivarium.persistSize` MiB, 16 GiB by default) that the
 guest formats as ext4 on its first run. A container guest's store is a
 host directory. A changed configuration still boots, on the kept data.
-`rm` deletes the stores. Every other run gets a blank store that lasts
+A store stays with its kind of backend: a disk does not boot under the
+container backend, nor a directory under the others. `rm` deletes the
+stores. Every other run gets a blank store that lasts
 the run, so a check proves the first run (`checks.kept`).
 
 `down` powers the guests off, so the disks are clean. A run killed with
@@ -376,10 +384,12 @@ A Kubernetes node sets `services.vivarium-k8s.persist = true` and lists
 nothing itself: the node keeps `/etc/kubernetes`, `/var/lib/kubelet`, the
 control plane's `/var/lib/etcd` and its PersistentVolumes. `bring_up` sees
 `admin.conf` on the kept disk and does not run `kubeadm init` or `join`
-again; it waits for the API server and does the rest as before. It refuses
-a kept cluster made from another kubeadm configuration (another Kubernetes
-version, address or kubelet setting): kubeadm reads that only at init.
-`vivarium rm` the environment then. `checks.k8s-host` keeps its cluster:
+again; it waits for the API server and does the rest as before. A worker
+that keeps nothing (`persist` on the control plane alone) joins again on
+each run, in place of its old Node. It refuses a kept cluster made from
+another kubeadm configuration (another Kubernetes version, address or
+kubelet setting): kubeadm reads that only at init. `vivarium rm` the
+environment then. `checks.k8s-kept` runs one environment twice. `checks.k8s-host` keeps its cluster:
 
 ```console
 $ vivarium up checks.k8s-host

@@ -65,7 +65,8 @@ def _prepare_in(out: Path, where: Path) -> Path:
 class Up:
     out: Path
     state: str
-    """`ready`, `paused` or `running`, as `ctl state` answers."""
+    """`ready`, `paused` or `running`, as `ctl state` answers, or
+    `UNANSWERED`."""
     name: str | None
     """The test's name, from `run.json`."""
     pause: str | None
