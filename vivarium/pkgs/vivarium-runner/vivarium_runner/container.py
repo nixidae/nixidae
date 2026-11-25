@@ -983,29 +983,40 @@ def _ensure_cgroup2() -> None:
             raise OSError(ctypes.get_errno(), f"mount {args[1].decode()}")
 
 
-def _split_cgroup(bundle: Path) -> bool:
-    """Give the guest a cgroup of its own below the launcher's, when the launcher's holds it alone.
+def _split_cgroup(bundle: Path, name: str) -> bool:
+    """Give the guest a cgroup of its own below the launcher's.
 
     cgroup v2 enables no controller for the children of a cgroup that holds a process. Without
     this, crun puts the guest's init beside the launcher, and the guest's cgroup root holds host
-    processes it sees as pid 0: no controller reaches the guest. So the launcher and every helper
-    it starts move to `SUPERVISOR`, and crun's cgroupfs manager makes `GUEST_CGROUP` and enables
-    the controllers (`enable_controllers`, `cgroup-utils.c`). A uid-range build's cgroup holds the
-    build too, so the guest shares it as before.
+    processes it sees as pid 0: no controller reaches the guest. So, when the launcher's cgroup
+    holds it alone, the launcher and every helper it starts move to `SUPERVISOR`, and crun's
+    cgroupfs manager makes `GUEST_CGROUP` and enables the controllers (`enable_controllers`,
+    `cgroup-utils.c`).
+
+    A uid-range build's cgroup holds the build and every guest of the run, and has no controller
+    to enable, so a process beside a child is no conflict. Each guest still gets a child, named for
+    it: in the build's cgroup itself, two guests' systemds manage one tree, and one prunes a unit's
+    cgroup while the other spawns into it (`Failed to spawn executor: No such file or directory`,
+    nixidae/nixidae#1621).
     """
     try:
         own = Path("/proc/self/cgroup").read_text().strip().split(":", 2)[2]
         base = Path("/sys/fs/cgroup") / own.lstrip("/")
-        if (base / "cgroup.procs").read_text().split() != [str(os.getpid())]:
+        if not os.access(base, os.W_OK):
             return False
-        if not os.access(base / "cgroup.subtree_control", os.W_OK):
+        alone = (base / "cgroup.procs").read_text().split() == [str(os.getpid())]
+        if alone and os.access(base / "cgroup.subtree_control", os.W_OK):
+            (base / SUPERVISOR).mkdir(exist_ok=True)
+            (base / SUPERVISOR / "cgroup.procs").write_text(str(os.getpid()))
+            leaf = GUEST_CGROUP
+        elif (base / "cgroup.controllers").read_text().split():
             return False
-        (base / SUPERVISOR).mkdir(exist_ok=True)
-        (base / SUPERVISOR / "cgroup.procs").write_text(str(os.getpid()))
+        else:
+            leaf = f"{GUEST_CGROUP}-{name}"
     except (OSError, IndexError):
         return False
     config = json.loads((bundle / "config.json").read_text())
-    config["linux"]["cgroupsPath"] = f"{own.rstrip('/')}/{GUEST_CGROUP}"
+    config["linux"]["cgroupsPath"] = f"{own.rstrip('/')}/{leaf}"
     (bundle / "config.json").write_text(json.dumps(config))
     return True
 
@@ -1070,7 +1081,7 @@ def main(argv: list[str] | None = None) -> int:
 
     name = args.name
     bundle = args.bundle
-    manager = "cgroupfs" if _split_cgroup(Path(bundle)) else "disabled"
+    manager = "cgroupfs" if _split_cgroup(Path(bundle), name) else "disabled"
     crun = [args.crun, "--root", args.state, f"--cgroup-manager={manager}"]
 
     # A short directory: a sockaddr_un holds 108 bytes, and a bundle under
