@@ -105,7 +105,7 @@ def start_forkserver() -> None:
 
 @contextlib.asynccontextmanager
 async def worker(
-    options: ServerOptions | None = None, *, via: Via | None = None, store_uri: str = "auto"
+    options: ServerOptions | None = None, *, via: Via | None = None, store_uri: str | None = None
 ) -> AsyncIterator[AsyncRemoteSession]:
     """Start a server `via` a transport (`Stdio()` unless given), set up
     as `options` says, and yield a session on it. The server stops with
@@ -118,7 +118,7 @@ async def worker(
     sweep, whatever ends the work."""
     async with _resolved(options or ServerOptions()) as resolved:
         layout = resolved.overlay_namespace()
-        if layout is not None and store_uri == "auto":
+        if layout is not None and store_uri is None:
             store_uri = layout.store_uri()
         # The launch block ends only after the server exits, so nothing
         # writes to the layers when `_resolved` removes them.
@@ -146,7 +146,7 @@ def attach(
     server: str | os.PathLike[str] | transport.Dialer,
     *,
     claim: str | None = None,
-    store_uri: str = "auto",
+    store_uri: str | None = None,
 ) -> AbstractAsyncContextManager[AsyncRemoteSession]:
     """A session on a server something else started: a Unix socket's
     path, or a dialer from `huggorm.transport`. `claim` adopts the

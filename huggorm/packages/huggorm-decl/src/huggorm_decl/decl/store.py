@@ -175,8 +175,8 @@ class MissingPaths:
 class Store:
     """A real nix::Store, opened from a URI.
 
-    `Store("dummy://")` is in-memory. `Store("auto")` is whatever the
-    ambient configuration says, which usually means the daemon."""
+    `Store("dummy://")` is in-memory. `Store()` is the store Nix's own
+    `store` setting names, as the `nix` command opens it."""
 
     # PROSE only, and the reader enforces that. `@constructs(Store)`
     # below makes `open_store` what builds one, so `open_store`
@@ -1452,14 +1452,15 @@ class Store:
 @constructs(Store)
 @needs(Local("nix/store/store-open.hh"))
 @blocks
-def open_store(uri: Str = "auto") -> Store:
+def open_store(uri: Opt[Str] = None) -> Store:
     """Open the store this URI names.
 
-    The URI picks the implementation. "auto" is what the `nix` command
-    itself uses: the daemon when one is running, the local store when
-    it is not. "dummy://" is in memory and touches no disk, which is
-    what makes a store testable in a build sandbox. A path opens a
-    chroot store rooted there.
+    The URI picks the implementation. None opens what the `nix` command
+    opens: the `store` setting, which is NIX_REMOTE, else nix.conf
+    after `load_config`, else "auto". "auto" is the daemon when one is
+    running and the local store when it is not. "dummy://" is in
+    memory and touches no disk, which is what makes a store testable
+    in a build sandbox. A path opens a chroot store rooted there.
 
     The store stays open for as long as Python holds it. libstore
     hands back a reference-counted handle and the binding keeps it, so
@@ -1478,7 +1479,7 @@ def open_store(uri: Str = "auto") -> Store:
     # had to be a NAMED C++ symbol. It does not any more, so the one
     # call lives beside the declaration that describes it
     # (nixidae/nixidae#600).
-    Cxx("return nix::openStore(uri);")
+    Cxx("return uri ? nix::openStore(*uri) : nix::openStore();")
 
 
 # --- what the module does before a caller exists -------------------

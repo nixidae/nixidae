@@ -275,7 +275,7 @@ class AsyncSession:
     closing one releases nothing but the wrapper.
     """
 
-    def __init__(self, store_uri: str = "auto") -> None:
+    def __init__(self, store_uri: str | None = None) -> None:
         self._store_uri = store_uri
         self._stores: set[AsyncStore] = set()
         self._evals: set[AsyncEvalState] = set()
@@ -284,8 +284,9 @@ class AsyncSession:
     def store(self, uri: str | None = None) -> AsyncStore:
         """Make a store, tracked by this session.
 
-        `None` means the session default. The wrapper builds lazily,
-        so this never touches Nix.
+        `None` means the session default, and a session with none opens
+        the store Nix's `store` setting names. The wrapper builds
+        lazily, so this never touches Nix.
         """
         store = AsyncStore(uri if uri is not None else self._store_uri)
         self._stores.add(store)
@@ -566,7 +567,7 @@ class AsyncRemoteSession:
     are gone.
     """
 
-    def __init__(self, client: NixClient, store_uri: str = "auto") -> None:
+    def __init__(self, client: NixClient, store_uri: str | None = None) -> None:
         if client.token is None:
             raise ValueError("the client is not bound; `await client.bind()` first")
         self._client = client
@@ -581,7 +582,7 @@ class AsyncRemoteSession:
         cls,
         server: str | os.PathLike[str] | transport.Dialer,
         claim: str | None = None,
-        store_uri: str = "auto",
+        store_uri: str | None = None,
     ) -> AsyncIterator[AsyncRemoteSession]:
         """Connect, bind (claiming escrow with `claim`), and scope one session.
 
