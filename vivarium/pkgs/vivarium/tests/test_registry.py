@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+import socket as sockets
 from typing import TYPE_CHECKING
 
 import anyio
 import pytest
 from test_drive import FakeSession, until_state
-from vivarium import places, registry
+from vivarium import liveness, places, registry
 from vivarium.cli import drive
 from vivarium.control import SOCKET, Op, request
 
@@ -74,6 +75,33 @@ async def test_a_held_run_is_listed_ready(tmp_path: Path) -> None:
         assert (up.out, up.state, up.environment) == (out.resolve(), "ready", None)
         assert (await request(socket, Op.STOP)).ok
     assert await registry.runs() == []
+
+
+@pytest.mark.anyio
+async def test_a_live_run_that_does_not_answer_keeps_its_entry(tmp_path: Path) -> None:
+    """Between `places.prepare` and the socket's bind, or with its loop busy."""
+    out = tmp_path / "out"
+    fd = liveness.hold(out, environ={})
+    entry = places.prepare(out)
+    [up] = await registry.runs()
+    assert (up.out, up.state) == (out.resolve(), registry.UNANSWERED)
+    assert entry.is_dir()
+    os.close(fd)
+    assert await registry.runs() == []
+    assert not entry.exists()
+
+
+@pytest.mark.anyio
+async def test_an_old_runner_is_removed_only_when_its_socket_refuses(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    out.mkdir()
+    entry = places.prepare(out)
+    assert await registry.runs() == []
+    assert entry.is_dir()
+    with sockets.socket(sockets.AF_UNIX) as bound:
+        bound.bind(str(entry / SOCKET))
+    assert await registry.runs() == []
+    assert not entry.exists()
 
 
 @pytest.mark.anyio

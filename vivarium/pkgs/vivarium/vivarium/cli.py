@@ -31,7 +31,7 @@ import anyio
 from vivarium_runner import MachineError
 from vivarium_runner.machine_spec import Cpus
 
-from . import access, logs, monitor, namespace, places, registry, remote, repl, runroot
+from . import access, liveness, logs, monitor, namespace, places, registry, remote, repl, runroot
 from .control import (
     ORIGIN,
     PARENT,
@@ -954,13 +954,15 @@ def main(argv: list[str] | None = None) -> None:
         # First, before anything boots or any thread starts.
         namespace.enter(Spec.read(args.spec).unshare, private_net=args.offline)
         args.out.mkdir(parents=True, exist_ok=True)
+        # Held to the end of the process; the kernel lets go of it then.
+        liveness.hold(args.out)
         try:
             raise SystemExit(anyio.run(run, args))
         finally:
             runroot.remove_own()
     except KeyboardInterrupt:
         raise SystemExit(130) from None
-    except (SessionError, SpecError, namespace.NamespaceError) as error:
+    except (SessionError, SpecError, namespace.NamespaceError, liveness.RunLive) as error:
         print(f"[vivarium] {error}", file=sys.stderr, flush=True)
         raise SystemExit(Exit.NO_VERDICT) from None
 

@@ -46,7 +46,7 @@ import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
 from huggorm_bindings import DerivedPathBuilt, OutputsSpec
-from vivarium import access, cli as runner_cli, control, environments, logs, monitor, places, registry
+from vivarium import access, cli as runner_cli, control, environments, liveness, logs, monitor, places, registry
 from vivarium.exits import Exit, describe
 from vivarium.phases import VERDICT, Verdict
 from vivarium_runner.forward import InboundJson
@@ -563,6 +563,14 @@ def main(argv: list[str] | None = None) -> None:
     request = parse(argv)
     if request.until_pause:
         raise SystemExit(until_pause(argv, request))
+    if request.command == "run" and request.out is not None:
+        # From before the evaluation, which takes minutes: the run is live
+        # from here, and the runner this execs keeps the same lock.
+        try:
+            liveness.hand_down(liveness.hold(request.out))
+        except liveness.RunLive as error:
+            say(str(error))
+            raise SystemExit(Exit.NO_RUN) from None
     origin = control.Origin(this_cli(), ".".join(request.attr), request.file.absolute())
     log = None if request.out is None or request.command != "run" else request.out / BUILD_LOG
     if log is not None and request.out is not None:
@@ -603,6 +611,10 @@ def until_pause(argv: list[str], request: Request) -> int:
     if request.out is None:
         raise RuntimeError(f"{request.command}: argparse lets no run start without --out")
     request.out.mkdir(parents=True, exist_ok=True)
+    # `up NAME` checked already; `up --out` and `run --until-pause` did not.
+    if anyio.run(environments.live, request.out):
+        say(f"a run is live in {request.out}; `vivarium down --out {request.out}` first")
+        return Exit.NO_RUN
     forget_last_run(request.out)
     child_argv = [str(this_cli()), *child_args(argv)]
     systemd_run = daemon.manager() if request.daemonize else None
@@ -655,6 +667,7 @@ def forget_last_run(out: Path) -> None:
     while its run still boots."""
     for name in (logs.EVENTS, VERDICT):
         (out / name).unlink(missing_ok=True)
+    liveness.forget(out)
 
 
 def not_ready(code: int, out: Path) -> str:
@@ -807,6 +820,11 @@ async def remove(names: list[str], force: bool) -> int:
                 failed = True
                 continue
             await down(out)
+            # A run that is still evaluating has no socket to stop it by.
+            if await environments.live(out):
+                say(f"{name} is still up after `down`; its disks stay")
+                failed = True
+                continue
         try:
             await anyio.to_thread.run_sync(environments.remove, out)
         except (OSError, environments.Refused, subprocess.CalledProcessError) as error:

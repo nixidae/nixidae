@@ -46,7 +46,7 @@ from typing import Any, Final
 
 import anyio
 
-from . import places
+from . import liveness, places
 from .control import RUN_FILE, SOCKET, watch
 from .events import Event, Kind, NotAnEvent
 from .exits import Exit
@@ -308,10 +308,17 @@ class Arrival(Enum):
 
 
 def starter_gone(out: Path) -> bool:
-    """Whether `run.json` names a process that no longer exists."""
+    """Whether the run's lock is free, or for a runner without one, whether
+    `run.json` names a process that no longer exists."""
+    found = liveness.life(out)
+    if found is not liveness.Life.ABSENT:
+        return found is liveness.Life.FREE
     try:
         pid = int(json.loads((out / RUN_FILE).read_text())["pid"])
     except (OSError, ValueError, KeyError, TypeError):
+        return False
+    # 0 or less signals a process group: no answer.
+    if pid <= 0:
         return False
     try:
         os.kill(pid, 0)

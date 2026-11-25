@@ -110,4 +110,8 @@ def start(
         text=True,
         check=False,
     )
-    return unit, int(shown.stdout.strip() or 0)
+    pid = int(shown.stdout.strip() or 0)
+    if pid <= 0:
+        # `--collect` drops a unit that ended at once; its log says why.
+        raise DaemonError(f"{unit} ended as it started; see {log}")
+    return unit, pid

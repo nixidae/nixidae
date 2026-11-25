@@ -17,7 +17,7 @@ from pathlib import Path
 
 import anyio
 
-from . import namespace, places, runroot
+from . import liveness, namespace, places, runroot
 from .control import RUN_FILE, SOCKET, Op, RunFile, request
 from .registry import ASK
 from .spec import Spec, SpecError
@@ -47,10 +47,13 @@ async def answers(out: Path) -> bool:
 def starting(out: Path) -> bool:
     """Whether the process `run.json` names still runs: a run that is
     evaluating or booting has no socket yet. A reused pid errs on the side
-    of keeping the directory."""
+    of keeping the directory; only a runner without `run.lock` gets here."""
     try:
         pid = RunFile.from_json((out / RUN_FILE).read_text()).pid
     except (OSError, ValueError, KeyError):
+        return False
+    # 0 or less signals a process group, never one process.
+    if pid <= 0:
         return False
     try:
         os.kill(pid, 0)
@@ -62,6 +65,9 @@ def starting(out: Path) -> bool:
 
 
 async def live(out: Path) -> bool:
+    found = liveness.life(out)
+    if found is not liveness.Life.ABSENT:
+        return found is liveness.Life.HELD
     return await answers(out) or starting(out)
 
 
