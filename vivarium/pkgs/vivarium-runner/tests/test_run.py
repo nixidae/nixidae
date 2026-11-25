@@ -73,7 +73,10 @@ def _run(
     def stop_error(name: str, error: Exception) -> None:
         log.append(f"error {name}: {error}")
 
-    return Run(guests, templates or [], machine=machine, on_stop_error=stop_error), log, made
+    # As Nix counts it: the guests but the router, then the templates.
+    base = len([one for one in guests if not one.router]) + len(templates or [])
+    run = Run(guests, templates or [], instance_base=base, machine=machine, on_stop_error=stop_error)
+    return run, log, made
 
 
 def test_requires_is_transitive() -> None:

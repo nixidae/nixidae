@@ -536,6 +536,7 @@ class Session:
         run = Run(
             specs,
             templates,
+            instance_base=self.spec.instanceBase,
             machine=self._machine,
             on_stop_error=self._stop_failed,
             segments={

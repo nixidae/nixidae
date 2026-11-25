@@ -56,10 +56,10 @@ order of its name. The index decides:
 
 An instance of a template gets its index from the runner when it is
 launched (`free_index` in `vivarium_runner/instances.py`), not here.
-The runner starts the instances' indexes after the number of guests in
-the spec, the router included, plus the number of templates
-(`Run._instance_base`). That is one more than the first free index
-here when the run adds the router.
+It starts at the spec's `instanceBase`: the number of guests without
+the router, plus the number of templates. The templates take the
+indexes just below it. The router's index is 254, so it takes none of
+them.
 
 ## Guests and templates
 

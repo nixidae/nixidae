@@ -125,6 +125,7 @@ class Run:
         guests: Sequence[MachineSpec],
         templates: Sequence[MachineSpec],
         *,
+        instance_base: int,
         machine: MachineFactory,
         on_stop_error: Callable[[str, Exception], None],
         segments: Mapping[str, Segment] | None = None,
@@ -150,8 +151,8 @@ class Run:
         self._starting: dict[str, anyio.Event] = {}
         # Every guest whose boot began, so a failed one is torn down too.
         self._attempts: set[str] = set()
-        # The first index an instance may take: the nodes' and the templates' own come before it.
-        self._instance_base = len(self._guests) + len(self._templates)
+        self._instance_base = instance_base
+        """The first index an instance may take; the spec's `instanceBase`."""
 
     async def prepare(self) -> None:
         """Plug the segments, make each guest's `Machine` and pick its host

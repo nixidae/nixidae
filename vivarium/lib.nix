@@ -785,7 +785,10 @@ rec {
 
       # Each template evaluated once, as a node is. Its index here only
       # keeps it apart from the nodes at evaluation; an instance gets its
-      # own from the runner.
+      # own from the runner, from `instanceBase` up. The router's index is
+      # 254, so neither counts it.
+      templateBase = lib.length guestNames;
+      instanceBase = templateBase + lib.length (lib.attrNames cfg.templates);
       templates = lib.listToAttrs (
         lib.imap0 (
           ordinal: name:
@@ -801,9 +804,9 @@ rec {
               _module.args.templateNodes = templates;
               _module.args.settings = cfg.settings;
               networking.hostName = lib.mkDefault name;
-              vivarium.sshPort = lib.mkDefault (4325 + lib.length (lib.attrNames cfg.nodes) + ordinal);
+              vivarium.sshPort = lib.mkDefault (4325 + templateBase + ordinal);
               vivarium.backend = lib.mkDefault cfg.backend;
-              vivarium.index = lib.length (lib.attrNames cfg.nodes) + ordinal;
+              vivarium.index = templateBase + ordinal;
               vivarium.template = true;
               vivarium.segments = cfg.segments;
             }).config
@@ -904,6 +907,7 @@ rec {
       spec = pkgs.writeText "vivarium-${name}-spec.json" (
         builtins.toJSON {
           inherit (checkedConfig) name settings;
+          inherit instanceBase;
           # The runner's half of a segment; its MTU is on each interface.
           # A capture needs the frames, so it forces the hub.
           # An instance joins a template's segment while frames flow, and

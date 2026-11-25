@@ -148,6 +148,9 @@ class Spec(Strict):
     templates: list[MachineSpecJson] = Field(default_factory=list)
     """`templates.<name>`: guests a phase boots with `vms.launch`, in `machines`' shape."""
 
+    instanceBase: int = 0  # noqa: N815 -- Nix writes it, so Nix spells it
+    """The first index an instance takes. Nix gives the nodes and the templates theirs below it."""
+
     segments: dict[str, SegmentSpec] = Field(default_factory=dict)
     phases: list[PhaseSpec] = Field(default_factory=list)
     settings: dict[str, Any] = Field(default_factory=dict)
