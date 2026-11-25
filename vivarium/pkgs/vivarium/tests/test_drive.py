@@ -67,7 +67,7 @@ class FakeSession(Session):
         if self.sink is not None:
             self.sink.emit(Event(at=0.0, kind=kind, level=level, text=text, data=dict(data)))
 
-    def _replay(self, lines: int = 20, nodes: Collection[str] | None = None) -> None:
+    def replay(self, lines: int = 20, nodes: Collection[str] | None = None) -> None:
         self.said.append("replay")
 
     @contextlib.contextmanager

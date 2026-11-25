@@ -154,7 +154,7 @@ async def _sequence(
         # run fails on its own account below; this only keeps a traceback
         # about sockets out of the way of the message that matters.
         session.emit(Kind.ERROR, f"no guests: {error}", level=Level.ERROR)
-        session._replay()
+        session.replay()
     finally:
         # So `events.jsonl` has the guests' last words before its verdict.
         # Shielded, so a ^C at a breakpoint still writes the evidence
@@ -196,6 +196,8 @@ async def _schedule(
     """
     every = frozenset(machine["name"] for machine in session.spec.machines)
     running: dict[str, PhaseSpec] = {}
+    # Failed since the last pause, by this scheduler: not read from the
+    # state, so a phase that fails by hand at a pause causes no second pause.
     failed: list[str] = []
     paused_before: set[str] = set()
     changed = anyio.Event()

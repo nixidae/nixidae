@@ -1,5 +1,5 @@
-// The states of one phase (`PhaseState`) and the code that moves a phase
-// from one to the next. Every phase starts `pending`.
+// The states of one phase (`PhaseState`) and the moves between them
+// (`phases.MOVES`). Every phase starts `pending`.
 digraph states {
   rankdir = LR;
   node [shape = box, style = rounded];
@@ -17,13 +17,13 @@ digraph states {
   node [peripheries = 1];
 
   // The code behind each edge, as a box beside the graph.
-  key [shape = box, style = rounded, label = "Session.run: running and each end state\nskipped_by: the dependents of a failure\ncli.run: --only marks the rest deselected\nctl run: runs a phase again, from any state\nphases.reloaded: a reload keeps each state;\na new phase is pending, or deselected under --only", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.run"];
+  key [shape = box, style = rounded, label = "phases.transition: the one table of moves (MOVES)\nSession.run: start, then Session._finish for the end state\nskipped_by: the dependents of a failure\nSession.deselect: --only marks the rest deselected\nctl run: starts a phase from any state but running\nphases.reloaded: a reload keeps each state;\na new phase is pending, or deselected under --only", file = "pkgs/vivarium/vivarium/phases.py", symbol = "transition"];
 
-  pending -> running [label = "ready and launchable\n(_schedule), or ctl run"];
-  running -> passed;
-  running -> unneeded [label = "vms.skip(reason)"];
-  running -> failed [label = "an exception"];
-  running -> interrupted [label = "cancelled: ^C, signal, ctl stop"];
-  pending -> skipped [label = "a phase in after failed"];
-  pending -> deselected [label = "--only"];
+  pending -> running [label = "start: ready and launchable\n(_schedule), or ctl run"];
+  running -> passed [label = "pass"];
+  running -> unneeded [label = "find-done: vms.skip(reason)"];
+  running -> failed [label = "fail: an exception"];
+  running -> interrupted [label = "interrupt: ^C, signal, ctl stop"];
+  pending -> skipped [label = "skip: a phase in after failed"];
+  pending -> deselected [label = "deselect: --only"];
 }

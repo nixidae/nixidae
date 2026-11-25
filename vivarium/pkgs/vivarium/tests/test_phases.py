@@ -14,6 +14,8 @@ from typing import ClassVar
 
 import pytest
 from vivarium.phases import (
+    IllegalMove,
+    Move,
     Outcome,
     PhaseState,
     ReloadRefused,
@@ -29,6 +31,7 @@ from vivarium.phases import (
     selected,
     skipped_by,
     summarise,
+    transition,
 )
 from vivarium.spec import PhaseSpec, PytestSpec
 
@@ -417,3 +420,39 @@ class TestVerdict:
     def test_anything_else_is_a_value_error(self, text: str) -> None:
         with pytest.raises(ValueError):  # noqa: PT011 -- the one error a reader catches
             Verdict.from_json(text)
+
+
+class TestTransition:
+    """Every move from every state, against a table written out by hand."""
+
+    P = PhaseState
+    LEGAL: ClassVar = {
+        **{(state, Move.START): PhaseState.RUNNING for state in PhaseState if state is not PhaseState.RUNNING},
+        (P.RUNNING, Move.PASS): P.PASSED,
+        (P.RUNNING, Move.FIND_DONE): P.UNNEEDED,
+        (P.RUNNING, Move.FAIL): P.FAILED,
+        (P.RUNNING, Move.INTERRUPT): P.INTERRUPTED,
+        (P.PENDING, Move.SKIP): P.SKIPPED,
+        (P.PENDING, Move.DESELECT): P.DESELECTED,
+    }
+
+    @pytest.mark.parametrize("state", list(PhaseState))
+    @pytest.mark.parametrize("move", list(Move))
+    def test_each_pair(self, state: PhaseState, move: Move) -> None:
+        if (state, move) in self.LEGAL:
+            assert transition(state, move) is self.LEGAL[state, move]
+        else:
+            with pytest.raises(IllegalMove):
+                transition(state, move)
+
+    def test_a_running_phase_cannot_start_again(self) -> None:
+        with pytest.raises(IllegalMove, match="a running phase cannot start"):
+            transition(PhaseState.RUNNING, Move.START)
+
+    @pytest.mark.parametrize("state", [PhaseState.PASSED, PhaseState.FAILED, PhaseState.SKIPPED])
+    def test_ctl_run_runs_a_phase_again_whatever_its_verdict(self, state: PhaseState) -> None:
+        assert transition(state, Move.START) is PhaseState.RUNNING
+
+    def test_a_skip_never_overwrites_a_verdict(self) -> None:
+        with pytest.raises(IllegalMove):
+            transition(PhaseState.PASSED, Move.SKIP)

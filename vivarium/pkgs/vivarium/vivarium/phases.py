@@ -63,6 +63,56 @@ class PhaseState(StrEnum):
     by running a subset."""
 
 
+class Move(StrEnum):
+    """What happens to a phase. `transition` says which state it leads to."""
+
+    START = "start"
+    PASS = "pass"
+    FIND_DONE = "find-done"
+    """The phase called `vms.skip`: its work was done already."""
+    FAIL = "fail"
+    INTERRUPT = "interrupt"
+    SKIP = "skip"
+    """A phase in its `after` failed."""
+    DESELECT = "deselect"
+    """`--only` left it out."""
+
+
+class IllegalMove(ValueError):
+    """A move the phase's state does not allow, such as a second start."""
+
+
+MOVES: Final[Mapping[Move, tuple[frozenset[PhaseState], PhaseState]]] = MappingProxyType(
+    {
+        # From any state but `running`: `ctl run` runs a phase again,
+        # whatever its verdict.
+        Move.START: (frozenset(PhaseState) - {PhaseState.RUNNING}, PhaseState.RUNNING),
+        Move.PASS: (frozenset({PhaseState.RUNNING}), PhaseState.PASSED),
+        Move.FIND_DONE: (frozenset({PhaseState.RUNNING}), PhaseState.UNNEEDED),
+        Move.FAIL: (frozenset({PhaseState.RUNNING}), PhaseState.FAILED),
+        Move.INTERRUPT: (frozenset({PhaseState.RUNNING}), PhaseState.INTERRUPTED),
+        Move.SKIP: (frozenset({PhaseState.PENDING}), PhaseState.SKIPPED),
+        Move.DESELECT: (frozenset({PhaseState.PENDING}), PhaseState.DESELECTED),
+    }
+)
+"""Each move: the states it may start from, and the state it leads to.
+
+A reload is no move: each phase keeps its state, and `reloaded` gives a
+new phase its first one."""
+
+
+def allowed(state: PhaseState, move: Move) -> bool:
+    return state in MOVES[move][0]
+
+
+def transition(state: PhaseState, move: Move) -> PhaseState:
+    """The state after *move*. Raises `IllegalMove`."""
+    sources, target = MOVES[move]
+    if state not in sources:
+        raise IllegalMove(f"a {state} phase cannot {move}")
+    return target
+
+
 @dataclass(frozen=True, slots=True)
 class Stop:
     """Why a run ended before its verdict, and the status it exits with."""

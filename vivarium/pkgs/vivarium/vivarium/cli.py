@@ -45,7 +45,7 @@ from .control import (
 from .driver import drive
 from .events import Kind, Level
 from .exits import Exit, describe
-from .phases import END, FAILURE, START, PhaseState, Stop, breakpoints, selected, summarise
+from .phases import END, FAILURE, START, Stop, breakpoints, summarise
 from .session import PerGuest, Session, SessionError
 from .sinks import Broadcast, ConsoleFiles, JsonLines, Junit, Log, Terminal
 from .spec import Spec, SpecError
@@ -442,25 +442,7 @@ async def run(args: argparse.Namespace) -> int:
     announce(session)
 
     if args.only:
-        missing = set(args.only) - {phase.name for phase in session.spec.phases}
-        if missing:
-            raise SessionError(
-                f"no such phase: {', '.join(sorted(missing))}; have {', '.join(p.name for p in session.spec.phases)}"
-            )
-        # Deselected, not skipped. The two read the same in a list and
-        # mean opposite things: one says nobody knows the answer, the
-        # other says nobody wanted it.
-        wanted = selected(args.only, session.spec.phases)
-        for phase in session.spec.phases:
-            if phase.name not in wanted:
-                session.state[phase.name] = PhaseState.DESELECTED
-                session.emit(
-                    Kind.PHASE_FINISHED,
-                    f"{phase.name} deselected",
-                    level=Level.DETAIL,
-                    phase=phase.name,
-                    state=str(PhaseState.DESELECTED),
-                )
+        session.deselect(args.only)
 
     # Refuses a `--cpus` or `--kernel` the guests do not take, before the
     # task group: an error raised inside it prints as a traceback.

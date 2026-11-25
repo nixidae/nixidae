@@ -40,7 +40,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 import anyio
 import pytest
@@ -58,17 +58,21 @@ from .cloud import Cloud, CloudService
 from .events import Event, Kind, Level
 from .phases import (
     VERDICT,
+    Move,
     PhaseState,
     PhaseTimeout,
     Reloaded,
     ReloadRefused,
     Stop,
     Verdict,
+    allowed,
     guests,
     passed,
     reloaded,
     runnable,
+    selected,
     skipped_by,
+    transition,
 )
 from .pytest_plugin import Plugin, arguments, machine_fixtures
 from .roots import Roots
@@ -110,6 +114,13 @@ class _CaseFields(TypedDict, total=False):
     """The case a line belongs to, as an event field. Spread into `emit`."""
 
     case: str
+
+
+class _Outcome(TypedDict, total=False):
+    """Why a phase ended as it did, as event fields. Spread into `emit`."""
+
+    error: str
+    reason: str
 
 
 def _output(emit: Callable[..., None], text: str, machine: str | None = None) -> None:
@@ -419,7 +430,7 @@ class Session:
             _COPY.reset(copying)
             _PRINTING.reset(token)
 
-    def _replay(self, lines: int = 20, nodes: Collection[str] | None = None) -> None:
+    def replay(self, lines: int = 20, nodes: Collection[str] | None = None) -> None:
         """The end of each guest's console, at error level.
 
         This is what makes a quiet default safe. The console is off the
@@ -916,7 +927,9 @@ class Session:
             raise SessionError("run before boot")
         nodes = self.needs(phase)
         await self.drain()
-        self.state[phase.name] = PhaseState.RUNNING
+        # No await between the check and the write: a second start of a
+        # running phase, by `exec` or by hand, is refused here.
+        self.state[phase.name] = transition(self.state.get(phase.name, PhaseState.PENDING), Move.START)
         for name in nodes:
             self.running[name] = phase.name
         self.emit(Kind.PHASE_STARTED, phase.name, phase=phase.name, nodes=nodes)
@@ -934,15 +947,13 @@ class Session:
             await self.settle(nodes=nodes)
             self._cases_from_guests(phase.name, nodes)
             self._record(phase, started)
-            self.state[phase.name] = PhaseState.FAILED
             self.errors[phase.name] = f"{type(error).__name__}: {error}"
-            self.emit(
-                Kind.PHASE_FINISHED,
+            self._finish(
+                phase.name,
+                Move.FAIL,
                 f"{phase.name} FAILED: {error}",
                 level=Level.ERROR,
-                phase=phase.name,
                 seconds=took,
-                state=str(PhaseState.FAILED),
                 error=self.errors[phase.name],
             )
             # A failing test has already said why, with pytest's own
@@ -955,30 +966,22 @@ class Session:
                     level=Level.ERROR,
                     phase=phase.name,
                 )
-            self._replay(nodes=nodes)
+            self.replay(nodes=nodes)
             for name in skipped_by(phase.name, self.spec.phases):
-                if self.state.get(name) is PhaseState.PENDING:
-                    self.state[name] = PhaseState.SKIPPED
-                    self.emit(
-                        Kind.PHASE_FINISHED,
-                        f"{name} skipped, it needs {phase.name}",
-                        phase=name,
-                        state=str(PhaseState.SKIPPED),
-                        reason=f"{phase.name} failed",
-                    )
+                if allowed(self.state.get(name, PhaseState.PENDING), Move.SKIP):
+                    text = f"{name} skipped, it needs {phase.name}"
+                    self._finish(name, Move.SKIP, text, reason=f"{phase.name} failed")
             self._release(nodes)
             return PhaseState.FAILED
         except BaseException:
             # Cancelled: the run is being stopped. Recorded, then passed
             # on, because a stop must not be swallowed here.
-            self.state[phase.name] = PhaseState.INTERRUPTED
-            self.emit(
-                Kind.PHASE_FINISHED,
+            self._finish(
+                phase.name,
+                Move.INTERRUPT,
                 f"{phase.name} interrupted",
                 level=Level.ERROR,
-                phase=phase.name,
                 seconds=time.monotonic() - started,
-                state=str(PhaseState.INTERRUPTED),
                 error="the run was stopped while this phase ran",
             )
             self._release(nodes)
@@ -989,26 +992,45 @@ class Session:
         self._release(nodes)
         self._record(phase, started)
         if reason is not None:
-            self.state[phase.name] = PhaseState.UNNEEDED
             self.reasons[phase.name] = reason
-            self.emit(
-                Kind.PHASE_FINISHED,
-                f"{phase.name} unneeded: {reason}",
-                phase=phase.name,
-                seconds=took,
-                state=str(PhaseState.UNNEEDED),
-                reason=reason,
+            return self._finish(
+                phase.name, Move.FIND_DONE, f"{phase.name} unneeded: {reason}", seconds=took, reason=reason
             )
-            return PhaseState.UNNEEDED
-        self.state[phase.name] = PhaseState.PASSED
-        self.emit(
-            Kind.PHASE_FINISHED,
-            f"{phase.name} passed in {took:.1f}s",
-            phase=phase.name,
-            seconds=took,
-            state=str(PhaseState.PASSED),
-        )
-        return PhaseState.PASSED
+        return self._finish(phase.name, Move.PASS, f"{phase.name} passed in {took:.1f}s", seconds=took)
+
+    def _finish(
+        self,
+        name: str,
+        move: Move,
+        text: str,
+        *,
+        level: Level = Level.INFO,
+        seconds: float | None = None,
+        **why: Unpack[_Outcome],
+    ) -> PhaseState:
+        """Move *name* to its next state and emit `phase_finished`: the one
+        place a phase reaches an end state. Raises `IllegalMove`."""
+        state = transition(self.state.get(name, PhaseState.PENDING), move)
+        self.state[name] = state
+        self.emit(Kind.PHASE_FINISHED, text, level=level, phase=name, seconds=seconds, state=str(state), **why)
+        return state
+
+    def deselect(self, only: Collection[str]) -> None:
+        """Leave out every phase that *only* and their `after` do not name.
+
+        Deselected, not skipped. The two read the same in a list and mean
+        opposite things: one says nobody knows the answer, the other says
+        nobody wanted it.
+        """
+        missing = set(only) - {phase.name for phase in self.spec.phases}
+        if missing:
+            raise SessionError(
+                f"no such phase: {', '.join(sorted(missing))}; have {', '.join(p.name for p in self.spec.phases)}"
+            )
+        wanted = selected(only, self.spec.phases)
+        for phase in self.spec.phases:
+            if phase.name not in wanted:
+                self._finish(phase.name, Move.DESELECT, f"{phase.name} deselected", level=Level.DETAIL)
 
     async def _body(self, phase: PhaseSpec, nodes: list[str], deadline: float | None) -> str | None:
         """Run *phase*'s tests; why it was unneeded, or None for a pass."""

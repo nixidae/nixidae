@@ -33,9 +33,9 @@ guests reach each other.
 ## The task tree
 
 `run` reads the spec (`Spec.read`), makes the `Session` and marks the
-phases that `--only` leaves out as `deselected`. Then it starts one task
-group. Everything after this lives in a task of that group or of a group
-under it, so nothing outlives the run.
+phases that `--only` leaves out as `deselected` (`Session.deselect`).
+Then it starts one task group. Everything after this lives in a task of
+that group or of a group under it, so nothing outlives the run.
 
 - `_stop_on_signal` turns SIGTERM and SIGHUP into the same path as ^C.
   `_stop_with_parent` does the same when the process that started the
@@ -105,9 +105,19 @@ phase that a person runs by hand never races a scheduled one.
 
 `Session.run` runs one phase. It boots the phase's guests
 (`Session.ensure`), makes the phase's own `vms` (`Session.view`), and
-calls the script's `test(vms)` or runs pytest. It then sets the phase's
-state, emits `phase_finished` and, on a failure, marks the dependents
-`skipped` (`skipped_by`).
+calls the script's `test(vms)` or runs pytest. On a failure, it marks
+the dependents `skipped` (`skipped_by`).
+
+A phase changes state only by a move (`phases.Move`). The pure function
+`phases.transition` holds the one table of moves (`MOVES`) and refuses a
+move that the state does not allow. `Session._finish` applies a move and
+emits `phase_finished`; it is the one place that emits that event.
+`Session.run` starts a phase with the same function, so a second start
+of a running phase raises `IllegalMove`.
+
+`_schedule` keeps its own list of the phases that failed since its last
+pause. That list is not a state: a phase that fails when a person runs
+it by hand at a pause does not cause a second pause.
 
 ```{graphviz} phase-states.dot
 ```
