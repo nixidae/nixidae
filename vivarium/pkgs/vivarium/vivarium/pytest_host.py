@@ -81,7 +81,8 @@ CLOSURE: Final = "VIVARIUM_PYTHON_CLOSURE"
 LOG: Final = "run.log"
 GUEST_ARTIFACTS: Final = "/artifacts"
 GUEST_TIMEOUT: Final = 3600.0
-"""What one guest's batch of tests may take, as one agent command."""
+"""What one test in a guest may take, its fixtures' setup and teardown included."""
+WORKER_SOCKETS: Final = "/run/vivarium/pytest"
 
 
 class RunFailed(RuntimeError):
@@ -163,12 +164,15 @@ def batches(items: list[pytest.Item]) -> dict[BatchKey, list[str]]:
     return grouped
 
 
-def absolute(rootdir: Path, nodeid: str) -> str:
-    """A node id that names the same test from any directory: pytest
-    reads a node id's path from where it starts, and the id is the
-    rootdir's."""
-    path, sep, rest = nodeid.partition("::")
-    return f"{rootdir / path}{sep}{rest}"
+def batch_files(rootdir: Path, nodeids: list[str]) -> list[str]:
+    """The files that hold `nodeids`, each once, in order, as absolute
+    paths: pytest reads a path from where it starts, and a node id is the
+    rootdir's.
+
+    Files, not node ids, go to the guest's pytest: a node id it cannot
+    collect is a usage error that ends it, while a file that fails to
+    import is a collection error, which the tests that need it report."""
+    return list(dict.fromkeys(str(rootdir / nodeid.partition("::")[0]) for nodeid in nodeids))
 
 
 def store_root(path: str) -> str:
@@ -231,6 +235,31 @@ class Run:
     vms: dict[str, RemoteMachine] = field(default_factory=dict)
 
 
+@dataclass
+class GuestWorker:
+    """The pytest that runs one batch's tests in a guest (`vivarium.pytest_worker`)."""
+
+    run: Run
+    guest: str
+    stem: str
+    host: Path
+    """The host's side of the guest's `/artifacts/pytest`."""
+    items: frozenset[str]
+    collect_errors: list[pytest.CollectReport]
+
+    @property
+    def socket(self) -> str:
+        return f"{WORKER_SOCKETS}/{self.stem}.sock"
+
+    @property
+    def log(self) -> Path:
+        return self.host / f"{self.stem}.log"
+
+    def said(self) -> str:
+        """The worker's own output, for an error that has no other evidence."""
+        return self.log.read_text(errors="replace") if self.log.exists() else f"(no {self.log})"
+
+
 async def _connect(out: Path) -> AsyncConnection:
     with reachable(places.socket(out, SOCKET)) as name:
         stream = await anyio.connect_unix(name)
@@ -268,7 +297,7 @@ class Driver:
         self.cwd = here if here.is_relative_to(self.rootdir) else self.rootdir
         self.coverage = Measure.of(config)
         self.batches: dict[BatchKey, list[str]] = {}
-        self.results: dict[BatchKey, dict[str, list[dict[str, Any]]]] = {}
+        self.workers: dict[BatchKey, GuestWorker] = {}
         self.prepared: set[tuple[Path, str]] = set()
         self._portal: BlockingPortal | None = None
         self._portal_cm: Any = None  # anyio's portal context manager, entered by hand
@@ -380,51 +409,96 @@ class Driver:
         self.prepared.add((run.out, guest))
         return host
 
-    def _run_batch(self, run: Run, guest: str, nodeids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    def _start_worker(self, item: pytest.Item, key: BatchKey) -> GuestWorker:
+        """A pytest in the guest that has collected the batch's tests and
+        waits for the host to name each one."""
+        run = self.acquire(item)
+        guest = key[2]
         host = self._prepare(run, guest)
-        stem = f"batch-{time.time_ns()}"
-        name = f"{stem}.jsonl"
-        worker = [sys.executable, "-m", "vivarium.pytest_worker", f"{GUEST_ARTIFACTS}/pytest/{name}"]
+        stem = f"worker-{time.time_ns()}"
+        worker = [
+            sys.executable,
+            "-m",
+            "vivarium.pytest_worker",
+            f"{WORKER_SOCKETS}/{stem}.sock",
+            f"{GUEST_ARTIFACTS}/pytest/{stem}.log",
+        ]
         if self.coverage is not None:
             worker += self.coverage.worker_args(f"{GUEST_ARTIFACTS}/pytest/{stem}.coverage")
         args = ["--rootdir", str(self.rootdir), "-q"]
         if self.inifile is not None:
             args += ["-c", str(self.inifile)]
-        command = shlex.join([*worker, "--", *args, *(absolute(self.rootdir, nodeid) for nodeid in nodeids)])
-        done = self.portal.call(
-            functools.partial(
-                run.vms[guest].execute,
-                f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command} 2>&1",
-                timeout=GUEST_TIMEOUT,
-            )
-        )
-        if self.coverage is not None and (measured := host / f"{stem}.coverage").exists():
-            # Beside pytest-cov's own data file, as a parallel file: its combine merges it.
-            shutil.copyfile(measured, f"{self.coverage.data_file}.vivarium-{guest}-{stem}")
-        reports: dict[str, list[dict[str, Any]]] = {}
-        path = host / name
-        for line in path.read_text().splitlines() if path.exists() else []:
-            data = json.loads(line)
-            reports.setdefault(data["nodeid"], []).append(data)
-        if not reports:
-            raise RunFailed(f"pytest in {guest} reported nothing (exit {done.returncode}):\n{done.stdout}")
-        return reports
+        files = batch_files(self.rootdir, self.batches.get(key, [item.nodeid]))
+        command = shlex.join([*worker, "--", *args, *files])
+        vm = run.vms[guest]
+        # Returns once the worker listens and has left the command.
+        start = f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command} 2>&1"
+        self.portal.call(functools.partial(vm.succeed, start))
+        started = GuestWorker(run, guest, stem, host, frozenset(), [])
+        try:
+            collected = json.loads(str(self._ask(started, "collect")))
+        except Exception as error:
+            raise RunFailed(f"pytest in {guest} did not collect: {error}\n{started.said()}") from error
+        started.items = frozenset(collected["items"])
+        started.collect_errors = [
+            item.config.hook.pytest_report_from_serializable(config=item.config, data=data)
+            for data in collected["reports"]
+        ]
+        self.workers[key] = started
+        return started
 
-    def guest_reports(self, item: pytest.Item) -> list[dict[str, Any]]:
-        """The reports of `item`, which ran in a guest with the rest of its
-        batch the first time any of them was asked for."""
+    def _ask(self, worker: GuestWorker, method: str, *args: object) -> object:
+        vm = worker.run.vms[worker.guest]
+        return self.portal.call(functools.partial(vm.relay, worker.socket, method, args, timeout=GUEST_TIMEOUT))
+
+    def _stop_worker(self, key: BatchKey) -> None:
+        """End the worker's session: pytest tears down what is still set
+        up, and coverage.py saves."""
+        worker = self.workers.pop(key, None)
+        if worker is None:
+            return
+        try:
+            self._ask(worker, "stop")
+        except Exception as error:
+            raise RunFailed(f"pytest in {worker.guest} did not stop: {error}\n{worker.said()}") from error
+        if self.coverage is not None and (measured := worker.host / f"{worker.stem}.coverage").exists():
+            # Beside pytest-cov's own data file, as a parallel file: its combine merges it.
+            shutil.copyfile(measured, f"{self.coverage.data_file}.vivarium-{worker.guest}-{worker.stem}")
+
+    def guest_reports(self, item: pytest.Item, nextitem: pytest.Item | None) -> list[pytest.TestReport]:
+        """Run `item` in its batch's guest worker, and return its reports.
+        The worker stops after the last test of its batch."""
         key = batch_key(item)
         if key is None:
             raise RuntimeError(f"{item.nodeid} does not run in a guest")
-        if key not in self.results:
-            run = self.acquire(item)
-            self.results[key] = self._run_batch(run, key[2], self.batches.get(key, [item.nodeid]))
-        return self.results[key].get(item.nodeid, [])
+        worker = self.workers.get(key) or self._start_worker(item, key)
+        nextid = nextitem.nodeid if nextitem is not None and batch_key(nextitem) == key else None
+        try:
+            if item.nodeid not in worker.items:
+                errors = "\n".join(report.longreprtext for report in worker.collect_errors)
+                return [_failed(item, f"its guest's pytest did not collect it\n{errors}".rstrip())]
+            try:
+                found = json.loads(str(self._ask(worker, "run", item.nodeid, nextid)))
+            except Exception as error:
+                # Gone, or no longer answering: nothing to stop.
+                self.workers.pop(key, None)
+                raise RunFailed(f"pytest in {worker.guest} failed to run it: {error}\n{worker.said()}") from error
+            return [
+                item.config.hook.pytest_report_from_serializable(config=item.config, data=data)
+                for data in found
+                if data.get("$report_type") == "TestReport"
+            ]
+        finally:
+            if nextid is None:
+                self._stop_worker(key)
 
     def release(self, key: tuple[str, str]) -> None:
         run = self.runs.pop(key, None)
         if run is None:
             return
+        # Those `-x` left running: their sessions end before the run does.
+        for batch in [batch for batch, worker in self.workers.items() if worker.run is run]:
+            self._stop_worker(batch)
         self.prepared = {done for done in self.prepared if done[0] != run.out}
         # On its loop: closing wakes a write that waits on the fd there.
         self.portal.call(run.conn.close, None)
@@ -520,15 +594,9 @@ def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None) -> 
     driver = _driver(item.config)
     item.ihook.pytest_runtest_logstart(nodeid=item.nodeid, location=item.location)
     try:
-        found = driver.guest_reports(item)
-    except (RunFailed, OSError, subprocess.CalledProcessError) as error:
+        reports = driver.guest_reports(item, nextitem) or [_failed(item, "its guest's pytest reported nothing for it")]
+    except Exception as error:  # noqa: BLE001 -- the guest's failure, rebuilt by vinegar across machines.sock, is this test's
         reports = [_failed(item, f"vivarium could not run it in its guest: {error}")]
-    else:
-        reports = [
-            item.config.hook.pytest_report_from_serializable(config=item.config, data=data)
-            for data in found
-            if data.get("$report_type") == "TestReport"
-        ] or [_failed(item, "its guest's pytest did not run it: was it collected there?")]
     for report in reports:
         item.ihook.pytest_runtest_logreport(report=report)
     item.ihook.pytest_runtest_logfinish(nodeid=item.nodeid, location=item.location)

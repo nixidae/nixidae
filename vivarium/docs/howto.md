@@ -675,7 +675,10 @@ async def test_fresh(vm):                  # the run's only guest
   class or module fixture is made once. The guest gets this Python in
   its store view and a copy of the project at the same path, so imports
   and `__file__` match the host's. The host reports each test as its
-  own. `vivarium closure` gives the dev shell's Python closure, so the
+  own, as it ends, and `-x` stops the guest too. A test that cannot
+  import in the guest fails with the guest's collection error. Output
+  pytest does not capture goes to `/artifacts/pytest/worker-*.log`.
+  `vivarium closure` gives the dev shell's Python closure, so the
   `vivarium` CLI must be on PATH. With pytest-cov (`--cov`), the guest
   measures its tests the same way and pytest-cov's report includes
   them. Shortcuts taken are listed in `docs/design/pytest.md`.

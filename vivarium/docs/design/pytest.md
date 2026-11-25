@@ -248,9 +248,17 @@ the store and the project share replace its code shipping.
    run with the control socket's `stop` in every mode.
    `checks.pytest-host`: 4 passed in 22.4 s in the sandbox.
 3. Done: a test runs in a guest with `vivarium(attr,
-   guest="vm")`. `pytest_runtest_protocol` sends every test of the scope
-   to one pytest in that guest (`vivarium.pytest_worker`) and relays the
-   reports it wrote. The guest gets this Python through
+   guest="vm")`. The tests of one scope share one pytest in that guest
+   (`vivarium.pytest_worker`), kept alive: it collects the scope's files
+   once, then `pytest_runtest_protocol` asks it for one test at a time,
+   with the next test's id so a fixture lasts as long as in one process,
+   and relays that test's reports. The host reaches the worker's arpyc
+   socket through the agent (`Machine.relay`): 0.3-0.5 ms a call, against
+   30-80 ms for a command plus 60-90 ms to start Python. `-x` stops the
+   guest too, since the host asks for no more tests; `stop` at the end of
+   the scope tears down and saves coverage. `checks.pytest-worker` holds
+   `-x`, the teardown, a passing test's output and a collection error
+   that happens in the guest alone. The guest gets this Python through
    `Machine.add_paths` (dev: `vivarium closure`; sandbox: `pytestCheck`'s
    closureInfo) and the project as a tarball through `/artifacts`,
    unpacked at its own path. Sync and async tests both run there.
@@ -287,21 +295,21 @@ What was taken to get a slice working, and where it should go:
   read-only virtiofs or hostfs share at the same path, or an
   incremental copy. The copy does keep the guest from writing into the
   working tree.
-- **One guest pytest per batch, reports at the end.** Nothing streams:
-  a long batch prints nothing until it ends, and `-x` stops the host's
-  reporting but not the guest, which runs the whole batch. A persistent
-  worker serving arpyc (as the agent does) fixes both.
-- **The guest's output reaches the host only inside a failure's report.**
-  Captured output of passing tests is dropped.
-- **A test the guest did not report** gets a generic failure. A
-  collection error in the guest is in the reports file, but its text is
-  not shown.
+- **Output pytest does not capture** (`-s`, or a fixture's thread) goes
+  to the worker's log, `/artifacts/pytest/worker-*.log`, not to the
+  host's terminal. The host shows the log only when the worker fails.
+- **The guest collects whole files.** A node id the guest's pytest
+  cannot collect is a usage error that ends it, so the worker gets the
+  scope's files and collects every test in them, selected or not.
+- **A worker the host never stopped stays up** in the guest until the
+  run ends: a host pytest killed mid-scope leaves it. Each has its own
+  socket, so a kept run's next session starts a new one.
 - **The worker's Python has no Nix registration** in the guest
   (`add_paths`, not `add_closure`): fine for running Python, wrong for a
   test that asks the guest's Nix about those paths.
 - **Dev mode asks the `vivarium` CLI for the closure**, a subprocess per
   prepared guest.
-- **One timeout for a whole batch**, 3600 s, as one agent command.
+- **One timeout for each test**, 3600 s, its fixtures included.
 - **Host-side proxies carry plain data only**, and an async fixture of
   the user's own cannot use `vms` yet.
 - **`--vivarium-keep` does not notice** that the machines changed.

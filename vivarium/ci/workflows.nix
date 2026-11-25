@@ -285,6 +285,12 @@ let
       description = "what a libkrun guest behind a libkrun router carries";
       timeoutMinutes = 30;
     };
+    pytest-worker = {
+      # -x, teardown, output and a guest-only collection error through the guest's pytest worker.
+      attr = "checks.pytest-worker";
+      description = "the guest's pytest worker runs one test at a time for the host";
+      timeoutMinutes = 30;
+    };
     pytest-host = {
       # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
       # (`lib.pytestCheck`, nixidae/nixidae#1413).

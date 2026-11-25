@@ -8,7 +8,7 @@ import pytest
 from vivarium.pytest_host import (
     Measure,
     Want,
-    absolute,
+    batch_files,
     batch_key,
     batches,
     ends_after,
@@ -125,9 +125,9 @@ def test_a_guest_name_must_be_a_string(pytester: Pytester) -> None:
         Want.of(item)
 
 
-def test_a_node_id_names_its_test_from_any_directory(tmp_path: Path) -> None:
-    assert absolute(tmp_path, "tests/test_x.py::TestA::test_b[1]") == f"{tmp_path}/tests/test_x.py::TestA::test_b[1]"
-    assert absolute(tmp_path, "test_x.py") == f"{tmp_path}/test_x.py"
+def test_the_guest_gets_each_file_once_from_any_directory(tmp_path: Path) -> None:
+    nodeids = ["tests/test_x.py::TestA::test_b[1]", "test_y.py", "tests/test_x.py::test_c"]
+    assert batch_files(tmp_path, nodeids) == [f"{tmp_path}/tests/test_x.py", f"{tmp_path}/test_y.py"]
 
 
 def test_the_guest_measures_what_the_host_measures(tmp_path: Path) -> None:
