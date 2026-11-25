@@ -24,6 +24,9 @@ class Echo(Service):
     def exposed_late(self) -> None:
         raise TimeoutError("ran past its 1s timeout")
 
+    def exposed_several(self) -> None:
+        raise ExceptionGroup("several failed", [ValueError("the first")])
+
     async def exposed_hang(self) -> None:
         self.started.set()
         try:
@@ -78,6 +81,25 @@ def test_a_timeout_in_the_peer_arrives_as_a_timeout() -> None:
             with pytest.raises(TimeoutError) as raised:
                 await conn.call("late", (), {})
             assert raised.value.args == ("ran past its 1s timeout",)
+
+    run(main)
+
+
+def test_an_exception_group_arrives_and_the_channel_stays_up() -> None:
+    """vinegar cannot rebuild a group; it arrives as a generic error with
+    its text, and the next call is answered."""
+
+    async def main() -> None:
+        # Unread, the reply leaves the call waiting forever.
+        with anyio.fail_after(10):
+            await calls()
+
+    async def calls() -> None:
+        async with pair(Echo()) as (conn, _):
+            with pytest.raises(Exception, match=r"ExceptionGroup.*several failed") as caught:
+                await conn.call("several", (), {})
+            assert not isinstance(caught.value, BaseExceptionGroup)
+            assert await conn.call("echo", ("still here",), {}) == "still here"
 
     run(main)
 

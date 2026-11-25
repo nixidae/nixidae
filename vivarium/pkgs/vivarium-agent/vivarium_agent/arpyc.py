@@ -64,10 +64,28 @@ def _dump_exc(exc: BaseException) -> tuple[object, ...]:
     return cast("tuple[object, ...]", vinegar.dump(type(exc), exc, exc.__traceback__, True, True))
 
 
+class UnbuiltError(Exception):
+    """A peer's exception that vinegar cannot rebuild here."""
+
+    def __init__(self, text: str, remote_tb: str) -> None:
+        super().__init__(text)
+        self._remote_tb = remote_tb
+        """Where vinegar keeps a peer's traceback, and rpyc's tooling reads it."""
+
+
 def _load_exc(raw: tuple[object, ...]) -> BaseException:
-    """Rebuild a serialised exception, refusing to import guest modules."""
-    # rpyc is untyped, so vinegar.load returns Any.
-    return cast("BaseException", vinegar.load(raw, False, False, False))
+    """Rebuild a serialised exception, refusing to import guest modules.
+
+    One vinegar cannot rebuild arrives as `UnbuiltError` with its name,
+    arguments and remote traceback. An `ExceptionGroup` is one:
+    vinegar calls `cls.__new__(cls)`, which a group refuses. Raised here,
+    the error would close the whole channel as an unreadable frame."""
+    try:
+        # rpyc is untyped, so vinegar.load returns Any.
+        return cast("BaseException", vinegar.load(raw, False, False, False))
+    except TypeError:
+        (modname, clsname), args, _attrs, tbtext = cast("tuple[tuple[str, str], object, object, str]", raw)
+        return UnbuiltError(f"{modname}.{clsname}: {args}", tbtext)
 
 
 class Service:
