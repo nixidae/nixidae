@@ -57,6 +57,7 @@ vivarium shell N [-- CMD]           # $SHELL or CMD with the run's variables: KU
 vivarium env N [--json]             # the same as `export` lines
 vivarium logs N [-g GUEST] [-u UNIT] [-k KIND] [--grep T] [-n N] [-f]   # events as `log` shows them; any run, live or not
 vivarium load N IMAGE.tar... [--node G]   # docker save / OCI tarball into every node's runtime (kind load); JSON of images per node
+vivarium node add N NODE [--template T] / node rm N NODE   # a worker from a Kubernetes template, joined and routed; JSON {name, ip}
 vivarium ps                         # live runs (state: ready|paused|running|unanswered, environment, test, dir), then environments that are down
 vivarium down N                     # 0 if every phase passed; the directory stays
 vivarium rm N / vivarium clean      # delete one stopped environment / every one
@@ -72,6 +73,7 @@ vivarium rm N / vivarium clean      # delete one stopped environment / every one
 - Plain Nix: `nix run --file . <test>.up -- --out DIR`, in the foreground.
 - `checks.k8s-host`: a one-node cluster, ready to `up`.
 - Several control planes (`role = "control-plane"` on more than one node) need `router.enable = true`: the router balances the API endpoint, `10.0.2.4:6443` (`controlPlaneEndpoint`), over every `/readyz` that answers; `access/kubeconfig` goes through the router. `persist` is the same on every control plane. `checks.k8s-ha`.
+- A template with `services.vivarium-k8s.enable` (a worker, `vivarium.lan.network`, the segment's `instanceAddresses`) is a node added at run time: `node add` / `vivarium_k8s.add_node(vms, template, name)`, `remove_node`. Not with several control planes or `loadBalancer` (an instance is not behind the router); no `persistentVolumes` or `persist`. A resumed environment deletes its Node. `checks.k8s-add`.
 
 ## At a pause
 

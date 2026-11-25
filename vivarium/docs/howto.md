@@ -463,6 +463,52 @@ keep their cluster together or not at all: `persist` is the same on
 each. `checks.k8s-ha` stops one API server and reads and writes through
 the endpoint.
 
+### Add a worker to a live cluster
+
+Declare a template that makes a worker, on the cluster's segment, and
+give the segment the addresses its instances take
+(nixidae/nixidae#1592):
+
+```nix
+mkTest {
+  vivarium.recipes.kubernetes.enable = true;
+  nodes.cp = { services.vivarium-k8s = { enable = true; role = "control-plane"; };
+               vivarium.lan = { network = "k8s"; address = "10.100.0.1/24"; }; };
+  segments.k8s.instanceAddresses = [ "10.100.0.100/24" ];
+  templates.worker = {
+    services.vivarium-k8s = { enable = true; role = "worker"; };
+    vivarium.lan.network = "k8s";
+  };
+}
+```
+
+Then add and remove workers while the run goes:
+
+```console
+$ vivarium node add k8s w1          # or: vivarium node add --out DIR w1 [--template worker]
+{
+  "ip": "10.100.0.100",
+  "name": "w1"
+}
+$ vivarium node rm k8s w1
+```
+
+`node add` launches the instance, joins it with its own address as the
+Node's InternalIP, and routes the pods of every node to it and back. It
+returns when the Node is Ready. `node rm` drains and deletes the Node,
+removes its routes and stops the instance. A phase does the same with
+`await vivarium_k8s.add_node(vms, "worker", "w1")` and
+`remove_node(vms, "w1")`. `--template` names the template when the run
+has more than one.
+
+A template's worker has no `persistentVolumes` and no `persist`: each
+needs a fact the instance has only at run time. Its instance does not sit
+behind the run's router, so a cluster with several control planes or a
+`loadBalancer` takes no template. When an environment comes up again,
+`bring_up` deletes the Node of each instance, since no guest is it then.
+`checks.k8s-add` adds two workers, checks their addresses and their pods,
+and removes one.
+
 ### Reach a cluster's Services by name
 
 `vivarium.recipes.kubernetes.loadBalancer.enable` puts the cluster behind
