@@ -603,6 +603,7 @@ def until_pause(argv: list[str], request: Request) -> int:
     if request.out is None:
         raise RuntimeError(f"{request.command}: argparse lets no run start without --out")
     request.out.mkdir(parents=True, exist_ok=True)
+    forget_last_run(request.out)
     child_argv = [str(this_cli()), *child_args(argv)]
     systemd_run = daemon.manager() if request.daemonize else None
     if request.daemonize and systemd_run is None:
@@ -643,6 +644,17 @@ def until_pause(argv: list[str], request: Request) -> int:
     say(f"ready: ssh -F {request.out / access.SSH_CONFIG} <guest>; files in {request.out / access.DIRECTORY}")
     say(f"stop it: {this_cli()} down --out {request.out}")
     return Exit.PASSED
+
+
+def forget_last_run(out: Path) -> None:
+    """Remove what the last run in *out* left for the monitor.
+
+    The monitor takes `events.jsonl` for a run that is up, and the new run
+    writes its own only after it evaluates and builds. Without this, a second
+    `up` of an environment reads the last run's ready and verdict, and ends
+    while its run still boots."""
+    for name in (logs.EVENTS, VERDICT):
+        (out / name).unlink(missing_ok=True)
 
 
 def not_ready(code: int, out: Path) -> str:

@@ -10,6 +10,7 @@ from vivarium_eval import cli as cli_module
 from vivarium_eval.cli import (
     child_args,
     entry,
+    forget_last_run,
     main,
     name_environment,
     not_ready,
@@ -31,6 +32,14 @@ def test_an_ended_environment_points_at_its_files(code: int) -> None:
     assert "ctl" not in said
     assert "/o/run.log" in said
     assert "/o/phases.json" in said
+
+
+def test_a_new_run_forgets_the_last_runs_events_and_verdict(tmp_path: Path) -> None:
+    for name in ("events.jsonl", "phases.json", RUN_FILE, "state.json"):
+        (tmp_path / name).write_text("{}")
+    forget_last_run(tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([RUN_FILE, "state.json"])
+    forget_last_run(tmp_path)
 
 
 class TestParse:
