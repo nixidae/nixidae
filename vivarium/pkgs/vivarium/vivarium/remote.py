@@ -202,7 +202,7 @@ CALLS: Final = frozenset(_calls)
 """The `Machine` methods `machines.sock` calls: those `RemoteMachine` declares."""
 
 
-class Machines(Service):
+class MachinesService(Service):
     """`machines`, `call`, `get` and `artifacts` on the run's guests that are up."""
 
     def __init__(self, session: Session) -> None:
@@ -240,7 +240,7 @@ class Machines(Service):
         return result
 
 
-async def _client(stream: SocketStream, service: Machines) -> None:
+async def _client(stream: SocketStream, service: MachinesService) -> None:
     # arpyc reads a raw fd from the loop; the duplicate outlives the stream.
     fd = os.dup(stream.extra(SocketAttribute.raw_socket).fileno())
     await stream.aclose()
@@ -255,7 +255,7 @@ async def serve(session: Session, *, task_status: TaskStatus[None] = anyio.TASK_
     with reachable(path) as name:
         listener = await anyio.create_unix_listener(name)
     path.chmod(0o600)
-    service = Machines(session)
+    service = MachinesService(session)
     task_status.started()
     try:
         await listener.serve(lambda stream: _client(stream, service))

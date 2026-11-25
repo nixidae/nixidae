@@ -5,7 +5,7 @@ from typing import Any
 
 import anyio
 import pytest
-from vivarium.remote import CALLS, READABLE, Machines, RemoteMachine
+from vivarium.remote import CALLS, READABLE, MachinesService, RemoteMachine
 from vivarium_runner.control import CommandResult
 from vivarium_runner.machine import Machine, MachineError
 
@@ -28,9 +28,9 @@ class FakeSession:
 
 
 class Loopback:
-    """A connection whose calls reach a `Machines` service in this process."""
+    """A connection whose calls reach a `MachinesService` in this process."""
 
-    def __init__(self, service: Machines) -> None:
+    def __init__(self, service: MachinesService) -> None:
         self.service = service
 
     async def call(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:  # noqa: ANN401 -- what the service returns
@@ -39,7 +39,7 @@ class Loopback:
 
 
 def proxy() -> RemoteMachine:
-    return RemoteMachine(Loopback(Machines(FakeSession())), "a")  # type: ignore[arg-type]  # a fake of the connection
+    return RemoteMachine(Loopback(MachinesService(FakeSession())), "a")  # type: ignore[arg-type]  # a fake of the connection
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ async def test_a_call_crosses() -> None:
 @pytest.mark.anyio
 async def test_a_command_result_crosses_as_plain_data() -> None:
     """arpyc carries tuples and brine's own types, never a dataclass."""
-    service = Machines(FakeSession())  # type: ignore[arg-type]  # a fake of the session
+    service = MachinesService(FakeSession())  # type: ignore[arg-type]  # a fake of the session
     assert await service.exposed_call("a", "succeed", ("hostname",), {}) == (0, "ran hostname", "a warning")
 
 
@@ -86,7 +86,7 @@ def test_a_method_off_the_list_is_named() -> None:
 
 @pytest.mark.anyio
 async def test_the_socket_serves_only_the_list() -> None:
-    service = Machines(FakeSession())  # type: ignore[arg-type]  # a fake of the session
+    service = MachinesService(FakeSession())  # type: ignore[arg-type]  # a fake of the session
     with pytest.raises(AttributeError, match="not served"):
         await service.exposed_call("a", "shutdown", (), {})
     with pytest.raises(AttributeError, match="not readable"):
