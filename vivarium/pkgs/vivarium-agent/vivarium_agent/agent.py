@@ -24,11 +24,12 @@ from pathlib import Path
 
 import anyio
 import anyio.to_thread
+from anyio.abc import SocketAttribute
 from dinit_client import DinitClient
 from dinit_client.protocol import ServiceState, ServiceStatus, ShutdownType, StoppedReason
 
 from . import cloud
-from .arpyc import AsyncConnection, Service, listen
+from .arpyc import AsyncConnection, Service, connect, listen
 from .channel import AGENT_READY, ProcessInfo, SystemState, UnitInfo
 
 
@@ -295,6 +296,38 @@ class Agent(Service):
         _systemd("journal")
         scope = f"-u {unit!r}" if unit else ""
         return (await _sh_thread(f"journalctl --no-pager -n {lines:d} {scope}", 30)).stdout.rstrip()
+
+    async def exposed_relay(
+        self, path: str, method: str, args: tuple[object, ...], kwargs: dict[str, object]
+    ) -> object:
+        """Call *method* on the arpyc service that listens on the guest's
+        Unix socket *path*, and return its answer.
+
+        A long-lived guest process serves the host this way, with no
+        process started per call: 0.3-0.5 ms against 30-80 ms for a
+        command (`vivarium.pytest_worker`)."""
+        stream = await anyio.connect_unix(path)
+        # arpyc reads a raw fd from the loop; the duplicate outlives the stream.
+        fd = os.dup(stream.extra(SocketAttribute.raw_socket).fileno())
+        await stream.aclose()
+        conn = connect(fd)
+        answer: object = None
+        failed: Exception | None = None
+        async with anyio.create_task_group() as group:
+            await group.start(conn.serve_forever)
+            try:
+                answer = await conn.call(method, args, kwargs)
+            except EOFError:
+                # Not EOFError: the host reads that as this channel gone.
+                failed = ConnectionError(f"{path} closed the connection before it answered {method}")
+            except Exception as error:  # noqa: BLE001 -- raised below, outside the group
+                # Raised in the group, it would leave wrapped in an ExceptionGroup.
+                failed = error
+            finally:
+                conn.close()
+        if failed is not None:
+            raise failed
+        return answer
 
 
 UNIX_PREFIX = "unix:"

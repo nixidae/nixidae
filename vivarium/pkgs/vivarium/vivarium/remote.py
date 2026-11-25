@@ -117,6 +117,7 @@ class RemoteMachine:
     unit_state = _remote(Machine.unit_state)
     unit_info = _remote(Machine.unit_info)
     listening = _remote(Machine.listening)
+    relay = _remote(Machine.relay)
     count_processes = _remote(Machine.count_processes)
     journal = _remote(Machine.journal)
     meminfo = _remote(Machine.meminfo)

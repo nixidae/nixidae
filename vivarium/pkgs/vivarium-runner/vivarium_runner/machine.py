@@ -1203,6 +1203,22 @@ class Machine:
         """Guest ports with something listening on them."""
         return await self._ask("listening", self._agent.listening(), _SYSTEMD_TIMEOUT)
 
+    async def relay(
+        self,
+        path: str,
+        method: str,
+        args: tuple[object, ...] = (),
+        kwargs: dict[str, object] | None = None,
+        timeout: float | None = None,
+    ) -> object:
+        """Call *method* on the arpyc service a guest process serves on the
+        Unix socket *path* in the guest, through the agent."""
+        return await self._ask(
+            f"relay {method} {path}",
+            self._agent.relay(path, method, args, kwargs or {}),
+            timeout or self.command_timeout,
+        )
+
     def interface(self, segment: str) -> Interface:
         """This guest's interface on *segment*: its name in the guest, its
         addresses and its MAC."""
