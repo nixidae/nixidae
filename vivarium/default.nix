@@ -103,6 +103,8 @@ let
 
   optionsReference = import ./nix/shared/options-reference.nix { inherit lib pkgs; };
   docs = pkgs.python3Packages.callPackage ./nix/docs.nix {
+    # The program: `graphviz` in this scope is the Python library.
+    inherit (pkgs) graphviz;
     inherit nixvenv;
     # What `mkTest` evaluates, without a guest.
     testOptions = optionsReference {

@@ -9,6 +9,9 @@ Four claims, read from the source tree:
   defined, the form nixdoc reads.
 - The howto's exit status table has each status of `vivarium.exits.Exit`
   and no other, and a short listing anywhere names them all.
+- Every node of a Graphviz graph under `docs/` that names a `file` names
+  one that exists, and its `symbol` (`name`, or `Class.method`) is
+  defined in that file.
 
     docs SOURCE LIB_NAMES_JSON
 """
@@ -39,6 +42,13 @@ LIB_NAME = re.compile(r"vivarium\.lib\.([A-Za-z_][A-Za-z0-9_]*)")
 EXIT_TABLE = "| Exit | Meaning |"
 EXIT_ROW = re.compile(r"^\| (\d+) \|")
 LISTING = "0 passed, 1 failed"
+ATTRIBUTES = re.compile(r"\[([^\]]*)\]")
+ATTRIBUTE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
+DEFINES: dict[str, str] = {
+    ".py": r"^\s*(?:async\s+)?def {name}\b|^\s*class {name}\b|^{name}\s*[:=]",
+    ".nix": r"(?:^|\s){name}\s*=",
+    ".rs": r"\b(?:fn|struct|enum|const|static) {name}\b",
+}
 
 
 def commands(markdown: str) -> list[str]:
@@ -113,6 +123,29 @@ def exit_rows(markdown: str) -> list[int] | None:
     return rows
 
 
+def graph_claims(dot: str) -> list[tuple[str, str | None]]:
+    """Each `file` a graph's nodes name, with the node's `symbol`, if any."""
+    claims: list[tuple[str, str | None]] = []
+    for block in ATTRIBUTES.findall(dot):
+        attributes = dict(ATTRIBUTE.findall(block))
+        if "file" in attributes:
+            claims.append((attributes["file"], attributes.get("symbol")))
+    return claims
+
+
+def undefined(path: Path, symbol: str) -> list[str]:
+    """The parts of *symbol* that *path* defines nowhere."""
+    pattern = DEFINES.get(path.suffix)
+    if pattern is None:
+        return [f"{symbol} (no rule for {path.suffix} files)"]
+    text = path.read_text()
+    return [
+        part
+        for part in symbol.split(".")
+        if re.search(pattern.format(name=re.escape(part)), text, re.MULTILINE) is None
+    ]
+
+
 def main() -> None:
     root, names = Path(sys.argv[1]), set(json.loads(Path(sys.argv[2]).read_text()))
     problems: list[str] = []
@@ -164,9 +197,26 @@ def main() -> None:
                 problems.append(f"{page.relative_to(root)}:{number}: lists exit statuses, not as `{describe()}`")
     print(f"read {len(statuses)} exit statuses")
 
+    graphs = sorted((root / "docs").rglob("*.dot"))
+    named = 0
+    for graph in graphs:
+        for file, symbol in graph_claims(graph.read_text()):
+            named += 1
+            where = f"{graph.relative_to(root)}: {file}"
+            if not (root / file).is_file():
+                problems.append(f"{where} does not exist")
+            elif symbol is not None and (missing := undefined(root / file, symbol)):
+                problems.append(f"{where} defines no {', '.join(missing)} (of {symbol})")
+    if graphs and named == 0:
+        sys.exit("graphs under docs/ name no file: the attribute pattern is stale")
+    print(f"read {named} graph nodes in {len(graphs)} graphs")
+
     if problems:
         sys.exit("\n".join(problems))
-    print("ok: every driver command parses, every lib name exists and has a doc comment, the exit statuses match")
+    print(
+        "ok: every driver command parses, every lib name exists and has a doc comment,"
+        " the exit statuses match, every graph node names a definition that exists"
+    )
 
 
 if __name__ == "__main__":
