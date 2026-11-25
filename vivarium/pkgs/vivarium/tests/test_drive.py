@@ -374,6 +374,22 @@ class TestBreakpoints:
             assert session.spec.segments == {}
             assert (await request(socket, Op.CONTINUE)).ok
 
+    async def test_reload_refuses_changed_templates(self, tmp_path: Path) -> None:
+        """nixidae/nixidae#1612: the run kept launching the old template."""
+        session = FakeSession(out=tmp_path)
+        spec = tmp_path / "spec.json"
+        changed = Spec(machines=[], templates=[machine_json("worker")], phases=session.spec.phases)
+        spec.write_text(changed.model_dump_json())
+        socket = places.socket(tmp_path, SOCKET)
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"]))
+            await until_paused(socket)
+            reply = await request(socket, Op.RELOAD, str(spec))
+            assert reply.status is Exit.REFUSED
+            assert "the templates changed" in (reply.error or "")
+            assert session.spec.templates == []
+            assert (await request(socket, Op.CONTINUE)).ok
+
     async def _watched(self, session: FakeSession, socket: Path, op: Op) -> list[str]:
         """The `event` of each item `watch` streams across a pause that `op` ends."""
         seen: list[str] = []

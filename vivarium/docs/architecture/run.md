@@ -149,7 +149,7 @@ command lines that reach the run, then waits for `continue`.
 
 `reload` and `switch` carry a store path that the `vivarium` CLI
 evaluated and built. `Session.reload` takes the new phases, settings and
-knobs, and refuses new guests or segments. `switch` adds a closure to
+knobs, and refuses changed guests, templates or segments. `switch` adds a closure to
 one guest (`Machine.add_closure`), switches it (`Machine.switch_to`) and
 changes its forwards to the new `vivarium.inbound`
 (`Machine.switch_inbound`).

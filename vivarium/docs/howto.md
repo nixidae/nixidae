@@ -145,8 +145,8 @@ $ vivarium ctl --out ./out run check      # the new `check`, against the same gu
 type check. The paused run then takes the new phase list: scripts,
 pytest specs, `after`, `nodes`, settings and knobs. A phase that ran
 keeps its verdict until it runs again, and a new phase runs when the
-run resumes. The run refuses the reload when a guest changed: a guest
-needs a new run, or `switch` (below). The run must be paused. Like
+run resumes. The run refuses the reload when a guest, a template or a
+segment changed: a guest needs a new run, or `switch` (below). The run must be paused. Like
 `switch`, `reload` reads the attribute from `<out>/run.json`, and the
 MCP server has a `reload(run)` tool.
 

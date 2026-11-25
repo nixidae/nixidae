@@ -1097,6 +1097,9 @@ class Session:
             raise ReloadRefused("the guests changed; a reload takes phases only: start a new run, or switch a guest")
         if spec.segments != self.spec.segments:
             raise ReloadRefused("the segments changed; a segment is wired at boot: start a new run")
+        if spec.templates != self.spec.templates:
+            # `Run` took its templates at `prepare`; it would go on launching the old ones.
+            raise ReloadRefused("the templates changed; a reload takes phases only: start a new run")
         result = reloaded(self.spec.phases, spec.phases, self.state)
         self.spec = spec
         self.state = result.state
