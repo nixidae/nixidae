@@ -52,8 +52,13 @@ class Exports(Protocol):
     """Environment variables a run hands the host's shell: `vivarium.exports.Exports`."""
 
     async def set(self, name: str, value: str) -> None:
-        """Add or replace *name* in `access/environment.json`, which
-        `vivarium env` and `vivarium shell` read."""
+        """Add or replace *name* in the variables `vivarium env` and
+        `vivarium shell` ask the run for."""
+        ...
+
+    @property
+    def values(self) -> dict[str, str]:
+        """Every variable set so far."""
         ...
 
 

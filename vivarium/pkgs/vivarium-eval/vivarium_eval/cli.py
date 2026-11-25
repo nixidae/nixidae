@@ -807,14 +807,14 @@ def without_name(words: list[str]) -> list[str]:
 
 
 def enter(args: argparse.Namespace) -> int:
-    """`env` and `shell`: a live run only, since a stopped one's
-    `environment.json` names ports another run may hold now."""
+    """`env` and `shell`: a live run only, since a stopped one's variables
+    name ports another run may hold now. The run hands them over."""
     out = target_of(args)
     if not anyio.run(environments.live, out):
         print(f"vivarium {args.command}: {out} is not up; `vivarium up` it first", file=sys.stderr)
         return Exit.NO_RUN
     try:
-        found = shell.gather(out, proxied=args.proxied)
+        found = shell.gather(out, anyio.run(shell.exported, out), proxied=args.proxied)
         if args.command == "shell":
             shell.enter(found, args.pytest_args)
     except (shell.ShellError, places.PlaceError) as error:

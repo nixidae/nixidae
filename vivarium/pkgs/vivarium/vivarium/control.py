@@ -50,7 +50,7 @@ from vivarium_runner.control import CommandResult
 from vivarium_runner.forward import InboundJson, Rule
 from vivarium_runner.machine import SwitchAction
 
-from . import places
+from . import exports, places
 from .events import Kind, Level
 from .exits import Exit
 from .phases import DONE, IllegalMove, ReloadRefused, Stop
@@ -95,6 +95,9 @@ class Op(StrEnum):
     SWITCH = "switch"
     """A system the host built, into one guest and switched to: the arg is
     a `SwitchRequest`. `vivarium switch` evaluates it and sends this."""
+    ENV = "env"
+    """The variables the phases exported (`vms.export`), as a JSON object
+    in `result`. `vivarium env` and `vivarium shell` send this."""
 
 
 class SegmentAction(StrEnum):
@@ -659,7 +662,7 @@ class Controller:
     reentrant.
     """
 
-    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP, Op.WATCH, Op.SEGMENT, Op.SWITCH})
+    ANY_TIME: Final = frozenset({Op.STATE, Op.EXEC, Op.INJECT, Op.STOP, Op.WATCH, Op.SEGMENT, Op.SWITCH, Op.ENV})
 
     def __init__(
         self,
@@ -837,6 +840,10 @@ class Controller:
                 pause=self._pause,
                 errors=dict(self.session.errors) or None,
             )
+        if op is Op.ENV:
+            sink = None if self.session.vms is None else self.session.vms.exports
+            values = {} if sink is None else sink.values
+            return Reply(ok=True, result=exports.encode(values))
         if op is Op.WATCH:
             # A feed answers on the stream, in `_client`, before this.
             return Reply.refuse("this run serves no watch")

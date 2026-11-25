@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 import pytest
-from vivarium import places
+from vivarium import exports, places
 from vivarium.control import RUN_FILE, SOCKET, Op, RunFile, request, watch
 from vivarium.driver import drive
 from vivarium.events import Event, Kind, Level
@@ -27,7 +27,7 @@ from vivarium.phases import Move, PhaseState, Stop, transition
 from vivarium.roots import Roots
 from vivarium.session import Session
 from vivarium.spec import PhaseSpec, SegmentSpec, Spec
-from vivarium_runner import MachineError, Machines
+from vivarium_runner import MachineError, Machines, RunContext
 from vivarium_runner.testing import machine_json
 
 if TYPE_CHECKING:
@@ -256,6 +256,22 @@ class TestBreakpoints:
             session.state["one"] = PhaseState.PENDING
             await request(socket, Op.CONTINUE)
         assert session.ran == ["one"]
+
+    async def test_env_hands_over_what_the_phases_exported(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        socket = places.socket(tmp_path, SOCKET)
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"]))
+            await until_paused(socket)
+            assert exports.decode((await request(socket, Op.ENV)).result or "") == {}
+            sink = exports.Exports()
+            session.vms = Machines(context=RunContext(artifacts=tmp_path, access=tmp_path, exports=sink))
+            await session.vms.export("KUBECONFIG", "/k")
+            reply = await request(socket, Op.ENV)
+            assert reply.ok
+            assert exports.decode(reply.result or "") == {"KUBECONFIG": "/k"}
+            session.vms = None
+            await request(socket, Op.CONTINUE)
 
     async def test_a_failure_pauses_with_the_state_intact(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

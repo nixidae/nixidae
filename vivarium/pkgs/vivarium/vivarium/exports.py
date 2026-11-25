@@ -1,21 +1,16 @@
-"""`access/environment.json`: the variables a run hands `vivarium shell`.
+"""The variables a run hands `vivarium env` and `vivarium shell`.
 
-Phases add to it through `vms.export`; the CLI only reads it. A new run
-empties `access/`, so a reused `--out` never hands over the last run's.
+Phases add to them through `vms.export`. They live in the run, and the
+CLI asks the live run for them (`Op.ENV`): a stopped run's variables name
+ports another run may hold now, so no file keeps them.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
-import anyio
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-FILE: Final = "environment.json"
 NAME: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 PROXY: Final = "VIVARIUM_PROXY"
 """The session's split proxy on the host, as a `socks5h://` URL, when the
@@ -28,33 +23,33 @@ class ExportError(ValueError):
 
 
 class Exports:
-    """`vivarium_runner.Exports` for one run: one object every phase shares,
-    so two phases that run at once both land in the file."""
+    """`vivarium_runner.Exports` for one run: one object every phase shares."""
 
-    def __init__(self, access: Path) -> None:
-        self._file = access / FILE
+    def __init__(self) -> None:
         self._values: dict[str, str] = {}
-        self._lock = anyio.Lock()
 
     async def set(self, name: str, value: str) -> None:
         if not NAME.fullmatch(name):
             raise ExportError(f"{name!r} is no environment variable name")
-        async with self._lock:
-            self._values[name] = value
-            # A rename: `vivarium env` reads the file while the run goes.
-            partial = anyio.Path(self._file.with_name(f".{FILE}.partial"))
-            await partial.write_text(json.dumps(self._values, indent=2, sort_keys=True) + "\n")
-            await partial.rename(self._file)
+        self._values[name] = value
+
+    @property
+    def values(self) -> dict[str, str]:
+        return dict(self._values)
 
 
-def read(access: Path) -> dict[str, str]:
-    """The run's variables; none when no phase exported any."""
+def encode(values: dict[str, str]) -> str:
+    return json.dumps(values, sort_keys=True)
+
+
+def decode(text: str) -> dict[str, str]:
+    """An `Op.ENV` reply's variables. Raises `ExportError`."""
     try:
-        found = json.loads((access / FILE).read_text())
-    except FileNotFoundError:
-        return {}
+        found = json.loads(text)
+    except ValueError as error:
+        raise ExportError(f"the run's variables are no JSON: {error}") from None
     if not isinstance(found, dict) or not all(
         isinstance(key, str) and NAME.fullmatch(key) and isinstance(value, str) for key, value in found.items()
     ):
-        raise ExportError(f"{access / FILE} is not an object of variable names to strings")
+        raise ExportError("the run's variables are not an object of variable names to strings")
     return found

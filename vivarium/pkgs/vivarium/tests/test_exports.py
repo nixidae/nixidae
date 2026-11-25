@@ -1,42 +1,26 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 
-import anyio
 import pytest
 from vivarium import exports
-from vivarium_runner import MachineError, Machines, RunContext
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from vivarium_runner import MachineError, Machines
 
 
 @pytest.mark.anyio
-async def test_two_phases_at_once_both_land(tmp_path: Path) -> None:
-    sink = exports.Exports(tmp_path)
-    context = RunContext(artifacts=tmp_path, access=tmp_path, exports=sink)
-    first, second = Machines(context=context), Machines(context=context)
-    async with anyio.create_task_group() as group:
-        for index in range(20):
-            group.start_soon((first if index % 2 else second).export, f"V{index}", str(index))
-    assert exports.read(tmp_path) == {f"V{index}": str(index) for index in range(20)}
-    assert [each.name for each in tmp_path.iterdir()] == [exports.FILE]
-
-
-@pytest.mark.anyio
-async def test_a_later_value_replaces_one(tmp_path: Path) -> None:
-    sink = exports.Exports(tmp_path)
+async def test_a_later_value_replaces_one() -> None:
+    sink = exports.Exports()
     await sink.set("KUBECONFIG", "/a")
     await sink.set("KUBECONFIG", "/b")
-    assert exports.read(tmp_path) == {"KUBECONFIG": "/b"}
+    assert sink.values == {"KUBECONFIG": "/b"}
 
 
 @pytest.mark.anyio
-async def test_a_bad_name_is_refused(tmp_path: Path) -> None:
+async def test_a_bad_name_is_refused() -> None:
+    sink = exports.Exports()
     with pytest.raises(exports.ExportError):
-        await exports.Exports(tmp_path).set("A B", "x")
-    assert not (tmp_path / exports.FILE).exists()
+        await sink.set("A B", "x")
+    assert sink.values == {}
 
 
 @pytest.mark.anyio
@@ -45,12 +29,12 @@ async def test_a_run_with_no_sink_refuses() -> None:
         await Machines().export("A", "b")
 
 
-def test_nothing_exported_reads_empty(tmp_path: Path) -> None:
-    assert exports.read(tmp_path) == {}
+def test_the_reply_round_trips() -> None:
+    values = {"KUBECONFIG": "/k", exports.PROXY: "socks5h://127.0.0.1:1"}
+    assert exports.decode(exports.encode(values)) == values
 
 
 @pytest.mark.parametrize("content", [["A"], {"A": 1}, {"A B": "x"}])
-def test_a_malformed_file_is_refused(tmp_path: Path, content: object) -> None:
-    (tmp_path / exports.FILE).write_text(json.dumps(content))
+def test_a_malformed_reply_is_refused(content: object) -> None:
     with pytest.raises(exports.ExportError):
-        exports.read(tmp_path)
+        exports.decode(json.dumps(content))

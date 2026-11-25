@@ -149,9 +149,11 @@ the reply ends with one JSON line. A request that asks for a stream
 lines before the reply. `vivarium ctl`, `vivarium monitor` and the MCP
 server are its clients.
 
-- `state`, `exec`, `inject`, `stop`, `segment`, `switch` and `watch`
-  work at any time (`Controller.ANY_TIME`). `exec` runs Python in the session's namespace, where `vms`,
-  `session` and each guest are names.
+- `state`, `exec`, `inject`, `stop`, `segment`, `switch`, `watch` and
+  `env` work at any time (`Controller.ANY_TIME`). `exec` runs Python in
+  the session's namespace, where `vms`, `session` and each guest are
+  names. `env` answers the variables the phases exported, which
+  `vivarium env` and `vivarium shell` set.
 - `pytest`, `run`, `reload` and `continue` work only while the run is
   paused.
 - `watch` streams the run's channel events (`vivarium/feed.py`) until

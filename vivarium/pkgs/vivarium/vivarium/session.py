@@ -554,7 +554,7 @@ class Session:
         vms = run.up
         self.kept = await kept.load(self.out)
         where = access.write(self._access_guests(), self.out)
-        exported = exports.Exports(where)
+        exported = exports.Exports()
         vms.context = RunContext(
             artifacts=self.artifacts,
             access=where,

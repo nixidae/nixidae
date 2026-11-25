@@ -1,7 +1,8 @@
 """`vivarium env` and `vivarium shell`: a host shell that reaches a live run.
 
-The run's phases name the variables (`access/environment.json`). This
-adds the environment's name, and turns the run's proxy into the variables
+The run's phases name the variables (`vms.export`), and the live run
+hands them over on its control socket (`Op.ENV`). This adds the
+environment's name, and turns the run's proxy into the variables
 programs read. The proxy is the session's split proxy on the host: lab
 names and addresses go through the router, the rest straight out. A
 program that cannot speak SOCKS fails with any of them set (httpx without
@@ -18,7 +19,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from vivarium import access, exports, places
+from vivarium import exports, places
+from vivarium.control import SOCKET, Op, request
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -126,11 +128,21 @@ def wrappers(root: Path, python: str) -> Path:
     return directory
 
 
-def gather(out: Path, *, proxied: bool) -> dict[str, str]:
+async def exported(out: Path) -> dict[str, str]:
+    """The variables the live run in *out* holds. Raises `ShellError`."""
     try:
-        exported = exports.read(out / access.DIRECTORY)
-    except (OSError, exports.ExportError) as error:
+        reply = await request(places.socket(out, SOCKET), Op.ENV)
+    except OSError as error:
+        raise ShellError(f"no run answers in {out}: {error}") from None
+    if not reply.ok or reply.result is None:
+        raise ShellError(f"the run in {out} gave no variables: {reply.error}")
+    try:
+        return exports.decode(reply.result)
+    except exports.ExportError as error:
         raise ShellError(str(error)) from None
+
+
+def gather(out: Path, exported: Mapping[str, str], *, proxied: bool) -> dict[str, str]:
     wrapped = wrappers(places.runtime(), sys.executable) if proxied and exports.PROXY in exported else None
     return variables(
         exported,

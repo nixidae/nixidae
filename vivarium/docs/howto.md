@@ -622,7 +622,8 @@ CMD without them. `nix`, the other `nix-*` commands, `pynix` and
 variables and `unproxy`.
 
 A phase adds a variable with `await vms.export(NAME, VALUE)`. The run
-keeps them in `access/environment.json`.
+keeps them, and `env` and `shell` ask the live run for them on its
+control socket (`vivarium ctl --out O env` prints them as JSON).
 
 ## Drive guests from plain pytest
 
