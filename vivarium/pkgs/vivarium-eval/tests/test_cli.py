@@ -125,7 +125,7 @@ class TestParse:
         monkeypatch.setattr(cli_module, "test_name", evaluated)
         argv = name_environment(["up", "x.qemu", "--name", "dev", "-v", "--", "-k", "t"])
         out = places.environment("dev")
-        assert argv == ["up", "x.qemu", "--file", ".", "--out", str(out), "-v", "--", "-k", "t"]
+        assert argv == ["up", "x.qemu", "-v", "--out", str(out), "--", "-k", "t"]
         assert parse(argv).out == out
 
     def test_up_takes_the_tests_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -133,7 +133,25 @@ class TestParse:
             return "k8s-lb"
 
         monkeypatch.setattr(cli_module, "test_name", named)
-        assert name_environment(["up", "checks.k8s-lb"])[4:6] == ["--out", str(places.environment("k8s-lb"))]
+        assert name_environment(["up", "checks.k8s-lb"])[2:4] == ["--out", str(places.environment("k8s-lb"))]
+
+    def test_up_reads_the_attribute_after_a_runner_option(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        asked: list[list[str]] = []
+
+        async def named(_: object, attr: list[str]) -> str:
+            asked.append(attr)
+            return "k8s"
+
+        monkeypatch.setattr(cli_module, "test_name", named)
+        argv = name_environment(["up", "--only", "boot", "checks.k8s"])
+        assert asked == [["checks", "k8s"]]
+        assert argv == ["up", "--only", "boot", "checks.k8s", "--out", str(places.environment("k8s"))]
+        assert parse(argv).attr == ["checks", "k8s"]
+
+    def test_up_drops_name_in_either_spelling(self) -> None:
+        for name in (["--name", "dev"], ["--name=dev"]):
+            argv = name_environment(["up", "--only", "boot", *name, "checks.k8s"])
+            assert argv == ["up", "--only", "boot", "checks.k8s", "--out", str(places.environment("dev"))]
 
     def test_up_refuses_name_with_out(self) -> None:
         with pytest.raises(SystemExit):

@@ -747,12 +747,9 @@ def name_environment(argv: list[str]) -> list[str]:
     """`up` with no --out: `--out <state>/envs/<name>` in place of `--name`.
     The name is `--name`, else the test's `name`, which this evaluates."""
     head, tail = split_dashdash(argv)
-    words = argparse.ArgumentParser(add_help=False)
-    words.add_argument("--name")
-    words.add_argument("--out")
-    words.add_argument("--file", "-f", type=Path, default=Path())
-    words.add_argument("attr")
-    known, rest = words.parse_known_args(head[1:])
+    # The whole parser, so a runner option before the attribute keeps its
+    # value: `up --only boot checks.k8s`.
+    known, _ = parser().parse_known_args(head)
     if known.out is not None:
         if known.name is not None:
             raise SystemExit("vivarium up: --name and --out name the same thing; give one")
@@ -769,7 +766,21 @@ def name_environment(argv: list[str]) -> list[str]:
     if anyio.run(environments.live, out):
         raise SystemExit(f"vivarium up: the environment {name} is up; `vivarium down {name}` first, or pick --name")
     say(f"environment {name}: {out}")
-    return ["up", known.attr, "--file", str(known.file), "--out", str(out), *rest, *tail]
+    return [*without_name(head), "--out", str(out), *tail]
+
+
+def without_name(words: list[str]) -> list[str]:
+    """*words* in their order, less `--name NAME` and `--name=NAME`."""
+    kept: list[str] = []
+    skip = False
+    for word in words:
+        if skip:
+            skip = False
+        elif word == "--name":
+            skip = True
+        elif not word.startswith("--name="):
+            kept.append(word)
+    return kept
 
 
 def enter(args: argparse.Namespace) -> int:
