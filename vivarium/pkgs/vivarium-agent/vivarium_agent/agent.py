@@ -43,7 +43,7 @@ class Init(StrEnum):
 TTY = os.environ.get("VIVARIUM_AGENT_DEVICE", "/dev/ttyS0")
 """Where the host is listening.  ttyS0 under UML.  Under QEMU the console
 takes ttyS0 -- a stock kernel prints there from its first line, before any
-virtio driver exists -- and the agent gets hvc0 instead."""
+virtio driver exists -- and the agent gets a virtio-serial port instead."""
 INIT = Init(os.environ.get("VIVARIUM_INIT", Init.SYSTEMD))
 DINIT_SOCKET = os.environ.get("VIVARIUM_DINIT_SOCKET", "/run/dinitctl")
 DINIT_BOOT = "boot"

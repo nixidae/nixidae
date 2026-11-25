@@ -402,8 +402,12 @@ class Qemu:
             f"socket,id=agent,fd={agent_fd}",
             "-device",
             "virtio-serial",
+            # Not virtconsole: QEMU drops what a console port's socket cannot
+            # take at once (`hw/char/virtio-console.c`, `flush_buf`), and a
+            # lost byte puts the channel out of step for good
+            # (nixidae/nixidae#1178). A named port waits for room.
             "-device",
-            "virtserialport,chardev=agent,name=vivarium-agent" if firmware is not None else "virtconsole,chardev=agent",
+            "virtserialport,chardev=agent,name=vivarium-agent",
             *uplink,
             # The guest tells QEMU which pages it has freed and QEMU
             # madvises them out of the memfd above, so the host stops

@@ -75,13 +75,13 @@ lib.mkMerge [
     ])
     {
       # ttyS0 is the console here, not the control channel.  A stock kernel
-      # prints to it from the first line, and a virtio console does not exist
+      # prints to it from the first line, and a virtio port does not exist
       # until its driver loads -- so a panic before that would be invisible.
-      # The agent takes hvc0 instead. libkrun's port is not a console, so it
-      # never becomes hvc0, and udev links it by the name the launcher gave it.
-      # Under OVMF the console port stops delivering what the host sends once
-      # Linux has it; a named port does not.
-      vivarium.agentDevice = if krun || cfg.efi then "/dev/virtio-ports/vivarium-agent" else "/dev/hvc0";
+      # The agent takes a named virtio-serial port, and udev links it by the
+      # name the launcher gave it. Not a console port (hvc0): QEMU drops what
+      # its socket cannot take at once (nixidae/nixidae#1178), and under OVMF
+      # it stops delivering what the host sends once Linux has it.
+      vivarium.agentDevice = "/dev/virtio-ports/vivarium-agent";
 
       vivarium.launch =
         if krun then

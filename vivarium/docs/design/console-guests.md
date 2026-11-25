@@ -17,7 +17,7 @@ are the OS's own.
 ## The problem
 
 A vivarium guest runs the vivarium agent. `Machine` reaches it over a
-socketpair (UML `ssl0`, QEMU `virtconsole`), and every phase API
+socketpair (UML `ssl0`, QEMU a `virtserialport`), and every phase API
 (`execute`, `unit_state`, `journal`, `add_closure`, ...) is an agent call.
 The run itself also calls the agent on every guest, whatever the phases
 ask: the `boot` recipe (`systemctl is-system-running --wait`), the settle

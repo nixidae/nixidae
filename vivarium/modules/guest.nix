@@ -342,8 +342,8 @@ in
   # is reachable before networking exists and inside a build sandbox.
   # Its "ready" line on the console is what the runner waits for.
   #
-  # The device differs by backend -- ttyS0 under UML, hvc0 under QEMU,
-  # where ttyS0 carries the console instead -- so the unit is ordered
+  # The device differs by backend -- ttyS0 under UML, a virtio-serial port
+  # under QEMU, where ttyS0 carries the console -- so the unit is ordered
   # against whichever one this guest got.
   #
   # A container's agent listens on a socket and has no device unit to wait
