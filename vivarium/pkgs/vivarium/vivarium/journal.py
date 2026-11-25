@@ -8,8 +8,15 @@ entry, and whatever reached it survives the guest being killed.
 Not over the agent's RPC channel, although it could carry it. A line in
 flight over RPC lives in a Python process on each end, and either one
 dying loses it; a line in the file is on the host's disk already. The
-agent also answers one request at a time, so a stream there would stop
-for as long as any command ran.
+lines a guest logs while it powers off come after the agent stops, so
+the file is needed for them anyway.
+
+The host reads the file on a timer, not on a file watch. Measured
+(nixidae/nixidae#1613): a line takes 390-490 ms in the guest to reach the
+file, because journald tells `journalctl --follow` on a timer. The host's
+0.25 s poll adds 0-250 ms to that. A watchdog observer woke for every
+line on every backend, but it saves only that part, and costs a
+dependency and a check per backend.
 """
 
 from __future__ import annotations

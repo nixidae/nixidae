@@ -739,7 +739,7 @@ class Session:
                     vm = self.vms.get(name)
                     if vm is not None and tail.streaming and vm.alive():
                         group.start_soon(send, vm)
-            # Polled: the stream is a file a guest writes, and nothing says it grew.
+            # Polled, as `follow` is: `journal` says why.
             while not tokens <= self._settled:
                 await self.drain()
                 await anyio.sleep(0.02)
@@ -805,7 +805,7 @@ class Session:
         Run beside the phases by whatever drives the session -- `drive`
         in a task group, an MCP server in a task of its own. Not a task of
         `live`: those end with the phases, and the journals stream until
-        the drive ends.
+        the drive ends. A poll, not a file watch: `journal` says why.
         """
         try:
             while True:
