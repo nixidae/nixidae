@@ -23,7 +23,7 @@ from vivarium.driver import drive
 from vivarium.events import Event, Kind, Level
 from vivarium.exits import Exit
 from vivarium.monitor import LIVE
-from vivarium.phases import PhaseState, Stop
+from vivarium.phases import Move, PhaseState, Stop, transition
 from vivarium.roots import Roots
 from vivarium.session import Session
 from vivarium.spec import PhaseSpec, SegmentSpec, Spec
@@ -91,6 +91,7 @@ class FakeSession(Session):
         return [phase for phase in self.spec.phases if self.state[phase.name] is PhaseState.PENDING]
 
     async def run(self, phase: PhaseSpec) -> PhaseState:
+        transition(self.state[phase.name], Move.START)
         self.ran.append(phase.name)
         self.state[phase.name] = PhaseState.PASSED
         return PhaseState.PASSED
@@ -238,6 +239,21 @@ class TestBreakpoints:
             await until_paused(socket)
             reply = await request(socket, Op.RUN, "one")
             assert reply.result == "passed"
+            await request(socket, Op.CONTINUE)
+        assert session.ran == ["one"]
+
+    async def test_ctl_run_refuses_a_running_phase(self, tmp_path: Path) -> None:
+        session = FakeSession(out=tmp_path)
+        socket = places.socket(tmp_path, SOCKET)
+        async with anyio.create_task_group() as group:
+            group.start_soon(lambda: drive(session, breaks=["one"]))
+            await until_paused(socket)
+            session.state["one"] = PhaseState.RUNNING
+            reply = await request(socket, Op.RUN, "one")
+            assert reply.refused
+            assert reply.error == "one: a running phase cannot start"
+            assert session.ran == []
+            session.state["one"] = PhaseState.PENDING
             await request(socket, Op.CONTINUE)
         assert session.ran == ["one"]
 

@@ -20,7 +20,7 @@ from . import access, registry, remote, repl
 from .control import READY, RUN_FILE, Controller, Origin, Subject, first_guest, run_file, vivarium_command
 from .events import Kind, Level
 from .feed import Feed
-from .phases import PhaseState, launchable, ready
+from .phases import IllegalMove, PhaseState, launchable, ready
 from .session import Session
 from .spec import PhaseSpec
 
@@ -206,6 +206,9 @@ async def _schedule(
         try:
             if await session.run(phase) is PhaseState.FAILED:
                 failed.append(phase.name)
+        except IllegalMove as error:
+            # `exec` started it first; that run gives its verdict.
+            session.emit(Kind.NOTE, f"{phase.name} not started: {error}", level=Level.ERROR, phase=phase.name)
         finally:
             del running[phase.name]
             changed.set()
