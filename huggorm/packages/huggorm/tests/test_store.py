@@ -236,6 +236,15 @@ def chroot(tmp_path: pathlib.Path) -> Store:
     return Store(str(tmp_path))
 
 
+def test_only_a_daemon_client_is_a_remote_store(chroot: Store, tmp_path: pathlib.Path, private_daemon: str) -> None:
+    """The daemon answers a remote store's substituter questions; every other store asks this process's."""
+    (tmp_path / "cache").mkdir()
+    assert Store(private_daemon).is_remote_store()
+    assert not chroot.is_remote_store()
+    assert not Store("dummy://").is_remote_store()
+    assert not Store(f"file://{tmp_path / 'cache'}").is_remote_store()
+
+
 def test_a_store_takes_bytes_and_names_the_result(chroot: Store) -> None:
     """The contents decide the name, which is the whole idea.
 

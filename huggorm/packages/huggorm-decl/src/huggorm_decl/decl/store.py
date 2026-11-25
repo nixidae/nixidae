@@ -239,6 +239,19 @@ class Store:
                 remote->shutdownConnections();
         """)
 
+    @needs(Local("nix/store/remote-store.hh"))
+    def is_remote_store(self) -> Bint:
+        """Whether this store is a client of a Nix daemon: `ssh-ng://`,
+        `unix://`, `daemon`.
+
+        Such a store sends its substituter questions to the daemon, so
+        `query_missing` and `query_substitutable_paths` answer with the
+        daemon's substituters. Every other store answers them with this
+        process's own `substituters` setting: an empty `file://` cache
+        calls a path missing from it substitutable when cache.nixos.org
+        holds it."""
+        Cxx("return dynamic_cast<nix::RemoteStore *>(&self) != nullptr;")
+
     @cxx_name("isValidPath")
     def is_valid_path(self, path: StorePath) -> Bint:
         """Whether the store has that path."""
