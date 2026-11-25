@@ -15,7 +15,8 @@ async def test(vms: Machines) -> None:
 
     for vm, address, token in ((first, "10.9.0.100", "token-1"), (second, "10.9.0.101", "token-2")):
         await vm.succeed(f"test $(hostname) = {vm.name}")
-        assert address in (await vm.succeed("ip -4 -br addr show eth1")).stdout, f"{vm.name} lacks {address}"
+        # networkd applies the instance's address on its own time, after boot.
+        await vm.wait_until_succeeds(f"ip -4 -br addr show eth1 | grep -F {address}", timeout=30)
         assert (await vm.succeed("cat /run/vivarium/user-data")).stdout == token
         await base.succeed(f"ping -c2 -W5 {address}")
     await first.succeed("ping -c2 -W5 10.9.0.101")
@@ -28,7 +29,7 @@ async def test(vms: Machines) -> None:
 
     third = await vms.launch("worker", "w3")
     assert third.spec.index == first.spec.index, "w3 did not take w1's free index"
-    assert "10.9.0.100" in (await third.succeed("ip -4 -br addr show eth1")).stdout
+    await third.wait_until_succeeds("ip -4 -br addr show eth1 | grep -F 10.9.0.100", timeout=30)
     await third.fail("test -e /run/vivarium/user-data")
     await base.succeed("ping -c2 -W5 10.9.0.100")
     print("[test] a terminated instance's index and address come back")
