@@ -32,19 +32,10 @@ let
     }
   ];
 
-  # A container guest needs `uid-range` and /dev/net, but no /dev/kvm.
+  # A container guest needs `uid-range`, but no /dev/kvm.
   containerBootstrap = lib.mkMerge [
     sandboxBootstrap
-    {
-      nix.install.uidRange = true;
-      nix.install.devNet = true;
-    }
-  ];
-
-  # A run that holds a guest of each backend needs all of it.
-  everyBackendBootstrap = lib.mkMerge [
-    guestBootstrap
-    { nix.install.devNet = true; }
+    { nix.install.uidRange = true; }
   ];
 
   /*
@@ -457,7 +448,7 @@ let
   built = {
     kernel = [ "packages.umlKernel" ];
     direct-kernel = [ "packages.directKernel" ];
-    container-probe = [ "checks.container-probe-tun" ];
+    container-probe = [ "checks.container-probe-lan" ];
     test-container = [
       "checks.container"
       "checks.container-lan"
@@ -695,10 +686,9 @@ let
     The derivation asks for `uid-range`: a build as root with 65536 ids
     and a cgroup of its own, which systemd as PID 1 in the container
     needs. The runner's daemon offers it only when told to, which is
-    ghanix's `uidRange`; `devNet` adds /dev/net, for the uplink and the
-    LAN. The probe goes first on its own, so a runner that lacks any of
-    it fails in seconds, by name. `container-lan` holds a UML guest,
-    hence the kernel.
+    ghanix's `uidRange`. The probe goes first on its own, so a runner
+    that lacks any of it fails in seconds, by name. `container-lan`
+    holds a UML guest, hence the kernel.
   */
   containerJob = job {
     id = "test-container";
@@ -835,14 +825,14 @@ let
   /*
     Runs that hold guests of different backends at once: each store view,
     segments across backends, a ping between each pair. A UML guest waits
-    on the kernel; a container guest needs /dev/net.
+    on the kernel.
   */
   backendsJob = job {
     id = "backends";
     needs = [ "kernel" ];
     timeoutMinutes = 30;
     cond = selectable "backends";
-    ghanix = everyBackendBootstrap;
+    ghanix = guestBootstrap;
     steps = [
       (steps.build {
         name = "Backends together: store views, segments, all four on one segment, UML beside QEMU";
@@ -903,7 +893,7 @@ in
     appliance = "`routeros` runs RouterOS CHR in CI";
     vyos = "`vyos-uml`, `vyos-bgp` and `vyos-oob` run VyOS in CI";
     routeros-route = "`routeros-bgp` runs the same routing through RouterOS in CI";
-    container-probe = "`container-probe-tun` asks the same and more in the container job";
+    container-probe = "`container-probe-lan` asks the same and more in the container job";
     uml-speed = "it builds a second, patched UML kernel for one check; a person runs it when the patch moves";
   };
 

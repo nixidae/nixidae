@@ -328,14 +328,14 @@ rec {
     not boot minutes into a run. Every session with a container guest
     depends on it; a CI job can build it first on its own.
 
-    `tun`: a LAN is wanted, so a tap device must be possible, which in a
-    sandbox needs /dev/net in `extra-sandbox-paths`.
+    `lan`: a LAN is wanted, so a veth pair must be possible, which needs
+    the host kernel's veth module.
   */
   containerProbe =
     {
-      tun ? false,
+      lan ? false,
     }:
-    pkgs.runCommand "vivarium-container-probe${lib.optionalString tun "-tun"}"
+    pkgs.runCommand "vivarium-container-probe${lib.optionalString lan "-lan"}"
       {
         nativeBuildInputs = [
           (nixvenv {
@@ -347,7 +347,7 @@ rec {
       }
       ''
         set -o pipefail
-        python -m vivarium_runner.crun_launch probe ${lib.optionalString tun "--tun"} | tee $out
+        python -m vivarium_runner.crun_launch probe ${lib.optionalString lan "--lan"} | tee $out
       '';
 
   # The probe a set of machines needs, or null when none is a container.
@@ -360,7 +360,7 @@ rec {
       null
     else
       containerProbe {
-        tun = lib.any (machine: machine.vivarium.nics != [ ]) containers;
+        lan = lib.any (machine: machine.vivarium.nics != [ ]) containers;
       };
 
   /*

@@ -125,7 +125,7 @@ class Container:
     ) -> Launch:
         spec = machine.spec
         config = ContainerConfig.of(spec)
-        missing = await self.host.missing(tun=bool(lan_fds))
+        missing = await self.host.missing(lan=bool(lan_fds))
         if missing:
             raise BackendError("this host cannot run a container guest:\n" + "\n".join(f"  {item}" for item in missing))
         rootfs = rundir / "root"
@@ -142,9 +142,9 @@ class Container:
         if not container.setuid_allowed(rundir):
             (agent_dir / container.NO_SETUID).touch()
 
-        # An uplink segment (a router's, nixidae/nixidae#1404) is a tap like
-        # vec1, on /dev/net/tun, which probe() checked above. A `vsock`
-        # uplink is a veth in the guest, and needs no tun.
+        # An uplink segment (a router's, nixidae/nixidae#1404) is a link like
+        # vec1, which probe() checked above. A `vsock` uplink is a veth the
+        # guest makes itself.
         if spec.uplink is None and not spec.vsock:
             raise BackendError(f"{spec.name}: nothing serves vec0 in a container: uplink.proxy is {spec.uplink_proxy}")
 

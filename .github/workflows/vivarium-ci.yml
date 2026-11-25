@@ -25,7 +25,6 @@ jobs:
           auto-allocate-uids = true
           cores = 4
           experimental-features = nix-command flakes auto-allocate-uids cgroups
-          extra-sandbox-paths = /dev/net
           extra-system-features = uid-range
           max-jobs = 1
           use-cgroups = true
@@ -462,7 +461,6 @@ jobs:
           auto-allocate-uids = true
           cores = 4
           experimental-features = nix-command flakes auto-allocate-uids cgroups
-          extra-sandbox-paths = /dev/net
           extra-system-features = uid-range
           max-jobs = 1
           use-cgroups = true
@@ -734,7 +732,6 @@ jobs:
           auto-allocate-uids = true
           cores = 4
           experimental-features = nix-command flakes auto-allocate-uids cgroups
-          extra-sandbox-paths = /dev/net
           extra-system-features = uid-range
           max-jobs = 1
           use-cgroups = true
@@ -768,7 +765,7 @@ jobs:
       run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; sudo sysctl -w kernel.unprivileged_userns_clone=1; unshare --user --map-root-user --mount --pid --fork --mount-proc true
       timeout-minutes: 5
     - name: 'Probe: can this sandbox run a container guest with a LAN'
-      run: nix build --no-link --print-build-logs --keep-going --file . checks.container-probe-tun
+      run: nix build --no-link --print-build-logs --keep-going --file . checks.container-probe-lan
       timeout-minutes: 5
     - name: 'Run container and container-lan: NixOS guests under crun, in the sandbox'
       run: nix build --no-link --print-build-logs --keep-going --file . checks.container checks.container-lan
@@ -1201,7 +1198,6 @@ jobs:
           auto-allocate-uids = true
           cores = 4
           experimental-features = nix-command flakes auto-allocate-uids cgroups
-          extra-sandbox-paths = /dev/net
           extra-system-features = uid-range
           max-jobs = 1
           use-cgroups = true
@@ -2689,7 +2685,6 @@ jobs:
           auto-allocate-uids = true
           cores = 4
           experimental-features = nix-command flakes auto-allocate-uids cgroups
-          extra-sandbox-paths = /dev/net
           extra-system-features = uid-range
           max-jobs = 1
           use-cgroups = true

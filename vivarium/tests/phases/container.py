@@ -5,10 +5,10 @@
 this is not a UML or a QEMU guest. The `nobody` service is the part that
 needs a range of ids: with root alone mapped it fails at the GROUP step.
 
-The same script runs by hand and in the `uid-range` sandbox. The sandbox
-has no /dev/net/tun, so no uplink, and its store is one bind per input,
-so the guest's store is read-only there. Each part says when it is
-skipped, so a sandboxed pass never reads as a full one.
+The same script runs by hand and in the `uid-range` sandbox. The
+sandbox's store is one bind per input, so the guest's store is read-only
+there. Each part says when it is skipped, so a sandboxed pass never reads
+as a full one.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import socket
 from pathlib import Path
 
 from vivarium_runner import Machine, Machines
-from vivarium_runner.container import store_is_one_mount, tap_fails
+from vivarium_runner.container import link_fails, store_is_one_mount
 
 
 async def test(vms: Machines) -> None:
@@ -75,10 +75,10 @@ async def test(vms: Machines) -> None:
         print("[test] skipped: a writable store (this store is one bind per input)")
 
     # The runner's own answer, so the phase and the launcher cannot disagree.
-    if await tap_fails() is None:
+    if await link_fails() is None:
         await _uplink(one)
     else:
-        print("[test] skipped: the uplink and forwards (no tap device here)")
+        print("[test] skipped: the uplink and forwards (no veth pair here)")
 
 
 async def _writable_store(one: Machine) -> None:

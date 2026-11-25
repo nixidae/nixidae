@@ -167,8 +167,7 @@ a test.
   them, the caller's subordinate ids.** Container guests need those ids
   (`newuidmap`), and QEMU guests need them for `/artifacts`. A run with
   a container guest on a host without subordinate ids, a delegated
-  cgroup or a writable `/dev/net/tun` fails at start and names what is
-  missing.
+  cgroup or a veth pair fails at start and names what is missing.
 - **A sandboxed run with a QEMU guest asks for `uid-range`** (Carl,
   2026-09-30), as a container guest does. virtiofsd serves a file as the
   guest user that made it; in a sandbox that maps one uid it cannot

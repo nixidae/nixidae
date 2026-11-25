@@ -295,7 +295,7 @@ lib.fix (self: {
       not in it. A name in `ci/workflows.nix` that is not here fails the
       evaluation.
 
-        nix build --file . internal.ci --keep-going --option extra-sandbox-paths /dev/net
+        nix build --file . internal.ci --keep-going
     */
     ci = pkgs.linkFarm "vivarium-ci" (
       map (attr: {

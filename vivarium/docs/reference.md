@@ -273,7 +273,7 @@ nodes.spine1.vivarium.interfaces = {
 So a router's configuration says `uplink` and means that link, on every
 backend. The runner gives NIC n of guest i the MAC `52:54:00:12:n:i`, and
 the guest renames the interface by it: UML first calls it `vecN`, QEMU
-names it after its PCI slot, and a container's tap gets the name directly.
+names it after its PCI slot, and a container's veth gets the name directly.
 `vivarium.lan` is shorthand for `interfaces.vec1`.
 
 Where to say what:
@@ -511,7 +511,7 @@ Each other cell names what stops the run.
 | `uml` | yes, needs nothing | yes, asks for no feature | no: UML is Linux | no |
 | `qemu` | `/dev/kvm` | `kvm`, and `uid-range` for a NixOS guest | no: `accel=kvm` only | no |
 | `krun` | `/dev/kvm` | `kvm`, and `uid-range` for a NixOS guest | yes, on HVF (an M-series Mac) | `apple-virt`; not measured |
-| `container` | a user namespace, 65536 subordinate ids, a delegable cgroup (`container.probe()`) | `uid-range`, and `/dev/net` in `extra-sandbox-paths` | no | no |
+| `container` | a user namespace, 65536 subordinate ids, a delegable cgroup (`container.probe()`) | `uid-range` | no | no |
 
 **No check has run in a build on macOS yet.** There a krun check asks
 the daemon for `apple-virt`, which Nix offers on a Mac that can run

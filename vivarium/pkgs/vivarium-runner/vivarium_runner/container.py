@@ -352,31 +352,31 @@ class Host:
 
     Guests launch at once, so each answer has a lock: the first launch
     probes, and the others wait for its answer. One lock for each answer,
-    because `probe` asks for `tap_failure` and `scope` while it holds
+    because `probe` asks for `link_failure` and `scope` while it holds
     `missing`'s, and an anyio lock is not reentrant.
     """
 
     def __init__(self) -> None:
         self._missing: dict[bool, list[Missing]] = {}
-        self._tap_failure: list[str | None] = []
+        self._link_failure: list[str | None] = []
         self._scopes: dict[int | None, tuple[str, ...] | None] = {}
         self._missing_lock = anyio.Lock()
-        self._tap_lock = anyio.Lock()
+        self._link_lock = anyio.Lock()
         self._scope_lock = anyio.Lock()
 
-    async def missing(self, *, tun: bool) -> list[Missing]:
+    async def missing(self, *, lan: bool) -> list[Missing]:
         """`probe` of this host."""
         async with self._missing_lock:
-            if tun not in self._missing:
-                self._missing[tun] = await probe(tun=tun, host=self)
-        return list(self._missing[tun])
+            if lan not in self._missing:
+                self._missing[lan] = await probe(lan=lan, host=self)
+        return list(self._missing[lan])
 
-    async def tap_failure(self) -> str | None:
-        """`tap_fails` of this host."""
-        async with self._tap_lock:
-            if not self._tap_failure:
-                self._tap_failure.append(await tap_fails())
-        return self._tap_failure[0]
+    async def link_failure(self) -> str | None:
+        """`link_fails` of this host."""
+        async with self._link_lock:
+            if not self._link_failure:
+                self._link_failure.append(await link_fails())
+        return self._link_failure[0]
 
     async def scope(self, memory_max: int | None = None) -> list[str] | None:
         """`scope` of this host, by *memory_max*."""
@@ -389,31 +389,25 @@ class Host:
 
 
 async def probe(
-    user: str | None = None, uid: int | None = None, *, tun: bool = False, host: Host | None = None
+    user: str | None = None, uid: int | None = None, *, lan: bool = False, host: Host | None = None
 ) -> list[Missing]:
     """What this host lacks for a container guest; empty when nothing.
 
     Each check does the thing once. Reading configuration is not enough:
     an AppArmor profile or a seccomp filter shows only as a failed attempt.
 
-    ``tun`` adds what a LAN needs: a tap device made in a network namespace
-    of its own. ``host`` answers the probes a launch asks again.
+    ``lan`` adds what a LAN needs: a veth pair moved between network
+    namespaces. ``host`` answers the probes a launch asks again.
     """
     uid = os.getuid() if uid is None else uid
     user = user or pwd.getpwuid(uid).pw_name
     host = Host() if host is None else host
     missing: list[Missing] = []
 
-    if tun:
-        why = await host.tap_failure()
+    if lan:
+        why = await host.link_failure()
         if why:
-            missing.append(
-                Missing(
-                    "a tap device",
-                    why,
-                    "in a Nix build, put /dev/net in extra-sandbox-paths (ghanix: nix.install.devNet = true)",
-                )
-            )
+            missing.append(Missing("a veth pair", why, "load the veth kernel module on the host (modprobe veth)"))
 
     userns = (await anyio.run_process([sys.executable, "-c", _USERNS_PROBE], check=False)).returncode == 0
     if not userns:
@@ -567,24 +561,24 @@ directory: a `uid-range` build has no /sys/fs/cgroup mounted at all, and
 this still works there (measured)."""
 
 
-_TAP_PROBE = """
+_LINK_PROBE = """
 import os
-from vivarium_runner.container import _open_tap
+from vivarium_runner.container import _open_link
 uid, gid = os.getuid(), os.getgid()
 os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNET)
 open("/proc/self/setgroups", "w").write("deny")
 open("/proc/self/uid_map", "w").write(f"0 {uid} 1")
 open("/proc/self/gid_map", "w").write(f"0 {gid} 1")
-os.close(_open_tap("probe0", 1500, "52:54:00:00:00:01"))
+_open_link(os.open("/proc/self/ns/net", os.O_RDONLY), "probe0", 1500, "52:54:00:00:00:01").close()
 """
-"""What the LAN relay does, in a namespace of its own: open /dev/net/tun
-and make a tap. The file existing is not the answer; the device cgroup or
-a missing node both show only here."""
+"""What the LAN relay does, with a namespace of its own standing in for
+the guest's: a veth pair, one end moved, an AF_PACKET socket on the other.
+A host kernel without veth, or a seccomp filter, shows only here."""
 
 
-async def tap_fails() -> str | None:
-    """Why no tap can be made here, or ``None`` when one can."""
-    done = await anyio.run_process([sys.executable, "-c", _TAP_PROBE], check=False)
+async def link_fails() -> str | None:
+    """Why no LAN link can be made here, or ``None`` when one can."""
+    done = await anyio.run_process([sys.executable, "-c", _LINK_PROBE], check=False)
     if done.returncode == 0:
         return None
     return (done.stderr.decode(errors="replace").strip().splitlines() or ["failed"])[-1]
@@ -775,51 +769,145 @@ def _init_pid(crun: list[str], name: str, proc: subprocess.Popen[bytes]) -> int:
         time.sleep(0.02)
 
 
-TUNSETIFF = 0x400454CA
-SIOCSIFMTU = 0x8922
-SIOCSIFHWADDR = 0x8924
-IFF_TAP = 0x0002
-IFF_NO_PI = 0x1000
-ARPHRD_ETHER = 1
+NLMSG_ERROR = 2
+RTM_NEWLINK = 16
+RTM_SETLINK = 19
+NLM_F_REQUEST = 0x1
+NLM_F_ACK = 0x4
+NLM_F_EXCL = 0x200
+NLM_F_CREATE = 0x400
+IFLA_ADDRESS = 1
+IFLA_IFNAME = 3
+IFLA_MTU = 4
+IFLA_LINKINFO = 18
+IFLA_NET_NS_FD = 28
+IFLA_INFO_KIND = 1
+IFLA_INFO_DATA = 2
+VETH_INFO_PEER = 1
+SIOCGIFINDEX = 0x8933
+SIOCGIFFLAGS = 0x8913
+SIOCSIFFLAGS = 0x8914
+SIOCETHTOOL = 0x8946
+IFF_UP = 0x1
+ETHTOOL_GFEATURES = 0x3A
+ETHTOOL_SFEATURES = 0x3B
+ETH_P_ALL = 0x0003
+SOL_PACKET = 263
+PACKET_IGNORE_OUTGOING = 23
+RELAY_END = "lan"
+"""The relay's end of the pair, in the relay's own network namespace."""
 
 
-def _open_tap(name: str, mtu: int, mac: str) -> int:
-    tap = os.open("/dev/net/tun", os.O_RDWR)
-    fcntl.ioctl(tap, TUNSETIFF, struct.pack("16sH22x", name.encode(), IFF_TAP | IFF_NO_PI))
+def _rtattr(kind: int, payload: bytes) -> bytes:
+    raw = struct.pack("HH", 4 + len(payload), kind) + payload
+    return raw + b"\0" * (-len(raw) % 4)
+
+
+def _ifinfomsg(index: int = 0) -> bytes:
+    return struct.pack("BxHiII", socket.AF_UNSPEC, 0, index, 0, 0)
+
+
+def _rtnetlink(kind: int, body: bytes, flags: int = 0) -> None:
+    """Send one rtnetlink request and raise its error, if the kernel answers one."""
+    with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE) as nl:
+        nl.bind((0, 0))
+        nl.send(struct.pack("IHHII", 16 + len(body), kind, NLM_F_REQUEST | NLM_F_ACK | flags, 1, 0) + body)
+        reply = nl.recv(65536)
+    if struct.unpack_from("H", reply, 4)[0] == NLMSG_ERROR:
+        error = -struct.unpack_from("i", reply, 16)[0]
+        if error:
+            raise OSError(error, f"rtnetlink {kind}: {os.strerror(error)}")
+
+
+def _ethtool(control: socket.socket, name: str, request: bytes) -> bytes:
+    data = ctypes.create_string_buffer(request, len(request))
+    fcntl.ioctl(control, SIOCETHTOOL, struct.pack("16sP8x", name.encode(), ctypes.addressof(data)))
+    return data.raw
+
+
+def _features_off(control: socket.socket, name: str) -> None:
+    """Turn off every feature of *name* that can change.
+
+    Not the per-feature calls (ETHTOOL_STSO and the like): each covers a
+    fixed set, and a newer kernel's bits stay on. Measured on 7.2:
+    tx-tcp-accecn, tx-udp_tnl and tx-gre segmentation stayed on.
+    """
+    words = 8
+    got = _ethtool(control, name, struct.pack("II", ETHTOOL_GFEATURES, words) + bytes(16 * words))
+    words = struct.unpack_from("I", got, 4)[0]
+    available = [struct.unpack_from("I", got, 8 + 16 * word)[0] for word in range(words)]
+    blocks = b"".join(struct.pack("II", valid, 0) for valid in available)
+    _ethtool(control, name, struct.pack("II", ETHTOOL_SFEATURES, words) + blocks)
+
+
+def _up(control: socket.socket, name: str) -> None:
+    request = struct.pack("16s16x", name.encode())
+    flags = struct.unpack_from("H", fcntl.ioctl(control, SIOCGIFFLAGS, request), 16)[0]
+    fcntl.ioctl(control, SIOCSIFFLAGS, struct.pack("16sH14x", name.encode(), flags | IFF_UP))
+
+
+def _open_link(guest_net: int, name: str, mtu: int, mac: str) -> socket.socket:
+    """Give the network namespace *guest_net* the interface *name*; return the far end.
+
+    A veth pair, made in a network namespace of the caller's own, which
+    must be root in the user namespace that owns *guest_net*. The far end
+    is an AF_PACKET socket: one frame per call, as a tap was, and no
+    /dev/net/tun, which a Nix sandbox lacks.
+
+    Traps, each measured:
+    - veth offloads checksums and segmentation. A frame read off the
+      relay's end carries a partial checksum, the peer drops it, and TCP
+      never connects; a GSO frame is larger than the MTU. So every
+      feature of *name* goes off before it reaches the guest.
+    - The relay's end is a host of its own to IPv6: it would answer the
+      guest's all-nodes ping and solicit routers. IPv6 is off in the
+      relay's namespace.
+    - AF_PACKET hands a socket the frames it sent itself, too:
+      PACKET_IGNORE_OUTGOING.
+    """
+    os.unshare(os.CLONE_NEWNET)
+    for scope in ("all", "default"):
+        Path(f"/proc/sys/net/ipv6/conf/{scope}/disable_ipv6").write_text("1")
+    mtu_attr = _rtattr(IFLA_MTU, struct.pack("I", mtu))
+    peer = _ifinfomsg() + _rtattr(IFLA_IFNAME, name.encode() + b"\0") + mtu_attr
+    peer += _rtattr(IFLA_ADDRESS, bytes.fromhex(mac.replace(":", "")))
+    kind = _rtattr(IFLA_INFO_KIND, b"veth") + _rtattr(IFLA_INFO_DATA, _rtattr(VETH_INFO_PEER, peer))
+    link = _ifinfomsg() + _rtattr(IFLA_IFNAME, RELAY_END.encode() + b"\0") + mtu_attr + _rtattr(IFLA_LINKINFO, kind)
+    _rtnetlink(RTM_NEWLINK, link, NLM_F_CREATE | NLM_F_EXCL)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
-        fcntl.ioctl(control, SIOCSIFMTU, struct.pack("16si20x", name.encode(), mtu))
-        fcntl.ioctl(
-            control,
-            SIOCSIFHWADDR,
-            struct.pack("16sH6s16x", name.encode(), ARPHRD_ETHER, bytes.fromhex(mac.replace(":", ""))),
-        )
-    return tap
+        _features_off(control, name)
+        index = struct.unpack_from("i", fcntl.ioctl(control, SIOCGIFINDEX, struct.pack("16s16x", name.encode())), 16)[0]
+        _up(control, RELAY_END)
+    _rtnetlink(RTM_SETLINK, _ifinfomsg(index) + _rtattr(IFLA_NET_NS_FD, struct.pack("I", guest_net)))
+    end = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))
+    end.setsockopt(SOL_PACKET, PACKET_IGNORE_OUTGOING, 1)
+    end.bind((RELAY_END, ETH_P_ALL))
+    return end
 
 
-def tap_relay(pid: int, lan: int, name: str, mtu: int, mac: str) -> int:
-    """Be the guest's ``vec1``: a tap in its namespaces, one frame each way.
+def link_relay(pid: int, lan: int, name: str, mtu: int, mac: str) -> int:
+    """Be the guest's ``vec1``: a veth into its namespace, one frame each way.
 
     A segment fd carries one raw frame per datagram, which is what UML's
-    ``transport=fd`` and QEMU's ``dgram`` take; a tap reads and writes one
-    frame per call. So the relay is a copy, and one segment holds guests
-    of all three kinds.
+    ``transport=fd`` and QEMU's ``dgram`` take; an AF_PACKET socket reads
+    and writes one frame per call. So the relay is a copy, and one segment
+    holds guests of all three kinds.
 
     Joins the guest's user namespace first, which makes this root there:
-    creating a tap in the guest's network namespace needs CAP_NET_ADMIN in
-    the namespace that owns it. A process must be single-threaded to join
-    a user namespace, which is why this is a process of its own.
+    moving a link into the guest's network namespace needs CAP_NET_ADMIN
+    in the namespace that owns it. A process must be single-threaded to
+    join a user namespace, which is why this is a process of its own.
     """
-    joins = [("net", os.CLONE_NEWNET)]
+    guest_net = os.open(f"/proc/{pid}/ns/net", os.O_RDONLY)
     if not _shares_userns(pid):
-        joins.insert(0, ("user", os.CLONE_NEWUSER))
-    for kind, flag in joins:
-        ns = os.open(f"/proc/{pid}/ns/{kind}", os.O_RDONLY)
-        os.setns(ns, flag)
-        os.close(ns)
-    tap = _open_tap(name, mtu, mac)
+        user = os.open(f"/proc/{pid}/ns/user", os.O_RDONLY)
+        os.setns(user, os.CLONE_NEWUSER)
+        os.close(user)
+    end = _open_link(guest_net, name, mtu, mac)
+    os.close(guest_net)
     selector = selectors.DefaultSelector()
-    selector.register(tap, selectors.EVENT_READ, lan)
-    selector.register(lan, selectors.EVENT_READ, tap)
+    selector.register(end, selectors.EVENT_READ, lan)
+    selector.register(lan, selectors.EVENT_READ, end.fileno())
     while True:
         for key, _ in selector.select():
             try:
@@ -841,7 +929,7 @@ def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen[b
             sys.executable,
             "-m",
             "vivarium_runner.crun_launch",
-            "tap",
+            "link",
             "--pid",
             str(pid),
             "--fd",
@@ -919,9 +1007,9 @@ def _split_cgroup(bundle: Path) -> bool:
     return True
 
 
-def _report(tun: bool) -> int:
+def _report(lan: bool) -> int:
     """The probe as a program: what a derivation runs to fail early."""
-    missing = anyio.run(functools.partial(probe, tun=tun))
+    missing = anyio.run(functools.partial(probe, lan=lan))
     for item in missing:
         print(f"missing {item}", flush=True)  # noqa: T201 -- the probe's program output
     if missing:
@@ -929,7 +1017,7 @@ def _report(tun: bool) -> int:
         return 1
     ids = "the build's own (uid-range)" if owns_ids() else "subordinate ids"
     store = "overlay" if store_is_one_mount("/nix") else "read-only bind"
-    uplink = "yes" if anyio.run(tap_fails) is None else "no (no tap device)"
+    uplink = "yes" if anyio.run(link_fails) is None else "no (no veth pair)"
     print(f"ok: user namespace, cgroup, ids: {ids}, store: {store}, uplink: {uplink}")  # noqa: T201 -- the probe's program output
     return 0
 
@@ -949,30 +1037,30 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         help="FD,NAME,MAC,MTU: one segment interface; repeat for each",
     )
     check = sub.add_parser("probe", help="say what this host lacks, and exit 1 if anything")
-    check.add_argument("--tun", action="store_true", help="a LAN will be asked for")
+    check.add_argument("--lan", action="store_true", help="a LAN will be asked for")
     bind = sub.add_parser("attach", help="mount store paths inside a running guest")
     bind.add_argument("--pid", type=int, required=True)
     bind.add_argument("paths", nargs="+")
-    tap = sub.add_parser("tap")
-    tap.add_argument("--pid", type=int, required=True)
-    tap.add_argument("--fd", type=int, required=True)
-    tap.add_argument("--name", required=True)
-    tap.add_argument("--mtu", type=int, required=True)
-    tap.add_argument("--mac", required=True)
+    link = sub.add_parser("link")
+    link.add_argument("--pid", type=int, required=True)
+    link.add_argument("--fd", type=int, required=True)
+    link.add_argument("--name", required=True)
+    link.add_argument("--mtu", type=int, required=True)
+    link.add_argument("--mac", required=True)
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m vivarium_runner.crun_launch run|tap ...``.
+    """``python -m vivarium_runner.crun_launch run|link ...``.
 
     ``run`` starts the guest and relays its console, and with ``--lan``
-    a segment interface for each. ``tap`` is the ``vec1`` relay.
+    a segment interface for each. ``link`` is the relay of one of them.
     """
     args = _parse(sys.argv[1:] if argv is None else argv)
-    if args.mode == "tap":
-        return tap_relay(args.pid, args.fd, args.name, args.mtu, args.mac)
+    if args.mode == "link":
+        return link_relay(args.pid, args.fd, args.name, args.mtu, args.mac)
     if args.mode == "probe":
-        return _report(args.tun)
+        return _report(args.lan)
     if args.mode == "attach":
         return attach(args.pid, args.paths)
     _ensure_cgroup2()
