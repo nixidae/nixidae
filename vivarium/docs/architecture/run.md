@@ -40,7 +40,8 @@ under it, so nothing outlives the run.
 - `_stop_on_signal` turns SIGTERM and SIGHUP into the same path as ^C.
   `_stop_with_parent` does the same when the process that started the
   run exits. Both cancel one scope, `sequence`, and nothing else.
-- `drive` holds a second task group:
+- `drive` in `vivarium/driver.py` holds a second task group. The tests
+  call it without the command line:
   - `Session.follow` copies each guest's journal into the events, for
     the whole run, a pause included.
   - With a control socket, `Controller.serve` listens on `control.sock`
@@ -53,7 +54,7 @@ under it, so nothing outlives the run.
 
 ## The sequence
 
-`_sequence` in `vivarium/cli.py` is the order of a run:
+`_sequence` in `vivarium/driver.py` is the order of a run:
 
 1. **Boot.** `Session.boot` prepares the run (`Session.prepare`) and
    boots the guests. A full run boots every guest first, because a phase

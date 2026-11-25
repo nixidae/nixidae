@@ -449,7 +449,7 @@ Commands run from `vivarium/`. `README.md` explains the pieces; `docs/howto.md` 
 
 - A pytest phase: `phases.cases = { pytest.tests = ./tests/guest; after = [ "boot" ]; }`. Guests are fixtures by name, `vms` is all; tests may be `async def`. pytest runs in a worker thread, async goes back through a portal. An async generator fixture's setup and teardown are two portal calls: no task group across its `yield`. `vivarium/pytest_plugin.py`; `pytest-phase`.
 - A suite inside a guest writes JUnit to `/artifacts/junit/*.xml`; each test becomes a `case` event. `vms.phase` names the phase; `vms.shared` survives across phases (`checks.guest-suites`).
-- `phases.<name>.nodes = [ ... ]` declares a phase's guests (empty is all). Phases whose guests do not overlap run at once. `vms` holds only the declared guests. Attribution is by guest, prints through a context variable; `settle`, the JUnit import and the console replay take the phase's guests, never all. A pytest phase holds every guest. A breakpoint or failure stops new phases. `vivarium run --serial`. `phases.ready`/`launchable`, `cli._schedule`; `checks.parallel`.
+- `phases.<name>.nodes = [ ... ]` declares a phase's guests (empty is all). Phases whose guests do not overlap run at once. `vms` holds only the declared guests. Attribution is by guest, prints through a context variable; `settle`, the JUnit import and the console replay take the phase's guests, never all. A pytest phase holds every guest. A breakpoint or failure stops new phases. `vivarium run --serial`. `phases.ready`/`launchable`, `driver._schedule`; `checks.parallel`.
 
 ### Backends
 

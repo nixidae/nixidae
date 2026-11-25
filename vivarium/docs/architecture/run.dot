@@ -10,7 +10,7 @@ digraph run {
   hold     [label = "lock --out\nliveness.py: hold", file = "pkgs/vivarium/vivarium/liveness.py", symbol = "hold"];
   run      [label = "Spec.read, Session, --only\nvivarium/cli.py: run", file = "pkgs/vivarium/vivarium/cli.py", symbol = "run"];
   signals  [label = "SIGTERM, SIGHUP, parent exit\n_stop_on_signal, _stop_with_parent", file = "pkgs/vivarium/vivarium/cli.py", symbol = "_stop_on_signal"];
-  drive    [label = "drive", file = "pkgs/vivarium/vivarium/cli.py", symbol = "drive"];
+  drive    [label = "drive", file = "pkgs/vivarium/vivarium/driver.py", symbol = "drive"];
   follow   [label = "guest journals to events\nSession.follow", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.follow"];
   control  [label = "control.sock\nController.serve", file = "pkgs/vivarium/vivarium/control.py", symbol = "Controller.serve"];
   remote   [label = "remote machine socket\nremote.py: serve", file = "pkgs/vivarium/vivarium/remote.py", symbol = "serve"];
@@ -18,9 +18,9 @@ digraph run {
   live     [label = "background tasks of the run\nSession.live", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.live"];
   boot     [label = "segments, Machines, forwards; boot\nSession.boot", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session.boot"];
   start    [label = "pause: before the first phase", file = "pkgs/vivarium/vivarium/control.py", symbol = "Controller.pause"];
-  schedule [label = "run the phases\n_schedule", file = "pkgs/vivarium/vivarium/cli.py", symbol = "_schedule"];
-  ready    [label = "--hold: pause at ready,\n_schedule again on continue", file = "pkgs/vivarium/vivarium/cli.py", symbol = "_sequence"];
-  teardown [label = "shielded: drain, write_output,\nteardown, write_report, access.empty\n_sequence", file = "pkgs/vivarium/vivarium/cli.py", symbol = "_sequence"];
+  schedule [label = "run the phases\n_schedule", file = "pkgs/vivarium/vivarium/driver.py", symbol = "_schedule"];
+  ready    [label = "--hold: pause at ready,\n_schedule again on continue", file = "pkgs/vivarium/vivarium/driver.py", symbol = "_sequence"];
+  teardown [label = "shielded: drain, write_output,\nteardown, write_report, access.empty\n_sequence", file = "pkgs/vivarium/vivarium/driver.py", symbol = "_sequence"];
   exit     [label = "exit status\n0 passed, 1 failed, ...", file = "pkgs/vivarium/vivarium/exits.py", symbol = "Exit"];
 
   main -> enter;

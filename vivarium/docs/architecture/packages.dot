@@ -22,7 +22,8 @@ digraph packages {
 
   subgraph cluster_driver {
     label = "host: the driver (package vivarium, program vivarium-runner)";
-    main       [label = "main, run, drive\nvivarium/cli.py", file = "pkgs/vivarium/vivarium/cli.py", symbol = "drive"];
+    main       [label = "main, run\nvivarium/cli.py", file = "pkgs/vivarium/vivarium/cli.py", symbol = "run"];
+    driver     [label = "drive\nvivarium/driver.py", file = "pkgs/vivarium/vivarium/driver.py", symbol = "drive"];
     session    [label = "Session\nvivarium/session.py", file = "pkgs/vivarium/vivarium/session.py", symbol = "Session"];
     phases     [label = "phase rules (pure)\nvivarium/phases.py", file = "pkgs/vivarium/vivarium/phases.py", symbol = "ready"];
     controller [label = "Controller\nvivarium/control.py", file = "pkgs/vivarium/vivarium/control.py", symbol = "Controller"];
@@ -55,9 +56,10 @@ digraph packages {
   cli -> main [label = "execs .driver"];
   mcp -> cli [label = "starts"];
   spec -> main [label = "--spec"];
-  main -> session;
-  main -> controller;
-  main -> phases;
+  main -> driver;
+  driver -> session;
+  driver -> controller;
+  driver -> phases;
   session -> phases;
   session -> run;
   controller -> session;

@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 import anyio
 import pytest
 from vivarium import places
-from vivarium.cli import drive
 from vivarium.control import RUN_FILE, SOCKET, Op, RunFile, request, watch
+from vivarium.driver import drive
 from vivarium.events import Event, Kind, Level
 from vivarium.exits import Exit
 from vivarium.monitor import LIVE

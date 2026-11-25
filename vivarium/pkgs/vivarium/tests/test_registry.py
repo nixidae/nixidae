@@ -8,8 +8,8 @@ import anyio
 import pytest
 from test_drive import FakeSession, until_state
 from vivarium import liveness, places, registry
-from vivarium.cli import drive
 from vivarium.control import SOCKET, Op, request
+from vivarium.driver import drive
 
 if TYPE_CHECKING:
     from pathlib import Path
