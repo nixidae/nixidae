@@ -53,7 +53,16 @@ def main() -> None:
     def started() -> bool:
         if runner.poll() is not None:
             fail("the runner ended first")
-        return "[phase] live" in log.read_text() and (out / "control.sock").exists()
+        return "[phase] live" in log.read_text() and listening()
+
+    def listening() -> bool:
+        """The control socket `run.json` names: in the runtime directory,
+        not in --out."""
+        try:
+            socket = json.loads((out / "run.json").read_text())["socket"]
+        except (OSError, ValueError, KeyError):
+            return False
+        return socket is not None and Path(socket).exists()
 
     if not until(started, 300, 0.2):
         fail("the phase never started")
