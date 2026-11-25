@@ -382,6 +382,13 @@ let
       timeoutMinutes = 45;
       after = [ "test-containerd" ];
     };
+    k8s-kept = {
+      description = "a second run of a Kubernetes environment resumes its cluster";
+      timeoutMinutes = 60;
+      after = [ "test-containerd" ];
+      # Two runs of one driver in a check script: no backend variants.
+      backend = "uml";
+    };
 
     # krun is for dense NixOS guests: its virtio-fs DAX window maps the
     # host's page cache of the store, where QEMU copies it into each guest
