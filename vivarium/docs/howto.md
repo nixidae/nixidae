@@ -381,8 +381,9 @@ Check the guest as well as the state: the state describes the last run,
 not what is on the disk now.
 
 A Kubernetes node sets `services.vivarium-k8s.persist = true` and lists
-nothing itself: the node keeps `/etc/kubernetes`, `/var/lib/kubelet`, the
-control plane's `/var/lib/etcd` and its PersistentVolumes. `bring_up` sees
+nothing itself: the node keeps `/etc/kubernetes`, `/var/lib/kubelet`, its
+runtime's images (`/var/lib/containerd`, or `/var/lib/containers` under
+CRI-O), the control plane's `/var/lib/etcd` and its PersistentVolumes. `bring_up` sees
 `admin.conf` on the kept disk and does not run `kubeadm init` or `join`
 again; it waits for the API server and does the rest as before. A worker
 that keeps nothing (`persist` on the control plane alone) joins again on
@@ -400,6 +401,39 @@ $ vivarium shell k8s-host -- kubectl get configmap probe
 ```
 
 etcd then writes to a disk and not to a tmpfs, in every run.
+
+### Load an image into a live cluster
+
+`vivarium load` imports image tarballs into every node of a live run, as
+`kind load image-archive` does (nixidae/nixidae#1591):
+
+```console
+$ docker save my-operator:dev > op.tar        # or a dockerTools image, or an OCI archive
+$ vivarium load k8s-host op.tar               # or: vivarium load --out DIR op.tar
+{
+  "cp": [
+    "docker.io/library/my-operator:dev"
+  ]
+}
+```
+
+stdout is the images each node now has, as the runtime names them.
+`--node N` (repeatable) loads into those nodes only. A tarball may be
+gzipped or not. One outside the store is linked into each node's
+`/artifacts` for the import and removed after it; one in the store
+reaches the node through its store view. A phase does the same with
+`await vivarium_k8s.load_images(vms, [path])`.
+
+Nothing serves the image, so a pod that runs it says
+`imagePullPolicy: IfNotPresent` or `Never`. A `:latest` tag defaults to
+`Always`, and `load` warns about it. A new image under the same tag
+reaches only pods that start after the load: delete the running ones.
+Each image must hold its own files. An image whose layers link into
+`/nix/store` (`dockerTools` with `includeStorePaths = false`) goes in
+`services.vivarium-k8s.extraImages`, which the node imports at boot.
+
+With `persist`, a node keeps what was loaded: after `down` and `up` the
+pods run again with no new load (`checks.k8s-kept`).
 
 ### Reach a cluster's Services by name
 

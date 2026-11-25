@@ -56,6 +56,7 @@ vivarium up <test> [--name N] [--daemonize]   # background; exits 0 at ready wit
 vivarium shell N [-- CMD]           # $SHELL or CMD with the run's variables: KUBECONFIG, SSL_CERT_FILE, ALL_PROXY...
 vivarium env N [--json]             # the same as `export` lines
 vivarium logs N [-g GUEST] [-u UNIT] [-k KIND] [--grep T] [-n N] [-f]   # events as `log` shows them; any run, live or not
+vivarium load N IMAGE.tar... [--node G]   # docker save / OCI tarball into every node's runtime (kind load); JSON of images per node
 vivarium ps                         # live runs (state: ready|paused|running|unanswered, environment, test, dir), then environments that are down
 vivarium down N                     # 0 if every phase passed; the directory stays
 vivarium rm N / vivarium clean      # delete one stopped environment / every one

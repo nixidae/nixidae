@@ -42,6 +42,19 @@ def test_a_new_run_forgets_the_last_runs_events_and_verdict(tmp_path: Path) -> N
     forget_last_run(tmp_path)
 
 
+def test_load_refuses_an_environment_that_is_not_up(tmp_path: Path) -> None:
+    (tmp_path / "x.tar").write_bytes(b"")
+    with pytest.raises(SystemExit) as ended:
+        main(["load", "lab", str(tmp_path / "x.tar")])
+    assert ended.value.code == Exit.NO_RUN
+
+
+def test_load_wants_an_image_after_the_name() -> None:
+    with pytest.raises(SystemExit) as ended:
+        main(["load", "lab"])
+    assert ended.value.code == Exit.USAGE
+
+
 class TestParse:
     def test_the_rest_goes_to_uml_untouched(self) -> None:
         request = parse(["run", "lan.qemu", "--out", "o", "-v", "--", "-k", "x"])

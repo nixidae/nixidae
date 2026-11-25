@@ -207,6 +207,16 @@ def parser() -> argparse.ArgumentParser:
         )
         if command == "env":
             entering.add_argument("--json", action="store_true", help="one JSON object")
+    loading = sub.add_parser(
+        "load",
+        help=(
+            "import image tarballs (`docker save`, OCI) into a live cluster's nodes, as `kind load`:"
+            " `load NAME IMAGE...` or `load --out DIR IMAGE...`"
+        ),
+    )
+    loading.add_argument("words", nargs="+", metavar="[NAME] IMAGE", help="the environment, then the tarballs")
+    loading.add_argument("--out", type=Path, help="the run's --out, for a run that is no named environment")
+    loading.add_argument("--node", action="append", default=[], help="this node only; repeatable. Default: every node")
     closing = sub.add_parser(
         "closure", help="every store path these reach, one a line: what a test in a guest needs of the host's store"
     )
@@ -555,6 +565,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(anyio.run(clean, args.dry_run))
         if args.command in ("env", "shell"):
             raise SystemExit(enter(args))
+        if args.command == "load":
+            raise SystemExit(load(args))
         if args.command == "closure":
             raise SystemExit(anyio.run(closure, args.paths))
         raise SystemExit(switch(args))
@@ -802,6 +814,58 @@ def enter(args: argparse.Namespace) -> int:
     else:
         print(shell.script(found), end="")
     return 0
+
+
+LOADED: Final = "vivarium-load: "
+"""The prefix of the one output line that carries `load`'s result."""
+
+
+def load(args: argparse.Namespace) -> int:
+    """`load`: `vivarium_k8s.load_images` in the live run, through `exec`,
+    which a run takes while its phases run as at a pause. stdout is the
+    images each node has, as JSON."""
+    words: list[str] = list(args.words)
+    name = None if args.out is not None else words.pop(0)
+    if not words:
+        print("vivarium load: name the image tarballs", file=sys.stderr)
+        return Exit.USAGE
+    try:
+        out = places.environment(name) if name is not None else args.out.absolute()
+    except places.PlaceError as error:
+        print(f"vivarium load: {error}", file=sys.stderr)
+        return Exit.USAGE
+    if not anyio.run(environments.live, out):
+        print(f"vivarium load: {out} is not up; `vivarium up` it first", file=sys.stderr)
+        return Exit.NO_RUN
+    tarballs = [str(Path(word).absolute()) for word in words]
+    if missing := [tarball for tarball in tarballs if not Path(tarball).is_file()]:
+        print(f"vivarium load: no file {missing}", file=sys.stderr)
+        return Exit.USAGE
+    request = json.dumps([tarballs, args.node])
+    # Run with the run's own vivarium_k8s, which this CLI does not carry.
+    code = (
+        "import json as _json\n"
+        "import vivarium_k8s as _k8s\n"
+        "from vivarium_k8s.images import latest as _latest\n"
+        f"_loaded = await _k8s.load_images(vms, *_json.loads({request!r}))\n"
+        "_refs = sorted({ref for found in _loaded.values() for ref in found})\n"
+        f"print({LOADED!r} + _json.dumps({{'loaded': _loaded, 'latest': [r for r in _refs if _latest(r)]}}))\n"
+    )
+    reply = anyio.run(control.request, places.socket(out, control.SOCKET), control.Op.EXEC, code, (), None)
+    found = [line.removeprefix(LOADED) for line in reply.output.splitlines() if line.startswith(LOADED)]
+    if not reply.ok or not found:
+        said = reply.error or reply.output
+        if "load_images" in said and ("has no attribute" in said or "cannot import" in said):
+            said = "this run's vivarium_k8s has no load_images: bring it up again with this vivarium"
+        elif "No module named 'vivarium_k8s'" in said:
+            said = "this run has no Kubernetes nodes (vivarium.recipes.kubernetes)"
+        print(f"vivarium load: {said.rstrip()}", file=sys.stderr)
+        return Exit.FAILED
+    result = json.loads(found[-1])
+    for ref in result["latest"]:
+        say(f"{ref} is `latest`: a pod needs imagePullPolicy IfNotPresent or Never to run it, or kubelet pulls")
+    print(json.dumps(result["loaded"], indent=2, sort_keys=True))
+    return Exit.PASSED
 
 
 async def test_name(file: Path, attr: list[str]) -> str:
