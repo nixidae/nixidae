@@ -543,8 +543,22 @@ public:
         primops_.clear();
     }
 
+    // How many cores exist in this process: a closed session that leaves
+    // one behind keeps its evaluation's roots (nixidae/nixidae#1624).
+    static std::int64_t live() { return Live::count.load(std::memory_order_relaxed); }
+
 private:
-    // First, because `nix::EvalState` asserts the collector is up, and
+    // Before every other member, so it counts down only once the state
+    // and everything after it are gone.
+    struct Live
+    {
+        static inline std::atomic<std::int64_t> count = 0;
+        Live() { count.fetch_add(1, std::memory_order_relaxed); }
+        ~Live() { count.fetch_sub(1, std::memory_order_relaxed); }
+        Live(const Live &) = delete;
+        Live & operator=(const Live &) = delete;
+    } live_;
+    // Before the settings, because `nix::EvalState` asserts the collector is up, and
     // `nix::initGC` sets `nix-path` before the settings below copy it.
     struct GcStarted
     {

@@ -2396,7 +2396,7 @@ class EvalState:
 # --- free functions ------------------------------------------------
 
 
-@needs(Local("huggorm_decl/cpp/gc.hpp"))
+@needs(Local("huggorm_decl/cpp/gc.hpp"), Local("huggorm_decl/cpp/eval.hpp"))
 @threading("pool")
 def gc_stats() -> Map[I64]:
     """Live collector counters, bound straight from gc.h.
@@ -2426,6 +2426,10 @@ def gc_stats() -> Map[I64]:
             // OURS too: REPL environments freed. A held scope must never
             // count here, and nothing else can tell.
             {"scopes_collected", huggorm::scopes_collected().load()},
+            // OURS too: evaluation states alive. A closed session, its values
+            // dropped, leaves none; one left behind keeps what it roots, such
+            // as its recorded derivations (nixidae/nixidae#1624).
+            {"live_eval_states", huggorm::EvalCore::live()},
         };
         #endif
     """)
