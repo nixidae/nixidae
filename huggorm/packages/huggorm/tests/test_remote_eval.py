@@ -241,6 +241,10 @@ async def test_a_claimed_state_fails_at_once_on_a_mount_whose_client_left(callba
                 await state.eval_file(f"{path}/default.nix")
             # Still served: the caller's own connection is fine.
             assert await (await state.eval_expr("1 + 1")).integer() == 2
+            # The mount kept no failure: after a rebind the same read works.
+            await state.mount(Memory(SOURCE), "source", local_path(SOURCE))
+            got = json.loads(await (await state.eval_file(f"{path}/default.nix")).to_json())
+            assert got["imported"] == 42
 
 
 async def test_a_claimed_state_mounts_the_same_path_again(callback_server: Server) -> None:

@@ -392,6 +392,42 @@ def test_rebind_swaps_the_tree_and_mount_at_finds_it() -> None:
         state.mount_at(dummy().add_accessor_to_store("other", Memory(SOURCE)))
 
 
+def test_a_mount_answers_a_read_it_made_once() -> None:
+    """The store path names the content, so the mount keeps every answer.
+    A pass that runs its reads again costs the accessor nothing: each
+    would be one round trip to a remote client."""
+    from huggorm_bindings import EvalState
+
+    calls: list[str] = []
+
+    class Counted(Memory):
+        def maybe_lstat(self, path: str) -> Stat | None:
+            calls.append(f"lstat {path}")
+            return super().maybe_lstat(path)
+
+        def read_directory(self, path: str) -> dict[str, FileType | None]:
+            calls.append(f"readdir {path}")
+            return super().read_directory(path)
+
+        def read_file(self, path: str) -> bytes:
+            calls.append(f"read {path}")
+            return super().read_file(path)
+
+    path = dummy().add_accessor_to_store("source", Memory(SOURCE))
+    store = dummy()
+    state = EvalState(store)
+    state.mount(Counted(SOURCE), path=path)
+    root = store.print_store_path(path)
+    rerun = (
+        f"[ (builtins.readDir {root}/sub) (builtins.readFile {root}/hello.txt) (builtins.pathExists {root}/absent) ]"
+    )
+    state.eval_expr(rerun).to_json()
+    assert any(c.startswith("read ") for c in calls) and any(c.startswith("readdir ") for c in calls)
+    calls.clear()
+    state.eval_expr(rerun).to_json()
+    assert calls == []
+
+
 def test_a_filesystem_tree_reads_as_nix_reads_it(tmp_path: pathlib.Path) -> None:
     from huggorm_bindings import filesystem_accessor
 
