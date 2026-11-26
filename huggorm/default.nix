@@ -643,6 +643,18 @@ let
     # nix run --file . internal.python -- $args
     # to be able to run Python commands
     python = python3;
+
+    # nix run --file . internal.remote-eval.qemu.driver -- --out DIR
+    remote-eval = pkgs.callPackage ./nix/remote-eval {
+      vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
+      inherit
+        nixvenv
+        python3
+        huggorm
+        huggorm-bindings
+        huggorm-generated
+        ;
+    };
     # nix run --file . internal.check
     #
     # The same two tools the builds gate on, over the whole tree at once,
