@@ -822,6 +822,8 @@ rec {
       );
 
       machines = lib.attrValues nodes;
+      # What the sandbox must give: a template's guests boot in the run too.
+      booted = machines ++ lib.attrValues templates;
 
       # Fixed host ports two `vivarium.inbound` entries of the run share.
       # The second bind would fail the boot; evaluation names both first.
@@ -1092,7 +1094,7 @@ rec {
         flag it adds: nobody can reach in here, and a socket left in
         `$out` by a killed run would fail the output.
       */
-      probe = probeFor machines;
+      probe = probeFor booted;
       # In the name, so a build log tells `checks.lan.qemu` from `checks.lan`.
       backends = lib.concatStringsSep "-" (
         lib.unique (lib.sort lib.lessThan (map (machine: machine.vivarium.backend) machines))
@@ -1101,7 +1103,7 @@ rec {
         pkgs.runCommand "vivarium-session-${name}-${backends}-attempt"
           (
             {
-              requiredSystemFeatures = featuresFor machines;
+              requiredSystemFeatures = featuresFor booted;
               # The guests run where the build was asked for, so `report.json`
               # times that machine. A UML run asks for no feature, and without
               # this a remote builder takes it.
