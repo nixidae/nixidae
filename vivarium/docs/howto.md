@@ -660,7 +660,12 @@ async def test_fresh(vm):                  # the run's only guest
   vm.get("uplink_ip")` reads an attribute or property, and `vm.uplink_ip`
   raises an error that says so. `until` and `never` run their check in the
   test. `vms` is a plain dict, so it has no `vms.until`.
-- A test that uses `vms` or `vm` is `async def`.
+- A test that uses `vms` or `vm` is `async def`. A test marked `vivarium`
+  runs on the plugin's loop, where its guests are, and so do its async
+  fixtures: a fixture may take `vm` and await on it, and a task group it
+  holds across `yield` lives until its teardown. A contextvar a fixture
+  sets does not reach the test. Do not add `@pytest.mark.anyio` to such a
+  test: the plugin refuses it, as anyio's loop cannot reach the guests.
 - `guest=` runs the test itself in that guest, fixtures and all, as
   root on the guest's kernel; sync or async, as any test:
 

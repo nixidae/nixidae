@@ -362,8 +362,12 @@ What was taken to get a slice working, and where it should go:
 - **Dev mode asks the `vivarium` CLI for the closure**, a subprocess per
   prepared guest.
 - **One timeout for each test**, 3600 s, its fixtures included.
-- **Host-side proxies carry plain data only**, and an async fixture of
-  the user's own cannot use `vms` yet.
+- **Host-side proxies carry plain data only.**
+- **Each async fixture is a task of its own** on the plugin's loop
+  (`vivarium.async_fixtures`), so a contextvar it sets does not reach
+  the test. anyio's plugin runs all of them in one task, but on a loop of
+  its own, which cannot reach the guests. An async fixture of a test in
+  a guest (`guest=`) is not handled.
 - **`--vivarium-keep` does not notice** that the machines changed.
 - **Coverage follows pytest-cov's central mode only.** Under xdist
   (`DistMaster`) the guest's file still lands beside the data file, but

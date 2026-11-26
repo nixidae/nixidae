@@ -43,8 +43,11 @@ A run starts one of two ways. In a dev shell, `vivarium up` evaluates
 sandbox.
 
 This module imports nothing of huggorm, so the sandbox's Python needs
-none. A test that uses `vms` or `vm` is `async def` and runs on the
-plugin's loop, where the connections live.
+none. A test marked `vivarium` that is `async def` runs on the plugin's
+loop, where the connections live, and so does each of its async
+fixtures (`vivarium.async_fixtures`), which may then use `vms`. A test
+marked `anyio` too is refused: anyio's plugin runs it on a loop of its
+own, where the connections do not work.
 """
 
 from __future__ import annotations
@@ -75,6 +78,7 @@ from anyio.from_thread import start_blocking_portal
 from vivarium_agent.arpyc import AsyncConnection, connect
 
 from . import cli as runner_cli, control, monitor, places
+from .async_fixtures import bound, in_loop, is_async
 from .control import reachable
 from .exits import Exit
 from .remote import SOCKET, RemoteMachine
@@ -87,7 +91,6 @@ if TYPE_CHECKING:
 type Scope = Literal["function", "class", "module", "session"]
 
 SCOPES: Final[tuple[Scope, ...]] = ("function", "class", "module", "session")
-FIXTURES: Final = frozenset({"vms", "vm"})
 PREBUILT: Final = "VIVARIUM_RUNS"
 """A JSON file of `{attr: program}`, each a built `.up`: runs that need no evaluation."""
 CLOSURE: Final = "VIVARIUM_PYTHON_CLOSURE"
@@ -349,6 +352,8 @@ class Driver:
         self.prepared: set[tuple[Path, str]] = set()
         self._portal: BlockingPortal | None = None
         self._portal_cm: Any = None  # anyio's portal context manager, entered by hand
+        self.current: pytest.Item | None = None
+        """The test pytest runs now: whether its async fixtures are this plugin's."""
 
     @property
     def portal(self) -> BlockingPortal:
@@ -679,10 +684,49 @@ def vm(vms: dict[str, RemoteMachine]) -> RemoteMachine:
     return next(iter(vms.values()))
 
 
+def _ours(item: pytest.Item) -> bool:
+    """Whether the plugin's loop runs *item*'s async test and fixtures."""
+    if Want.of(item) is None:
+        return False
+    if item.get_closest_marker("anyio") is not None:
+        raise pytest.UsageError(
+            f"{item.nodeid}: a test marked vivarium runs on the plugin's loop, where its guests are; drop the anyio mark"
+        )
+    return True
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
+    _driver(item.config).current = item
+    yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
+    # `request.getfixturevalue` sets a fixture up during the call.
+    _driver(item.config).current = item
+    yield
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_fixture_setup(fixturedef: pytest.FixtureDef[Any], request: pytest.FixtureRequest) -> Generator[None]:
+    func = fixturedef.func
+    item = _driver(request.config).current
+    if not is_async(func) or item is None or not _ours(item):
+        yield
+        return
+    fixturedef.func = in_loop(_driver(request.config).portal, bound(func, request))  # type: ignore[misc]  # pytest declares it Final; anyio's plugin swaps it too
+    try:
+        yield
+    finally:
+        # The definition is shared by every test that asks for it, so it goes back.
+        fixturedef.func = func  # type: ignore[misc]  # Final in pytest, as above
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
     test = pyfuncitem.obj
-    if not inspect.iscoroutinefunction(test) or not FIXTURES & set(pyfuncitem.fixturenames):
+    if not inspect.iscoroutinefunction(test) or not _ours(pyfuncitem):
         return None
     kwargs = {name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames}
     _driver(pyfuncitem.config).portal.call(functools.partial(test, **kwargs))
