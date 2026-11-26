@@ -15,6 +15,7 @@ from conftest import Server
 from test_source_accessor import SOURCE, Memory
 
 from huggorm import remote
+from huggorm.protocol import CallbackLost
 from huggorm_bindings import Stat, Store
 from huggorm_generated import AsyncEvalState, AsyncStore
 
@@ -225,6 +226,21 @@ async def mounted_and_detached(server: Server, tree: Memory) -> tuple[str, str, 
         token = client.token
     assert token is not None
     return token, remote.handle_of(state), path
+
+
+async def test_a_claimed_state_fails_at_once_on_a_mount_whose_client_left(callback_server: Server) -> None:
+    """The mount's accessor belongs to the connection that made it. A
+    successor that claims the state gets an error for an unread file at
+    once, not a hang, and keeps what the first connection evaluated."""
+    token, state_id, path = await mounted_and_detached(callback_server, Memory(SOURCE))
+    async with remote.connect(callback_server.path, claim=token, experimental_callbacks=True) as client:
+        state = client.proxy(AsyncEvalState, state_id)
+        with anyio.fail_after(10):
+            assert await (await state.eval_file(f"{path}/sub/x.nix")).integer() == 42
+            with pytest.raises(CallbackLost, match="left"):
+                await state.eval_file(f"{path}/default.nix")
+            # Still served: the caller's own connection is fine.
+            assert await (await state.eval_expr("1 + 1")).integer() == 2
 
 
 async def test_a_claimed_state_mounts_the_same_path_again(callback_server: Server) -> None:

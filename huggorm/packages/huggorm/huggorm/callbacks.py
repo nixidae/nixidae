@@ -26,7 +26,7 @@ from huggorm_generated._callspec import Call
 from huggorm_generated._policy import CALLBACKS
 
 from .codec import Codec
-from .protocol import Op, Peer
+from .protocol import CallbackLost, ConnectionLost, Op, Peer
 
 
 def _no_proxy(_: Any) -> Any:
@@ -53,7 +53,10 @@ class Callbacks:
         """Call one method of the client's object, and answer what the
         client answers."""
         raw = [self.codec.encode(a.type, v, _no_proxy) for a, v in zip(spec.args, args, strict=True)]
-        value = await self.peer.ask(Op.CALL, client_id, spec.name, raw)
+        try:
+            value = await self.peer.ask(Op.CALL, client_id, spec.name, raw)
+        except ConnectionLost as e:
+            raise CallbackLost(f"the client that holds object {client_id} left, so {spec.name} has no answer") from e
         return self.codec.decode(spec.returns, value, _no_proxy)
 
 

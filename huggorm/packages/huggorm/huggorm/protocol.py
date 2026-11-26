@@ -54,7 +54,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import Any
+from typing import Any, Final
 
 import anyio
 import anyio.lowlevel
@@ -134,6 +134,19 @@ class Refused(Exception):
         self.reason = reason
         self.code = str(reason)
         self.message = message
+
+
+#: A fault's `code` for a `CallbackLost`.
+CALLBACK_LOST: Final = "callback_lost"
+
+
+class CallbackLost(Exception):
+    """An object a client handed the server cannot answer, because the
+    connection of the client that holds it closed (nixidae/nixidae#738).
+
+    Not `ConnectionLost`: the caller's own connection is fine. A mount
+    whose client left raises this until a client mounts again at the
+    same path, which rebinds it."""
 
 
 @functools.cache
@@ -398,6 +411,9 @@ class Faults:
         `lease` gives a handle part to the caller and answers its id."""
         if isinstance(wrapper, Refused):
             return [wrapper.code, wrapper.message, "", "", None, None, None]
+        lost = wrapper if isinstance(wrapper, CallbackLost) else getattr(wrapper, "__cause__", None)
+        if isinstance(lost, CallbackLost):
+            return [CALLBACK_LOST, str(lost), "", "", None, None, None]
         itself = self._declared(wrapper)
         if itself is not None:
             return [
@@ -442,6 +458,8 @@ class Faults:
         reason = _REFUSALS.get(code)
         if reason is not None and error is None and not cause_type:
             return Refused(reason, message)
+        if code == CALLBACK_LOST and error is None and not cause_type:
+            return CallbackLost(message)
         rebuilt = None
         if error is None and handles is not None:
             raise ProtocolError(f"a fault with no declared error arrived with handles {handles!r:.80}")
