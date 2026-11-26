@@ -227,13 +227,14 @@ in
       recordDerivationsDeterminate
       setOptionsByName235
     ];
-    # The fork's collector is newer bdwgc: the same four changes as
+    # The fork's collector is newer bdwgc: the same five changes as
     # `boehmgcPatches` below, where its code moved.
     boehmgcPatches = [
       (patch "bdwgc-determinate-tolerate-suspend-thread-exit-race")
       (patch "bdwgc-determinate-log-file-pid")
       (patch "bdwgc-determinate-late-interior-pointers")
       (patch "bdwgc-determinate-clear-collection-residue")
+      (patch "bdwgc-determinate-clear-signal-frame-slack")
     ];
     # libexpr links wasmtime, which `nix/manylinux` does not build.
     wheels = false;
@@ -255,5 +256,8 @@ in
     # stack and in its vector registers, and the next collection keeps
     # what they point at (nixidae/nixidae#1624).
     (patch "boehmgc-clear-collection-residue")
+    # A suspended thread's stack is scanned through the kernel's signal
+    # frame, whose unwritten parts hold stale pointers (nixidae/nixidae#1624).
+    (patch "boehmgc-clear-signal-frame-slack")
   ];
 }

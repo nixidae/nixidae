@@ -1,0 +1,158 @@
+Clear the unwritten parts of the signal frame before a suspended thread's stack is scanned.
+
+Symptom. A program evaluates a large Nix expression (about 1.25 GiB of
+collector memory), drops every reference to it, and runs GC_gcollect.
+With boehmgc-clear-collection-residue.patch the evaluation is freed on
+bdwgc 8.2.12, but on Determinate Systems' bdwgc fork it still stayed
+alive in most runs. huggorm (Python bindings for Nix) runs that fork in
+an SBOM worker on sg1, which grew run after run until the kernel killed
+it at its 24 GiB limit (nixidae/nixidae#1624, 2026-11-26).
+
+Cause. GC_suspend_handler records the thread's stack pointer inside the
+handler, and GC_push_all_stacks scans from there up. The range includes
+the frame the kernel built for the signal. The kernel does not write all
+of that frame:
+
+- the gap between the end of the saved FPU state, which ends with the
+  4 bytes of FP_XSTATE_MAGIC2, and the red zone below the interrupted
+  stack pointer: the state is aligned to 64 bytes;
+- the slot of each XSAVE state component in its initial configuration
+  (XSTATE_BV bit clear). XSAVE skips it, and on a CPU with AVX-512 the
+  ZMM_Hi256 and Hi16_ZMM slots alone are 1.5 KiB.
+
+Both keep whatever the stack held before, often the frames of an
+earlier, deeper call on that thread. An old pointer there is read as a
+root.
+
+Evidence. A bdwgc build with KEEP_BACK_PTRS and GC_DEBUG clients gave,
+from a kept attribute set, a chain of 271 heap objects to
+GC_REFD_FROM_ROOT at a stack address. gdb put it on a worker thread
+parked in a futex, 0xc0 below its stack pointer: below the 128-byte red
+zone, in the signal frame. The root word was 0x00007b86_46505845. Its
+low half is FP_XSTATE_MAGIC2 ("EXPF"); its high half is 4 stale bytes.
+Together they named an address inside the 4 GiB heap. The word below it
+held 0x55555554, the default PKRU, the last component of the XSAVE
+area.
+
+Fix. GC_clear_signal_frame_slack runs in the suspend handler, before the
+stack pointer is stored. From the ucontext it zeroes the gap above the
+saved state up to the red zone, and the slot of each component the
+header marks unused (x87 and XMM in the legacy area; the others at the
+offsets CPUID leaf 0xD gives). sigreturn does not read either part: it
+restores a skipped component to its initial configuration. The code is
+for x86-64 Linux with GCC or Clang, where the handler receives the
+context; elsewhere it does nothing.
+
+Measured on an AMD EPYC (AVX-512), Determinate's bdwgc, both patches,
+an evaluation of every top-level nixpkgs attribute, 4 rounds of
+evaluate-close-collect per run, MiB in use after each round:
+
+- clear-collection-residue only: kept in 5 of 5 runs (1240 to 3750)
+- with this patch: 4 of 5 runs at 0 to 3 MiB every round; 1 run kept
+  one evaluation (1240), flat over its rounds
+- the small test (60 000 derivation-shaped sets, 10 rounds): 4 MiB in
+  all 30 rounds
+
+The remaining one-in-five root is not found yet; see #1624.
+
+Cost: one memset of at most a few KiB, and a CPUID per unused
+component, per thread per collection.
+
+Upstream. bdwgc master at ef728c09 (2026-11-24) has the same handler:
+it ignores the context ("We believe that in this case the full context
+is already in the signal handler frame") and scans from the handler's
+stack pointer. No bdwgc issue covers this (searched 2026-11-26). A C
+reproduction: a thread that fills its stack with pointers to a large
+object, returns, drops the object, and parks; then GC_gcollect from a
+second thread, and GC_is_marked on the object.
+
+Base: bdwgc 8.2.12. The measurements above are from the Determinate copy
+of this change; this one is built and run through huggorm's suite.
+
+--- a/pthread_stop_world.c
++++ b/pthread_stop_world.c
+@@ -302,6 +302,76 @@
+ # define GC_lookup_thread_async GC_lookup_thread
+ #endif
+ 
++#if defined(LINUX) && defined(X86_64) && defined(__GNUC__) \
++    && !defined(NO_SA_SIGACTION)
++# include <cpuid.h>
++# include <string.h>
++# include <ucontext.h>
++  /* The suspended thread's stack is scanned from this handler's frame  */
++  /* up, so the kernel's signal frame is scanned too.  The kernel leaves */
++  /* parts of it unwritten, and they hold whatever the stack held       */
++  /* before: the alignment gap between the end of the saved FPU state   */
++  /* (after FP_XSTATE_MAGIC2, 4 bytes) and the red zone, and the slot   */
++  /* of each state component that XSAVE skipped because it was in its   */
++  /* initial configuration (XSTATE_BV bit clear).  An old pointer there */
++  /* keeps its object, and all that it reaches, alive.  Measured: the 4 */
++  /* stale bytes above FP_XSTATE_MAGIC2 made 0x00007b86_46505845, a     */
++  /* pointer into a 4 GiB heap, that kept a 1.2 GiB Nix evaluation      */
++  /* (huggorm, nixidae/nixidae#1624).                                   */
++  /* Neither part is read back: sigreturn restores a skipped component  */
++  /* to its initial configuration, and the gap is no part of the frame.  */
++  /* Zeroing them changes nothing but what the collector sees.          */
++# define FPSTATE_SW_RESERVED 464 /* struct _fpx_sw_bytes */
++# define FPSTATE_XSAVE_HEADER 512
++# define FP_XSTATE_MAGIC1_VALUE 0x46505853U
++# define SIGNAL_RED_ZONE 128
++
++  STATIC void GC_clear_signal_frame_slack(void *context)
++  {
++    const ucontext_t *uc = (const ucontext_t *)context;
++    unsigned char *fp;
++    unsigned char *above;
++    unsigned char *red_zone;
++    unsigned magic1, extended_size, xstate_size;
++    unsigned long long xfeatures, xstate_bv;
++    unsigned i;
++
++    if (NULL == uc || NULL == uc->uc_mcontext.fpregs) return;
++    fp = (unsigned char *)uc->uc_mcontext.fpregs;
++    memcpy(&magic1, fp + FPSTATE_SW_RESERVED, sizeof(magic1));
++    if (magic1 != FP_XSTATE_MAGIC1_VALUE)
++      return; /* no XSAVE frame: legacy FXSAVE layout */
++    memcpy(&extended_size, fp + FPSTATE_SW_RESERVED + 4,
++           sizeof(extended_size));
++    memcpy(&xfeatures, fp + FPSTATE_SW_RESERVED + 8, sizeof(xfeatures));
++    memcpy(&xstate_size, fp + FPSTATE_SW_RESERVED + 16, sizeof(xstate_size));
++    memcpy(&xstate_bv, fp + FPSTATE_XSAVE_HEADER, sizeof(xstate_bv));
++
++    /* The gap, only when the frame sits just below the red zone.       */
++    above = fp + extended_size;
++    red_zone = (unsigned char *)uc->uc_mcontext.gregs[REG_RSP]
++                - SIGNAL_RED_ZONE;
++    if ((word)above < (word)red_zone
++        && (word)(red_zone - above) < 4096)
++      memset(above, 0, (size_t)(red_zone - above));
++
++    /* Components 0 and 1 live in the legacy area: x87, XMM registers.  */
++    if ((xstate_bv & 1) == 0) memset(fp + 32, 0, 128);
++    if ((xstate_bv & 2) == 0) memset(fp + 160, 0, 256);
++    for (i = 2; i < 64; ++i) {
++      unsigned size, offset, ecx, edx;
++
++      if ((xfeatures >> i & 1) == 0 || (xstate_bv >> i & 1) != 0) continue;
++      if (!__get_cpuid_count(0xd, i, &size, &offset, &ecx, &edx)) continue;
++      /* Supervisor components (offset 0) are never in a signal frame.  */
++      if (offset != 0 && offset + size <= xstate_size)
++        memset(fp + offset, 0, size);
++    }
++  }
++#else
++# define GC_clear_signal_frame_slack(context) (void)(context)
++#endif
++
+ GC_INLINE void GC_store_stack_ptr(GC_thread me)
+ {
+   /* There is no data race between the suspend handler (storing         */
+@@ -378,6 +448,7 @@
+       RESTORE_CANCEL(cancel_state);
+       return;
+   }
++  GC_clear_signal_frame_slack(context);
+   GC_store_stack_ptr(me);
+ # ifdef E2K
+     GC_ASSERT(NULL == me -> backing_store_end);
