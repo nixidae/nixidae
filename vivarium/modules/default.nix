@@ -826,6 +826,15 @@ in
                 init.
               '';
             };
+            init = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+              description = ''
+                PID 1 of a guest kind with its own init, for a backend with
+                no kernel command line to name it: a container execs it.
+                Null: the init of `system`.
+              '';
+            };
             kernel = lib.mkOption {
               type = lib.types.nullOr (
                 lib.types.submodule {

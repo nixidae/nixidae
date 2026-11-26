@@ -90,7 +90,7 @@ class Container:
     @staticmethod
     def _init(spec: MachineSpec) -> str:
         if spec.boot is None or spec.boot.init is None:
-            raise BackendError(f"{spec.name}: a container guest needs vivarium.boot.system")
+            raise BackendError(f"{spec.name}: a container guest needs vivarium.boot.system or vivarium.boot.init")
         if spec.boot.kernel is not None or spec.boot.firmware is not None or spec.boot.root is not None:
             raise BackendError(f"{spec.name}: a container guest boots no kernel, no firmware and no root image")
         return spec.boot.init

@@ -103,7 +103,8 @@ lib.mkMerge [
         test -s $out/nix-state/nix/db/db.sqlite''}
     '';
 
-    # No kernel: the launcher execs the system's init.
-    vivarium.boot.system = "${config.system.build.toplevel}";
+    # No kernel: the launcher execs the system's init. A guest kind with
+    # its own init sets `vivarium.boot.init`.
+    vivarium.boot.system = lib.mkIf (cfg.kind == "nixos") "${config.system.build.toplevel}";
   })
 ]

@@ -48,6 +48,7 @@ class BootJson(TypedDict):
     """`vivarium.boot`."""
 
     system: str | None
+    init: str | None
     kernel: KernelJson | None
     firmware: FirmwareJson | None
     root: RootJson | None
@@ -163,6 +164,9 @@ class Boot:
     firmware: Firmware | None
     root: Root | None = None
     """None: the root image is the NixOS image vivarium built."""
+    program: str | None = None
+    """PID 1 of a guest kind with its own init and no kernel to name it (a
+    container). None: `system`'s init, or the one in `kernel.cmdline`."""
 
     @classmethod
     def from_json(cls, data: BootJson) -> Boot:
@@ -172,10 +176,13 @@ class Boot:
             kernel=Kernel.from_json(kernel) if kernel is not None else None,
             firmware=Firmware.from_json(firmware) if firmware is not None else None,
             root=Root.from_json(root) if root is not None else None,
+            program=data["init"],
         )
 
     @property
     def init(self) -> str | None:
+        if self.program is not None:
+            return self.program
         return f"{self.system}/init" if self.system is not None else None
 
     def cmdline(self, kernel: Kernel) -> str:

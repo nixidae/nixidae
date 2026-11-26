@@ -276,7 +276,7 @@ CONTAINER = {"crun": "/c", "setpriv": "/s", "egress": "/e"}
 @pytest.mark.parametrize(
     ("boot", "says"),
     [
-        (None, "c: a container guest needs vivarium.boot.system"),
+        (None, "c: a container guest needs vivarium.boot.system or vivarium.boot.init"),
         (Boot(system="/s", kernel=DIRECT, firmware=None), "boots no kernel, no firmware and no root image"),
         (Boot(system="/s", kernel=None, firmware=None, root=Root(RootFormat.RAW, None)), "no root image"),
     ],
@@ -285,3 +285,10 @@ def test_a_container_refuses_a_boot_it_cannot_run(boot: Boot | None, says: str) 
     spec = machine_spec("c", BackendName.CONTAINER, launch=LaunchSpec("container", CONTAINER), boot=boot)
     with pytest.raises(BackendError, match=says):
         Container.validate(spec)
+
+
+def test_a_container_execs_a_kind_s_own_init() -> None:
+    boot = Boot(system=None, kernel=None, firmware=None, program="/nix/store/d-dinix-container/bin/dinit")
+    spec = machine_spec("c", BackendName.CONTAINER, launch=LaunchSpec("container", CONTAINER), boot=boot)
+    Container.validate(spec)
+    assert boot.init == "/nix/store/d-dinix-container/bin/dinit"

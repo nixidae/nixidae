@@ -47,7 +47,10 @@ class TestAFieldThisRunnerDoesNotKnow:
 
     def test_in_a_boot(self, tmp_path: Path) -> None:
         kernel = {"image": "/k", "vmlinux": None, "initrd": None, "cmdline": "", "dtb": "/d"}
-        machine = {**machine_json("one"), "boot": {"system": None, "kernel": kernel, "firmware": None, "root": None}}
+        machine = {
+            **machine_json("one"),
+            "boot": {"system": None, "init": None, "kernel": kernel, "firmware": None, "root": None},
+        }
         with pytest.raises(SpecError, match=r"machines\.0\.boot\.kernel\.dtb"):
             Spec.read(write(tmp_path, machines=[machine]))
 
@@ -60,7 +63,10 @@ class TestAFieldTheSpecLacks:
 
     def test_in_a_boot(self, tmp_path: Path) -> None:
         firmware = {"code": "/c", "esp": "/e"}
-        machine = {**machine_json("one"), "boot": {"system": "/s", "kernel": None, "firmware": firmware, "root": None}}
+        machine = {
+            **machine_json("one"),
+            "boot": {"system": "/s", "init": None, "kernel": None, "firmware": firmware, "root": None},
+        }
         with pytest.raises(SpecError, match=r"machines\.0\.boot\.firmware\.variables"):
             Spec.read(write(tmp_path, machines=[machine]))
 
