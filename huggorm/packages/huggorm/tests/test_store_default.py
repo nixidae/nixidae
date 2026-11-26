@@ -28,9 +28,7 @@ print(Store().get_uri(), anyio.run(session_uri))
 def opened(env: dict[str, str], *, load: bool = False) -> list[str]:
     clean = {k: v for k, v in os.environ.items() if k not in ("NIX_REMOTE", "NIX_CONFIG")}
     script = f"LOAD = {load}\n{OPEN_DEFAULT}"
-    done = subprocess.run(
-        [sys.executable, "-c", script], env=clean | env, capture_output=True, text=True, check=False
-    )
+    done = subprocess.run([sys.executable, "-c", script], env=clean | env, capture_output=True, text=True, check=False)
     if done.returncode != 0:
         pytest.fail(done.stderr)
     return done.stdout.split()

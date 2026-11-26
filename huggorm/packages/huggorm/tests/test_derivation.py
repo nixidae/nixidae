@@ -300,9 +300,7 @@ def test_the_package_carries_nix_s_get_env_script() -> None:
     assert "__dumpEnv() {" in script.read_text()
 
 
-def test_a_derivation_a_primop_makes_is_written_when_the_evaluation_returns(
-    store: Any, tmp_path: pathlib.Path
-) -> None:
+def test_a_derivation_a_primop_makes_is_written_when_the_evaluation_returns(store: Any, tmp_path: pathlib.Path) -> None:
     """A call a primop makes does not wait for the store write it
     queues; the evaluation that called the primop waits, so the `.drv`
     is in the store when that returns (nixidae/nixidae#1557)."""
@@ -326,9 +324,7 @@ def test_a_derivation_a_primop_makes_is_written_when_the_evaluation_returns(
     assert store.read_derivation(path).name() == "made"
 
 
-def test_a_call_on_another_state_inside_a_primop_waits_for_its_own_writes(
-    store: Any, tmp_path: pathlib.Path
-) -> None:
+def test_a_call_on_another_state_inside_a_primop_waits_for_its_own_writes(store: Any, tmp_path: pathlib.Path) -> None:
     """The outer evaluation waits only for its own state's writes, so a
     call on a second state inside a primop is outermost for that state,
     and its `.drv` is in the store when it returns."""

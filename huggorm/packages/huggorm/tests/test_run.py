@@ -69,7 +69,7 @@ async def test_a_nix_error_crosses_typed(state: Any) -> None:
     from huggorm_bindings.errors import NixError
 
     with pytest.raises(NixError):
-        await state.run(lambda s: s.eval_expr("throw \"no\"").integer())
+        await state.run(lambda s: s.eval_expr('throw "no"').integer())
 
 
 async def test_run_on_a_server_handle_refuses() -> None:

@@ -380,7 +380,7 @@ async def test_in_process_realize_and_value_are_one_hop_each(monkeypatch: pytest
 
 # `toJSON` calls `checkInterrupt` once per element, and `filter` forces
 # a million of them, so this runs far longer than the cancel waits.
-ENDLESS = "{ x = builtins.length (builtins.filter (x: builtins.toJSON (builtins.genList (y: y) 2000) != \"\") (builtins.genList (x: x) 1000000)); }"
+ENDLESS = '{ x = builtins.length (builtins.filter (x: builtins.toJSON (builtins.genList (y: y) 2000) != "") (builtins.genList (x: x) 1000000)); }'
 
 
 async def test_a_cancel_stops_a_forcing_walk(state: Any) -> None:
