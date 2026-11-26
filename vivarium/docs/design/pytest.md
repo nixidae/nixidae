@@ -142,13 +142,34 @@ Two ways to hide the 8 s boot, in order of cost:
    - virtiofsd 1.14 migrates its state (`--migration-mode find-paths`).
 
    Kata Containers' VM templating works this way. Each clone needs its
-   own virtiofsd and egress. The vsock uplink helps here: every vsock
-   guest is 10.0.2.15 behind its own egress, so a clone needs no new
-   address. Clones share the template's random state; reseed it after
-   the restore. Expected start: well under a second. Not measured.
+   own virtiofsd and egress. Clones share the template's random state;
+   reseed it after the restore.
 
-krun has no snapshot API. UML has no checkpoint; CRIU on a UML process
-is not tried.
+   Researched 2026-11-26 and put aside (User): good research for later,
+   no work now. A prototype outside vivarium (QEMU 11.1.2, KVM, a
+   busybox guest on the dinix kernel with 200 MB of RAM in use) forks in
+   about 140 ms: a sparse copy of the touched RAM 44-72 ms, QEMU start
+   63 ms, the state load 3 ms, the guest running 30 ms after `cont`. The
+   snapshot is device state only (`x-ignore-shared`, `migrate file:`):
+   295 KB in 7-10 ms. A booted dinix guest with pytest imported takes
+   0.72 s in a container and 2.9 s under krun, plus 1.2 s to power off.
+   What stands between the prototype and vivarium's QEMU guest:
+   - vhost-user-vsock, the uplink, is `unmigratable` in QEMU 11.1.2. A
+     forked box needs another uplink, or none.
+   - vhost-user-fs, the store and `/artifacts`, migrates only through a
+     virtiofsd that saves its state, and needs the RAM shared with
+     virtiofsd. So `share=off` (a private copy-on-write map of the
+     template) is out: each clone copies the touched RAM instead.
+   - A snapshot taken the moment the guest is warm stalls each clone
+     450 ms after `cont`, the guest finishing its own work. A guest left
+     idle 2 s first does not stall.
+   - The agent's virtio-serial port and each clone's identity (MAC,
+     random seed) are not tried.
+   The numbers and the method are on nixidae/nixidae#1413.
+
+krun cannot fork: libkrun's snapshot and restore (libkrun/libkrun#762)
+is open, for HVF (macOS) alone, and leaves out virtio-fs. UML has no
+checkpoint; CRIU on a UML process is not tried.
 
 ## Risks
 
@@ -269,9 +290,15 @@ the store and the project share replace its code shipping.
    at the end merges it; paths match, so nothing is remapped.
    `checks.pytest-coverage` reaches 100% of `sample` only through the
    guest; with the worker measuring nothing it reads 50%.
-4. The Python-init guest. Measure boot to a ready worker.
+4. Done, as a dinix guest rather than Python as PID 1 (User): dinit is
+   PID 1 and reaps orphans, so no tini. `checks.pytest-worker-dinix`
+   (container) and `-krun` run the worker there; the guest is its own
+   router. One in-guest pytest run: 3.1 s in a container, 6.0 s under
+   krun, against 5.3 s for a NixOS container guest
+   (docs/design/dinix-guests.md).
 5. The pool, the `clean`/`dirty` marker keyword, function-scoped boxes.
 6. QEMU forked guests, if 4 and 5 leave a start time worth cutting.
+   Researched, not started (Hot guests, above).
 
 Remembered for later (User, 2026-11-17):
 
