@@ -1,15 +1,18 @@
 """The client half of the warm-server phase (nixidae/nixidae#738).
 
 Runs on the client guest. The server guest runs `huggorm.server SOCKET
---experimental-callbacks` as a service; each step reaches it through
-OpenSSH Unix socket forwarding (`huggorm.ssh.socket_dialer`), and prints
-one JSON document.
+--experimental-callbacks --ssh-listen` as a service; each step reaches
+it through OpenSSH Unix socket forwarding (`huggorm.ssh.socket_dialer`),
+and prints one JSON document.
 
     first  mount the tree, evaluate one file, detach, leave
     again  claim the state, mount again, evaluate the rest
     drop   claim the state, mount an accessor that signals before a read
            and then waits, and report how the evaluation ends once the
            host breaks the link
+    sweep  time each step of a session over one SSH link: `--via socket`
+           forwards to the socket through sshd, `--via listen` opens a
+           session on the server's own SSH listener
 """
 
 from __future__ import annotations
@@ -20,10 +23,14 @@ import json
 import pathlib
 import sys
 import time
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import asdict, dataclass, field
+from enum import StrEnum
 from typing import Any
 
 import anyio
+import asyncssh
 
 from huggorm import remote, ssh
 from huggorm_bindings import FileType, SourceAccessor, Stat, Store, filesystem_accessor
@@ -35,6 +42,13 @@ KEEPALIVE_INTERVAL = 2
 KEEPALIVE_COUNT = 3
 
 
+class Via(StrEnum):
+    #: sshd forwards each dial to the server's Unix socket.
+    SOCKET = "socket"
+    #: The server listens on SSH itself; each dial is a session.
+    LISTEN = "listen"
+
+
 @dataclass(frozen=True, slots=True)
 class Target:
     server: str
@@ -42,18 +56,34 @@ class Target:
     key: pathlib.Path
     root: pathlib.Path
     store: str
+    via: Via = Via.SOCKET
+    listen_port: int = 2222
+
+    def _options(self) -> dict[str, Any]:
+        # Any: asyncssh's option names.
+        return {
+            "username": "root",
+            "client_keys": [str(self.key)],
+            "known_hosts": None,
+            "keepalive_interval": KEEPALIVE_INTERVAL,
+            "keepalive_count_max": KEEPALIVE_COUNT,
+        }
 
     def dialer(self) -> Any:
+        """A new SSH link per dial, through sshd."""
         # Any: huggorm.transport.Dialer, a callable alias.
-        return ssh.socket_dialer(
-            self.server,
-            self.socket,
-            username="root",
-            client_keys=[str(self.key)],
-            known_hosts=None,
-            keepalive_interval=KEEPALIVE_INTERVAL,
-            keepalive_count_max=KEEPALIVE_COUNT,
-        )
+        return ssh.socket_dialer(self.server, self.socket, **self._options())
+
+    def link(self) -> AbstractAsyncContextManager[asyncssh.SSHClientConnection]:
+        """One SSH link that every dial of `over` shares."""
+        port = 22 if self.via is Via.SOCKET else self.listen_port
+        return asyncssh.connect(self.server, port=port, **self._options())
+
+    def over(self, link: asyncssh.SSHClientConnection) -> Any:
+        # Any: huggorm.transport.Dialer, a callable alias.
+        if self.via is Via.SOCKET:
+            return ssh.forwarded(link, self.socket)
+        return ssh.sessions(link)
 
     def path(self) -> Any:
         return Store(DUMMY).add_accessor_to_store("source", filesystem_accessor(self.root))
@@ -192,16 +222,37 @@ RERUN = "[ (builtins.readDir ./sub) (builtins.readFile ./hello.txt) (builtins.pa
 
 
 async def sweep(target: Target) -> Sweep:
-    """One warm connection, each operation timed with the callbacks it made."""
+    """One SSH link and a warm connection over it, each operation timed
+    with the callbacks it made."""
     report = Sweep()
     tree = Logged(target.root)
 
     def took(name: str, started: float, before: int) -> None:
         report.steps[name] = Timed(time.monotonic() - started, tree.calls - before)
 
+    started = time.monotonic()
+    async with target.link() as link:
+        took("ssh", started, 0)
+        dial = target.over(link)
+        token, state_id = await session(target, dial, tree, took)
+        # A new connection over the same link claims the state: what a
+        # client pays to reconnect when its SSH link stays up.
+        started = time.monotonic()
+        async with remote.connect(dial, claim=token, experimental_callbacks=True) as client:
+            claimed = client.proxy(AsyncEvalState, state_id)
+            await (await claimed.eval_expr("1 + 1")).integer()
+        took("reclaim", started, tree.calls)
+    return report
+
+
+async def session(
+    target: Target, dial: Any, tree: Logged, took: Callable[[str, float, int], None]
+) -> tuple[str, str]:
+    """Each step of one connection; the token and state it detaches."""
+    # Any: huggorm.transport.Dialer, a callable alias.
     path = target.path()
     started = time.monotonic()
-    async with remote.connect(target.dialer(), experimental_callbacks=True) as client:
+    async with remote.connect(dial, experimental_callbacks=True) as client:
         took("connect", started, 0)
         started = time.monotonic()
         store = await client.acquire(AsyncStore, target.store)
@@ -238,7 +289,11 @@ async def sweep(target: Target) -> Sweep:
         edited_root = await store.print_store_path(await mounted.path())
         await (await listed.eval_expr("builtins.toJSON (import ./default.nix)", edited_root)).to_json()
         took("edit", started, before)
-    return report
+        if not await client.detach(all=True):
+            raise RuntimeError("detach moved no lease")
+        if client.token is None:
+            raise RuntimeError("a detached client has no token")
+        return client.token, remote.handle_of(listed)
 
 
 def listing_of(root: pathlib.Path) -> str:
@@ -267,8 +322,10 @@ def main() -> None:
     parser.add_argument("--token")
     parser.add_argument("--state")
     parser.add_argument("--marker", type=pathlib.Path)
+    parser.add_argument("--via", type=Via, choices=list(Via), default=Via.SOCKET)
+    parser.add_argument("--listen-port", type=int, default=2222)
     args = parser.parse_args()
-    target = Target(args.server, args.socket, args.key, args.root, args.store)
+    target = Target(args.server, args.socket, args.key, args.root, args.store, args.via, args.listen_port)
     report: Report | Sweep
     match args.step:
         case "sweep":

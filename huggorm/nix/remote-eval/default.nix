@@ -15,6 +15,7 @@
       nix run --file . internal.remote-eval.driver -- --out DIR
 */
 {
+  lib,
   pkgs,
   vivarium,
   nixvenv,
@@ -39,6 +40,7 @@ let
 
   python = "${venv}/bin/python3";
   socket = "/run/huggorm/eval.sock";
+  listenPort = 2222;
 
   lan = address: {
     vivarium.lan = {
@@ -82,10 +84,21 @@ vivarium.mkTest {
       systemd.services.huggorm-server = {
         wantedBy = [ "multi-user.target" ];
         serviceConfig = {
-          ExecStart = "${python} -c 'from huggorm.server import main; main()' ${socket} --experimental-callbacks";
+          # Also on SSH itself, beside sshd: the client's key reaches
+          # root's authorized_keys after boot, and the listener reads the
+          # file at each connection.
+          ExecStart = lib.concatStringsSep " " [
+            "${python} -c 'from huggorm.server import main; main()' ${socket}"
+            "--experimental-callbacks"
+            "--ssh-listen 0.0.0.0:${toString listenPort}"
+            "--ssh-host-key /var/lib/huggorm/host_key"
+            "--ssh-authorized-keys /root/.ssh/authorized_keys"
+          ];
           RuntimeDirectory = "huggorm";
+          StateDirectory = "huggorm";
         };
       };
+      networking.firewall.allowedTCPPorts = [ listenPort ];
       # git: a `git` flake input fetches with the git binary.
       environment.systemPackages = [
         venv
@@ -111,7 +124,7 @@ vivarium.mkTest {
     };
   };
   settings = {
-    inherit python socket;
+    inherit python socket listenPort;
     client = "${./client.py}";
     warm = "${./warm.py}";
     project = "${./project}";
