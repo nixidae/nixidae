@@ -33,6 +33,7 @@ from huggorm.ssh import (
     connected,
     forwarded,
     server_command,
+    sessions,
     socket_dialer,
     spawned,
 )
@@ -399,6 +400,22 @@ async def test_the_ssh_listener_admits_nobody_without_authorized_keys(listening:
     with anyio.fail_after(60), pytest.raises(asyncssh.PermissionDenied):
         async with _over_ssh(listening):
             pass
+
+
+async def test_a_client_claims_its_state_over_a_new_session_on_the_same_link(listening: _Listening) -> None:
+    with anyio.fail_after(60):
+        async with asyncssh.connect(
+            "127.0.0.1", port=listening.port, username="t", client_keys=[listening.key], known_hosts=None
+        ) as link:
+            dial = sessions(link)
+            async with remote.connect(dial) as first:
+                state = await first.acquire(AsyncEvalState, await first.acquire(AsyncStore, DUMMY))
+                assert await (await state.eval_expr("40 + 2")).integer() == 42
+                assert await first.detach(all=True)
+                token, state_id = first.token, remote.handle_of(state)
+            async with remote.connect(dial, claim=token) as second:
+                claimed = second.proxy(AsyncEvalState, state_id)
+                assert await (await claimed.eval_expr("1 + 1")).integer() == 2
 
 
 async def test_a_state_detached_on_the_socket_is_claimed_over_ssh(listening: _Listening) -> None:

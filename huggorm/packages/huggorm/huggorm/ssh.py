@@ -13,6 +13,9 @@ SSH Unix socket forwarding: a warm one. Several clients share it, each
 with its own state, and a client that reconnects claims its state
 again.
 
+`sessions(connection)` reaches a server that listens on SSH itself,
+`huggorm.server --ssh-listen`: each dial is a new session on the link.
+
 asyncssh opens a connection the way the OpenSSH client does by
 default: `~/.ssh/config`, the agent, the default keys and
 `~/.ssh/known_hosts`.
@@ -136,6 +139,34 @@ def forwarded(connection: asyncssh.SSHClientConnection, path: str) -> transport.
 
     async def dial() -> anyio.abc.ByteStream:
         return await _open_socket(connection, path)
+
+    return dial
+
+
+class _SessionStream(SshStream):
+    """A session's stdout and stdin; closing it ends the session."""
+
+    def __init__(self, process: asyncssh.SSHClientProcess[bytes]) -> None:
+        super().__init__(process.stdout, process.stdin)
+        self._process = process
+
+    async def aclose(self) -> None:
+        # No wait for the server to close the channel: that costs a round
+        # trip, and nothing the server sends after EOF is read.
+        await super().aclose()
+        self._process.close()
+
+
+def sessions(connection: asyncssh.SSHClientConnection) -> transport.Dialer:
+    """Dial `huggorm.server --ssh-listen` (`huggorm.ssh_server`) over
+    `connection`, with a new SSH session per call.
+
+    The caller owns `connection` and keeps it: a client redials over the
+    same link with no new SSH handshake, which costs several round trips."""
+
+    async def dial() -> anyio.abc.ByteStream:
+        process: asyncssh.SSHClientProcess[bytes] = await connection.create_process(encoding=None)
+        return _SessionStream(process)
 
     return dial
 
