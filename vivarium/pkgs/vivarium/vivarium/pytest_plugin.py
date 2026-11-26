@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import anyio
 import pytest
 
+from .async_fixtures import bound, in_loop, is_async
 from .events import Kind, Level
 from .phases import PhaseTimeout
 
@@ -83,44 +84,6 @@ def machine_fixtures(vms: Machines) -> MachineFixtures:
     return module
 
 
-def _in_loop(
-    portal: BlockingPortal, func: Callable[..., Any], bound: Callable[..., Any] | None = None
-) -> Callable[..., Any]:
-    """A sync stand-in for an async fixture, run on the session's loop.
-
-    An async generator fixture spans two portal calls, one per
-    `__anext__`, so its setup and teardown are separate tasks. An anyio
-    task group held open across its `yield` does not survive that.
-    """
-
-    def run(step: Callable[[], Any]) -> Any:
-        return portal.call(step if bound is None else functools.partial(bound, step))
-
-    if inspect.isasyncgenfunction(func):
-
-        def generator(**kwargs: Any) -> Generator[Any]:
-            agen = func(**kwargs)
-            value = run(agen.__anext__)
-            try:
-                yield value
-            finally:
-                # Unbounded: past the deadline a bounded teardown would be
-                # cancelled before it cleaned anything up.
-                try:
-                    portal.call(agen.__anext__)
-                except StopAsyncIteration:
-                    pass
-                else:
-                    raise RuntimeError(f"fixture {func.__name__} yielded twice")
-
-        return generator
-
-    def call(**kwargs: Any) -> Any:
-        return run(functools.partial(func, **kwargs))
-
-    return call
-
-
 class Plugin:
     """The hooks that tie one pytest run to one session."""
 
@@ -159,6 +122,10 @@ class Plugin:
         self.timed_out = self._timeout()
         raise self.timed_out
 
+    def _expire(self) -> PhaseTimeout:
+        self.timed_out = self._timeout()
+        return self.timed_out
+
     def _timeout(self) -> PhaseTimeout:
         return PhaseTimeout(f"phase {self.phase} ran past its timeout of {self.timeout:g}s")
 
@@ -194,12 +161,11 @@ class Plugin:
         self, fixturedef: pytest.FixtureDef[Any], request: pytest.FixtureRequest
     ) -> Generator[None]:
         func = fixturedef.func
-        if not (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
+        if not is_async(func):
             yield
             return
-        # Restored afterwards, as anyio's own plugin does: the definition
-        # is shared by every test that asks for it.
-        fixturedef.func = _in_loop(self.portal, func, self._bounded)  # type: ignore[misc]  # pytest declares it Final; anyio's plugin swaps it too
+        stand_in = in_loop(self.portal, bound(func, request), deadline=self.deadline, expired=self._expire)
+        fixturedef.func = stand_in  # type: ignore[misc]  # pytest declares it Final; anyio's plugin swaps it too
         try:
             yield
         finally:
