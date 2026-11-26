@@ -9,7 +9,10 @@
   The tree is in the client's store view only, so a read that escapes to
   the server's disk fails instead of passing by accident.
 
-      nix run --file . internal.remote-eval.qemu.driver -- --out DIR
+  QEMU by default: the UML kernel has no `netem`, which the latency
+  sweep needs, and UML timings mislead.
+
+      nix run --file . internal.remote-eval.driver -- --out DIR
 */
 {
   pkgs,
@@ -45,6 +48,7 @@ let
 in
 vivarium.mkTest {
   name = "huggorm-remote-eval";
+  backend = "qemu";
   phases.test = {
     script = ./test.py;
     after = [ "boot" ];

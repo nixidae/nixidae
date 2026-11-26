@@ -644,7 +644,7 @@ let
     # to be able to run Python commands
     python = python3;
 
-    # nix run --file . internal.remote-eval.qemu.driver -- --out DIR
+    # nix run --file . internal.remote-eval.driver -- --out DIR
     remote-eval = pkgs.callPackage ./nix/remote-eval {
       vivarium = (import sources.vivarium { inherit pkgs sources; }).lib;
       inherit
