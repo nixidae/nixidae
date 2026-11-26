@@ -111,7 +111,13 @@ let
           "VIVARIUM_DINIT_SOCKET=${dinix.config.socketPath}"
           (lib.getExe agent)
         ];
+        depends-on = lib.optional (!container) "vivarium-hostname";
         dinix.critical = false;
+      };
+      # A VM's kernel starts as "(none)"; crun sets a container's.
+      vivarium-hostname = lib.mkIf (!container) {
+        type = "scripted";
+        command = "${pkgs.runtimeShell} -c \"echo ${config.networking.hostName} > /proc/sys/kernel/hostname\"";
       };
       vivarium-uplink =
         if own == null then
