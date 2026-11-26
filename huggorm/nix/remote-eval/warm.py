@@ -59,13 +59,28 @@ class Target:
 
 
 class Logged(SourceAccessor):
-    """`filesystem_accessor(root)`, with each file read recorded."""
+    """`filesystem_accessor(root)`, with each file read recorded and
+    every hook counted."""
 
     def __init__(self, root: pathlib.Path) -> None:
         super().__init__(filesystem_accessor(root))
         self.files: list[str] = []
+        self.calls = 0
+
+    def maybe_lstat(self, path: str) -> Stat | None:
+        self.calls += 1
+        return super().maybe_lstat(path)
+
+    def read_directory(self, path: str) -> dict[str, FileType | None]:
+        self.calls += 1
+        return super().read_directory(path)
+
+    def read_link(self, path: str) -> str:
+        self.calls += 1
+        return super().read_link(path)
 
     def read_file(self, path: str) -> bytes:
+        self.calls += 1
         self.files.append(path)
         return super().read_file(path)
 
@@ -91,6 +106,7 @@ class Stalls:
     async def read_file(self, path: str) -> bytes:
         if path == self.stall:
             await anyio.Path(self.marker).write_text("reading\n")
+            # The host breaks the link now; nothing answers this read.
             await anyio.sleep_forever()
         return self.below.read_file(path)
 
@@ -145,10 +161,12 @@ async def drop(target: Target, token: str, state_id: str, marker: pathlib.Path) 
         async with remote.connect(target.dialer(), claim=token, experimental_callbacks=True) as client:
             store = await client.acquire(AsyncStore, target.store)
             state = client.proxy(AsyncEvalState, state_id)
-            mounted = await state.mount(Stalls(target.root, "/hello.txt", marker), "source", target.path())
+            # A file no earlier step read: the mount keeps every answer,
+            # so only an unread file reaches the client.
+            mounted = await state.mount(Stalls(target.root, "/unread.txt", marker), "source", target.path())
             root = await store.print_store_path(await mounted.path())
             started = time.monotonic()
-            await state.eval_expr(f"builtins.readFile {root}/hello.txt")
+            await state.eval_expr(f"builtins.readFile {root}/unread.txt")
     except Exception as error:  # noqa: BLE001 -- how it ends is the result
         report.error_type = type(error).__name__
         report.error = str(error)
@@ -156,9 +174,66 @@ async def drop(target: Target, token: str, state_id: str, marker: pathlib.Path) 
     return report
 
 
+@dataclass(slots=True)
+class Timed:
+    seconds: float
+    callbacks: int
+
+
+@dataclass(slots=True)
+class Sweep:
+    steps: dict[str, Timed] = field(default_factory=dict)
+
+
+# Each pass parses anew, so the reads in it run again: what code that
+# re-applies a function over the tree does on a warm state.
+RERUN = "[ (builtins.readDir ./sub) (builtins.readFile ./hello.txt) (builtins.pathExists ./absent) {n} ]"
+
+
+async def sweep(target: Target) -> Sweep:
+    """One warm connection, each operation timed with the callbacks it made."""
+    report = Sweep()
+    tree = Logged(target.root)
+
+    def took(name: str, started: float, before: int) -> None:
+        report.steps[name] = Timed(time.monotonic() - started, tree.calls - before)
+
+    path = target.path()
+    started = time.monotonic()
+    async with remote.connect(target.dialer(), experimental_callbacks=True) as client:
+        took("connect", started, 0)
+        started = time.monotonic()
+        store = await client.acquire(AsyncStore, target.store)
+        state = await client.acquire(AsyncEvalState, store)
+        took("acquire", started, 0)
+        started = time.monotonic()
+        root = await store.print_store_path(await (await state.mount(tree, "source", path)).path())
+        took("mount", started, 0)
+        for name, expr in (
+            ("cold", "builtins.toJSON (import ./default.nix)"),
+            ("warm", "builtins.toJSON (import ./default.nix)"),
+            ("rerun-1", RERUN.format(n=1)),
+            ("rerun-2", RERUN.format(n=2)),
+        ):
+            before, started = tree.calls, time.monotonic()
+            await (await state.eval_expr(expr, root)).to_json()
+            took(name, started, before)
+        # A second state, mounted with the tree's listing: only file
+        # contents cross the link.
+        listing = filesystem_accessor(target.root).list_nar("/", True)
+        listed = await client.acquire(AsyncEvalState, store)
+        before, started = tree.calls, time.monotonic()
+        await listed.mount(tree, "source", path, listing)
+        took("mount+listing", started, before)
+        before, started = tree.calls, time.monotonic()
+        await (await listed.eval_expr("builtins.toJSON (import ./default.nix)", root)).to_json()
+        took("cold+listing", started, before)
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("step", choices=["first", "again", "drop"])
+    parser.add_argument("step", choices=["first", "again", "drop", "sweep"])
     parser.add_argument("--server", required=True)
     parser.add_argument("--socket", required=True)
     parser.add_argument("--key", type=pathlib.Path, required=True)
@@ -169,7 +244,10 @@ def main() -> None:
     parser.add_argument("--marker", type=pathlib.Path)
     args = parser.parse_args()
     target = Target(args.server, args.socket, args.key, args.root, args.store)
+    report: Report | Sweep
     match args.step:
+        case "sweep":
+            report = anyio.run(sweep, target)
         case "first":
             report = anyio.run(first, target)
         case "again":

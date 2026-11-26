@@ -51,7 +51,10 @@ async def test(vms: Machines) -> None:
     for vm in (server, client):
         await vm.succeed("tc qdisc del dev vec1 root || true")
     await server.wait_for_unit("huggorm-server.service")
-    await client.succeed(f"cp -r --no-preserve=mode {settings['project']} {ROOT} && echo warm > {ROOT}/live.txt")
+    await client.succeed(
+        f"cp -r --no-preserve=mode {settings['project']} {ROOT}"
+        f" && echo warm > {ROOT}/live.txt && echo unread > {ROOT}/unread.txt"
+    )
 
     first = await step(client, settings, "first")
     if first["value"] != 42 or first["files"] != ["/sub/x.nix"]:

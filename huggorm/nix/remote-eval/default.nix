@@ -59,6 +59,10 @@ vivarium.mkTest {
       script = ./warm-test.py;
       after = [ "test" ];
     };
+    latency = {
+      script = ./latency-test.py;
+      after = [ "warm" ];
+    };
   };
   nodes = {
     server = {
