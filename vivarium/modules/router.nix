@@ -272,7 +272,9 @@ let
   # requests with the host's replies.
   ownUplink = pkgs.writeShellScript "vivarium-own-uplink" ''
     set -e
-    PATH=${
+    # Exported: an init may start this with no PATH, and nsenter's shell
+    # needs one.
+    export PATH=${
       lib.makeBinPath [
         pkgs.iproute2
         pkgs.nftables

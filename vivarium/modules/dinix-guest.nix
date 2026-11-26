@@ -70,8 +70,17 @@ let
   # `uplink.proxy = "vsock"` is (modules/router.nix), with no router guest.
   own = config.system.build.vivariumOwnUplink or null;
   addresses = import ../nix/uplink.nix;
+  # A VM's kernel loads what nft asks for through this; with no udev,
+  # nothing loads the vsock transport for its device.
+  modprobe = pkgs.writeShellScript "vivarium-dinix-modprobe" ''
+    exec ${pkgs.kmod}/bin/modprobe -d ${kernel.modules} "$@"
+  '';
   ownUplink = pkgs.writeShellScript "vivarium-dinix-own-uplink" ''
     set -eu
+    ${lib.optionalString (!container) ''
+      echo ${modprobe} > /proc/sys/kernel/modprobe
+      ${modprobe} vmw_vsock_virtio_transport
+    ''}
     ${own.setup}
     PATH=${pkgs.iproute2}/bin
     ip link set lo up
@@ -228,6 +237,8 @@ let
       ''
         mkdir -p root/{dev,proc,sys,run,tmp,nix,host/nix,.nix-upper,.nix-work,artifacts,bin,etc,root,var}
         chmod 1777 root/tmp
+        # `ip netns add` writes /var/run/netns, as NixOS links it.
+        ln -s ../run root/var/run
         install -m 0755 ${dinix.config.bootPackage}/bin/dinix-boot root/dinix-boot
         install -m 0644 ${spec} root/dinix-boot.spec
         # The agent runs a command through /bin/sh.
@@ -287,10 +298,8 @@ in
       }
     ];
     vivarium.kind = "dinix";
-    # A container guest runs the relay itself. A krun guest stays behind
-    # the router, where vec0 leases its address by DHCP, until its kernel
-    # is checked for veth and nftables.
-    vivarium.uplink.proxy = lib.mkDefault (if container then "vsock" else "router");
+    # The guest runs the relay itself, with no router guest.
+    vivarium.uplink.proxy = lib.mkDefault "vsock";
     vivarium.uplink.wantsRouter = lib.mkDefault (
       config.vivarium.uplink.proxy == "router" && config.vivarium.uplink.segment == null
     );
