@@ -1043,13 +1043,14 @@ in
       ];
       # Not by `uplink.segment`: a routed guest's segment default reads this.
       default = if config.vivarium.kind == "nixos" then "vsock" else "router";
-      defaultText = lib.literalMD "`vsock` for a NixOS guest, else `router`";
+      defaultText = lib.literalMD "`vsock` for a NixOS guest, else `router`; a kind may set its own";
       description = ''
         What serves the uplink (`vec0`).
 
-        A guest that is not NixOS cannot run the relay, so it sits behind
-        the run's router. A run that sets `router.enable = false` and
-        holds such a guest with an uplink fails to evaluate.
+        A guest kind that cannot run the relay sits behind the run's
+        router. A dinix guest in a container runs it as dinix services.
+        A run that sets `router.enable = false` and holds a guest behind
+        the router with an uplink fails to evaluate.
 
         An `uplink.segment` takes precedence over `vsock`.
 

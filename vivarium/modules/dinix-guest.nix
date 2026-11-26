@@ -66,6 +66,23 @@ let
     exec udhcpc -f -i vec0 -s ${pkgs.busybox}/default.script
   '';
 
+  # A `vsock` uplink: the guest is its own router, as a NixOS guest with
+  # `uplink.proxy = "vsock"` is (modules/router.nix), with no router guest.
+  own = config.system.build.vivariumOwnUplink or null;
+  addresses = import ../nix/uplink.nix;
+  ownUplink = pkgs.writeShellScript "vivarium-dinix-own-uplink" ''
+    set -eu
+    ${own.setup}
+    PATH=${pkgs.iproute2}/bin
+    ip link set lo up
+    ip link set vec0 up
+    ip address add ${addresses.address 0}/${toString addresses.prefixLength} dev vec0
+    ip -6 address add ${addresses.address6 0}/64 dev vec0 nodad
+    ip route add default via ${addresses.gateway} dev vec0
+    ip -6 route add default via ${addresses.gateway6} dev vec0
+    echo "nameserver ${addresses.dns}" > /etc/resolv.conf
+  '';
+
   # What `succeed` finds on PATH.
   guestPath = pkgs.buildEnv {
     name = "vivarium-dinix-path";
@@ -87,9 +104,32 @@ let
         ];
         dinix.critical = false;
       };
-      vivarium-uplink = {
+      vivarium-uplink =
+        if own == null then
+          {
+            type = "process";
+            command = "${uplink}";
+            dinix.critical = false;
+          }
+        else
+          {
+            type = "scripted";
+            command = "${ownUplink}";
+            dinix.critical = false;
+          };
+      # dinit has no network namespace setting: nsenter puts the relay in.
+      vivarium-relay = lib.mkIf (own != null) {
         type = "process";
-        command = "${uplink}";
+        command = lib.concatStringsSep " " (
+          [ "${pkgs.coreutils}/bin/env" ]
+          ++ lib.mapAttrsToList (name: value: "${name}=${value}") own.environment
+          ++ [
+            "${pkgs.util-linux}/bin/nsenter"
+            "--net=${own.netns}"
+            own.relay
+          ]
+        );
+        depends-on = [ "vivarium-uplink" ];
         dinix.critical = false;
       };
       # A reset with no orderly stop before it is a crash. The stop runs in
@@ -170,6 +210,8 @@ let
   rootDirectory = pkgs.runCommand "vivarium-dinix-root-${config.networking.hostName}" { } ''
     mkdir -p $out/{bin,etc,root,var,artifacts,nix/store,.nix-upper,.nix-work}
     ln -s ${pkgs.bash}/bin/sh $out/bin/sh
+    # `ip netns add` writes /var/run/netns, as NixOS links it.
+    ln -s ../run $out/var/run
   '';
 
   rootImage =
@@ -245,8 +287,13 @@ in
       }
     ];
     vivarium.kind = "dinix";
-    # The relay does not run here; vec0 leases its address by DHCP.
-    vivarium.uplink.wantsRouter = lib.mkDefault (config.vivarium.uplink.segment == null);
+    # A container guest runs the relay itself. A krun guest stays behind
+    # the router, where vec0 leases its address by DHCP, until its kernel
+    # is checked for veth and nftables.
+    vivarium.uplink.proxy = lib.mkDefault (if container then "vsock" else "router");
+    vivarium.uplink.wantsRouter = lib.mkDefault (
+      config.vivarium.uplink.proxy == "router" && config.vivarium.uplink.segment == null
+    );
     vivarium.rootImage = if container then rootDirectory else rootImage;
     vivarium.closure = pkgs.closureInfo {
       rootPaths = [

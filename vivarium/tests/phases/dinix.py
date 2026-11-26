@@ -32,9 +32,9 @@ async def test(vms: Machines) -> None:
         raise AssertionError(f"no store mount in /proc/mounts:\n{mounts}")
     print("[test] dinit is PID 1, with the host's store")
 
-    want = box.spec.uplink_address
-    if want is None:
-        raise AssertionError("the guest is not behind the router")
+    # Behind the router the guest leases its address; on its own relay it
+    # has the uplink's fixed one.
+    want = box.spec.uplink_address or box.spec.uplink_network.address
 
     async def leased() -> str | None:
         found = (await box.succeed("ip -4 -o addr show dev vec0")).stdout

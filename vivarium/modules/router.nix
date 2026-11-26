@@ -268,6 +268,39 @@ let
   # namespace, the far end of `vec0` named as the router's bridge.
   netns = "uplink";
 
+  # Mark 1 is local here as on the router, and the relay answers echo
+  # requests with the host's replies.
+  ownUplink = pkgs.writeShellScript "vivarium-own-uplink" ''
+    set -e
+    PATH=${
+      lib.makeBinPath [
+        pkgs.iproute2
+        pkgs.nftables
+        pkgs.procps
+        pkgs.util-linux
+      ]
+    }:$PATH
+    ip netns delete ${netns} 2>/dev/null || true
+    ip netns add ${netns}
+    ip link add vec0 mtu ${toString config.vivarium.mtu} type veth \
+      peer name ${bridge} mtu ${toString config.vivarium.mtu} netns ${netns}
+    # Not `ip -n` or `ip netns exec`: both mount a new /sys, which a
+    # container may not do.
+    nsenter --net=/run/netns/${netns} ${pkgs.runtimeShell} -e -c '
+      ip link set lo up
+      ip link set ${bridge} up
+      ip address add ${gateway}/24 dev ${bridge}
+      ip address add ${dns}/24 dev ${bridge}
+      ip address add ${gateway6}/64 dev ${bridge} nodad
+      ip rule add fwmark 1 table 100
+      ip -6 rule add fwmark 1 table 100
+      ip route add local 0.0.0.0/0 dev lo table 100
+      ip -6 route add local ::/0 dev lo table 100
+      sysctl -q -w net.ipv4.icmp_echo_ignore_all=1 net.ipv6.icmp.echo_ignore_all=1
+      nft -f ${pkgs.writeText "uplink.nft" (ruleset bridge)}
+    '
+  '';
+
   # The IPv4 prefixes that stay inside the lab: routed to a guest, not
   # carried to the host.
   inside = cfg.inside ++ map (route: route.destination) cfg.routes;
@@ -721,6 +754,26 @@ in
     (lib.mkIf ownRelay {
       vivarium.launch.config.egress = "${egress}/bin/egress";
 
+      /**
+        The uplink's namespace and the relay, for a guest kind with no
+        systemd: run `setup` once, then `relay` in the namespace at
+        `netns` with `environment`. `vec0`'s addresses and routes are the
+        kind's to set.
+      */
+      system.build.vivariumOwnUplink = {
+        setup = ownUplink;
+        relay = "${relay}/bin/relay 9000 ${ends.egress} 9001 ${ends.inward}";
+        netns = "/run/netns/${netns}";
+        inherit
+          (relayService {
+            tcp = 9000;
+            udp = 9001;
+            inherit (ends) inward;
+          })
+          environment
+          ;
+      };
+
       # The uplink's fixed addresses: nothing in the namespace serves DHCP.
       networking.interfaces.vec0 = {
         useDHCP = lib.mkForce false;
@@ -755,40 +808,13 @@ in
           "systemd-networkd.service"
         ];
         wants = [ "network-pre.target" ];
-        path = [
-          pkgs.iproute2
-          pkgs.nftables
-          pkgs.procps
-          pkgs.util-linux
-        ];
+        path = [ pkgs.iproute2 ];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
+          # Not networkd's: it does not reach into another namespace.
+          ExecStart = ownUplink;
         };
-        # Mark 1 is local here as on the router, and the relay answers
-        # echo requests with the host's replies. Not networkd's: it does
-        # not reach into another namespace.
-        script = ''
-          ip netns delete ${netns} 2>/dev/null || true
-          ip netns add ${netns}
-          ip link add vec0 mtu ${toString config.vivarium.mtu} type veth \
-            peer name ${bridge} mtu ${toString config.vivarium.mtu} netns ${netns}
-          # Not `ip -n` or `ip netns exec`: both mount a new /sys, which a
-          # container may not do.
-          nsenter --net=/run/netns/${netns} ${pkgs.runtimeShell} -e -c '
-            ip link set lo up
-            ip link set ${bridge} up
-            ip address add ${gateway}/24 dev ${bridge}
-            ip address add ${dns}/24 dev ${bridge}
-            ip address add ${gateway6}/64 dev ${bridge} nodad
-            ip rule add fwmark 1 table 100
-            ip -6 rule add fwmark 1 table 100
-            ip route add local 0.0.0.0/0 dev lo table 100
-            ip -6 route add local ::/0 dev lo table 100
-            sysctl -q -w net.ipv4.icmp_echo_ignore_all=1 net.ipv6.icmp.echo_ignore_all=1
-            nft -f ${pkgs.writeText "uplink.nft" (ruleset bridge)}
-          '
-        '';
         preStop = "ip netns delete ${netns}";
       };
 

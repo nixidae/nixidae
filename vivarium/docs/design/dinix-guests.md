@@ -15,6 +15,15 @@ makes the mounts, so `dinix-boot` does not run. dinit reaps orphans as
 PID 1 must, so nothing like tini stands in front of it. The agent is
 ready 0.52 s after the launch, against 2.45 s under krun (2026-11-26).
 
+A container guest is its own router: `uplink.proxy = "vsock"`, with
+the NixOS guest's namespace, ruleset and relay (`modules/router.nix`,
+`system.build.vivariumOwnUplink`) run as two dinix services. No router
+guest boots with it. `checks.dinix.container` took 8.4 s with a router
+and takes 2.2 s; one in-guest pytest run of `checks.pytest-worker-dinix`
+took 14.3 s and takes 3.0 s, against 5.3 s for a NixOS container guest.
+A krun guest stays behind the router until its kernel is checked for
+veth and nftables.
+
 ## What User asked for
 
 - No NixOS in the guest, and no stage 1: direct kernel boot.
@@ -183,6 +192,6 @@ and `memory` before quoting a box's cost.
    poweroff is clean (`checks.dinix`).
 3. Half done: the agent's init abstraction. `system_state` and
    `poweroff` answer for dinit; the unit queries do not yet.
-4. Half done: the container backend. The uplink as modular services;
-   QEMU and UML.
+4. Half done: the container backend, with its own relay. The uplink as
+   modular services; the own relay under krun; QEMU and UML.
 5. The pytest plugin's in-guest tests on a dinix box.
