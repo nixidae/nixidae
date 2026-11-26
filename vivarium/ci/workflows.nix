@@ -297,6 +297,13 @@ let
       description = "the guest's pytest worker runs in a dinix guest";
       timeoutMinutes = 30;
     };
+    pytest-worker-dinix-krun = {
+      # The same, with the dinix guest's own kernel under libkrun.
+      attr = "checks.pytest-worker-dinix-krun";
+      description = "the guest's pytest worker runs in a dinix guest under libkrun";
+      timeoutMinutes = 30;
+      after = [ "direct-kernel" ];
+    };
     pytest-host = {
       # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
       # (`lib.pytestCheck`, nixidae/nixidae#1413).
