@@ -5,6 +5,7 @@ through them: `add_accessor_to_store` dumps it as a NAR, and
 `EvalState.mount` shows it to the evaluator at its store path.
 """
 
+import hashlib
 import itertools
 import json
 import os
@@ -385,9 +386,12 @@ def test_rebind_swaps_the_tree_and_mount_at_finds_it() -> None:
     path = mounted.path()
     found = state.mount_at(path)
     assert found.path() == path
-    found.rebind(Memory({**SOURCE, "/hello.txt": b"rebound\n"}))
+    # The same tree, as the contract asks: only the accessor changes.
+    rebound = Calls(SOURCE)
+    found.rebind(rebound)
     entry = f"{store.print_store_path(path)}/hello.txt"
-    assert state.eval_expr(f"builtins.readFile {entry}").string_value() == "rebound\n"
+    assert state.eval_expr(f"builtins.readFile {entry}").string_value() == "hello\n"
+    assert "read /hello.txt" in rebound.calls
     with pytest.raises(NixError, match="nothing huggorm mounted"):
         state.mount_at(dummy().add_accessor_to_store("other", Memory(SOURCE)))
 
@@ -475,3 +479,50 @@ def test_a_filesystem_tree_stays_inside_its_root(tmp_path: pathlib.Path) -> None
     assert tree.read_link("/out") == "../outside"
     assert tree.maybe_lstat("/../outside") is None
     assert tree.read_file("/hello.txt") == b"hello\n"
+
+
+def hashes_of(tree: dict[str, Any]) -> dict[str, str]:
+    """Each regular file's SHA-256, in hex, as a client sends it."""
+    files = {path: node for path, node in tree.items() if isinstance(node, (bytes, tuple))}
+    return {
+        path: hashlib.sha256(node[0] if isinstance(node, tuple) else node).hexdigest() for path, node in files.items()
+    }
+
+
+def test_after_an_edit_only_the_changed_file_is_read() -> None:
+    """An edit moves the tree to a new store path, so a new mount. With
+    each file's hash, the state answers the unchanged files with the
+    bytes the last mount read."""
+    from huggorm_bindings import EvalState
+
+    edited_tree = {**SOURCE, "/hello.txt": b"edited\n"}
+    store = dummy()
+    state = EvalState(store)
+    before, after = Calls(SOURCE), Calls(edited_tree)
+    for tree, content in ((before, SOURCE), (after, edited_tree)):
+        path = dummy().add_accessor_to_store("source", Memory(content))
+        state.mount(tree, path=path, listing=Memory(content).list_nar("/", True), hashes=hashes_of(content))
+        got = json.loads(state.eval_file(f"{store.print_store_path(path)}/default.nix").to_json())
+    assert got["joined"] == "edited\n"
+    assert "read /default.nix" in before.calls
+    assert after.calls == ["read /hello.txt"]
+
+
+def test_a_claimed_hash_does_not_key_the_bytes() -> None:
+    """The state keys bytes by the hash it computes. A file mounted with
+    a wrong hash is read through its accessor and kept under its real
+    hash, so a later mount that names the real hash reads nothing."""
+    from huggorm_bindings import EvalState
+
+    store = dummy()
+    state = EvalState(store)
+    wrong = {"/hello.txt": hashlib.sha256(b"something else\n").hexdigest()}
+    salted = {**SOURCE, "/salt": b"1\n"}
+    first, second = Calls(SOURCE), Calls(salted)
+    for tree, content, hashes in ((first, SOURCE, wrong), (second, salted, hashes_of(salted))):
+        path = dummy().add_accessor_to_store("source", Memory(content))
+        state.mount(tree, path=path, listing=Memory(content).list_nar("/", True), hashes=hashes)
+        entry = f"{store.print_store_path(path)}/hello.txt"
+        assert state.eval_expr(f"builtins.readFile {entry}").string_value() == "hello\n"
+    assert first.calls == ["read /hello.txt"]
+    assert second.calls == []

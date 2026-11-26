@@ -1825,6 +1825,7 @@ class EvalState:
         name: Str = "source",
         path: Opt[StorePath] = None,
         listing: Opt[Str] = None,
+        hashes: Opt[Map[Str]] = None,
     ) -> Mount:
         """Show `accessor`'s tree to the evaluator at its store path.
 
@@ -1859,7 +1860,13 @@ class EvalState:
         lists directories and reads links without asking `accessor`,
         and a path the listing lacks does not exist; only file contents
         are read. Over a remote link that removes most round trips. It
-        is TRUSTED, as `path` is."""
+        is TRUSTED, as `path` is.
+
+        `hashes` maps a file's path in the tree to the SHA-256 of its
+        bytes, in hex. Every mount on this state shares the bytes it
+        read, keyed by the hash this state computed of them, so after an
+        edit only the files that changed are read. TRUSTED, as `path`
+        is; a state only ever answers bytes it read itself."""
         Cxx("""
             auto & state = self.state();
             nix::ref<nix::SourceAccessor> tree{accessor};
@@ -1878,13 +1885,16 @@ class EvalState:
                 shown->rebind(accessor);
                 if (shape)
                     shown->learn(*shape);
+                // An optional map arrives as a map: None is empty.
+                shown->learnHashes(hashes);
                 return shown;
             }
             state.allowPath(at);
             bool mounted = !path || !state.store->isValidPath(at);
-            auto shown = std::make_shared<huggorm::Mount>(at, accessor, mounted);
+            auto shown = std::make_shared<huggorm::Mount>(at, accessor, mounted, self.file_contents());
             if (shape)
                 shown->learn(*shape);
+            shown->learnHashes(hashes);
             if (mounted)
                 state.storeFS->mount(point, nix::ref<nix::SourceAccessor>{shown});
             return shown;

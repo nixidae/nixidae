@@ -98,6 +98,7 @@ namespace nb = nanobind;
 // is what the compiler said when they were first put where the code
 // used to be.
 #include "huggorm_decl/cpp/error_info.hpp"
+#include "huggorm_decl/cpp/file_contents.hpp"
 #include "huggorm_decl/cpp/gc.hpp"
 #include "huggorm_decl/cpp/fiber_stack.hpp"
 #include "huggorm_decl/cpp/logging.hpp"
@@ -429,6 +430,9 @@ public:
     nix::EvalSettings & eval_settings() { return eval_settings_; }
     nix::fetchers::Settings & fetch_settings() { return fetch_settings_; }
 
+    // What this state's mounts have read, shared by all of them.
+    const std::shared_ptr<FileContents> & file_contents() const { return file_contents_; }
+
     // -- the ONE strong reference to each registered callable ------
     //
     // A primop's `impl` used to capture the `nb::object` itself, and
@@ -578,6 +582,7 @@ private:
     mutable nb::ft_mutex primops_mutex_;
     std::atomic<const Evaluator *> owner_ = nullptr;
     mutable std::atomic<bool> evaluated_ = false;
+    std::shared_ptr<FileContents> file_contents_ = std::make_shared<FileContents>();
 };
 
 /**
@@ -642,6 +647,7 @@ public:
 
     nix::EvalState & state() const { return core_->state(); }
     const EvalCore & eval_core() const { return *core_; }
+    const std::shared_ptr<FileContents> & file_contents() const { return core_->file_contents(); }
 
     nix::Store & store() const { return core_->store(); }
 

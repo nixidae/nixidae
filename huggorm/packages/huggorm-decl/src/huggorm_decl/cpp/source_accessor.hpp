@@ -23,6 +23,7 @@
 
 #include "nix/util/error.hh"
 #include "nix/util/serialise.hh"
+#include "huggorm_decl/cpp/file_contents.hpp"
 #include "nix/store/path.hh"
 #include "nix/util/nar-listing.hh"
 #include "nix/util/source-accessor.hh"
@@ -157,18 +158,22 @@ private:
  * same one. Nix caches no accessor read itself, so without this each
  * re-run of `readDir`, `pathExists` or `readFile` is one more round trip
  * to a remote client. A failure is not kept: a read through a dead
- * client succeeds after a rebind. File contents count against
- * `fileBudget`; past it a file is read again each time.
+ * client succeeds after a rebind. File bytes live in the state's
+ * `FileContents`, which every mount on the state shares; the mount keeps
+ * each file's hash.
  */
 class Mount : public AccessorBase
 {
 public:
-    static constexpr size_t fileBudget = 64 << 20;
-
-    Mount(nix::StorePath path, std::shared_ptr<nix::SourceAccessor> target, bool mounted)
+    Mount(
+        nix::StorePath path,
+        std::shared_ptr<nix::SourceAccessor> target,
+        bool mounted,
+        std::shared_ptr<FileContents> contents)
         : path_(std::move(path))
         , mounted_(mounted)
         , target_(std::move(target))
+        , contents_(std::move(contents))
     {
     }
 
@@ -221,21 +226,34 @@ public:
         return kept(links_, path, [&] { return target()->readLink(path); });
     }
 
+    /**
+     * Learn each file's SHA-256 (hex) by its path in the tree, so a file
+     * whose bytes the state already holds is not read. TRUSTED, as the
+     * listing is; a wrong hash shows the evaluator the bytes it names.
+     */
+    template<typename Map>
+    void learnHashes(const Map & hashes)
+    {
+        std::lock_guard lock(mutex_);
+        for (auto & [path, hash] : hashes)
+            hashes_.insert_or_assign(nix::CanonPath(path).abs(), hash);
+    }
+
     void readFile(const nix::CanonPath & path, nix::Sink & sink, nix::fun<void(uint64_t)> sizeCallback) override
     {
-        std::string data;
-        if (auto found = find(files_, path))
-            data = *found;
-        else {
+        std::optional<std::string> data;
+        if (auto hash = find(hashes_, path))
+            data = contents_->find(*hash);
+        if (!data) {
             nix::StringSink collected;
             target()->readFile(path, collected, [](uint64_t) {});
-            data = std::move(collected.s);
+            auto hash = contents_->keep(collected.s);
             std::lock_guard lock(mutex_);
-            if (fileBytes_ + data.size() <= fileBudget && files_.emplace(path.abs(), data).second)
-                fileBytes_ += data.size();
+            hashes_.insert_or_assign(path.abs(), hash);
+            data = std::move(collected.s);
         }
-        sizeCallback(data.size());
-        sink(data);
+        sizeCallback(data->size());
+        sink(*data);
     }
 
 private:
@@ -316,8 +334,9 @@ private:
     std::map<std::string, std::optional<Stat>> stats_;
     std::map<std::string, DirEntries> directories_;
     std::map<std::string, std::string> links_;
-    std::map<std::string, std::string> files_;
-    size_t fileBytes_ = 0;
+    // Path -> SHA-256 of its bytes, which live in `contents_`.
+    std::map<std::string, std::string> hashes_;
+    std::shared_ptr<FileContents> contents_;
     bool complete_ = false;
 };
 
