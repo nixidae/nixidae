@@ -38,6 +38,7 @@ let
   };
 
   python = "${venv}/bin/python3";
+  socket = "/run/huggorm/eval.sock";
 
   lan = address: {
     vivarium.lan = {
@@ -49,9 +50,15 @@ in
 vivarium.mkTest {
   name = "huggorm-remote-eval";
   backend = "qemu";
-  phases.test = {
-    script = ./test.py;
-    after = [ "boot" ];
+  phases = {
+    test = {
+      script = ./test.py;
+      after = [ "boot" ];
+    };
+    warm = {
+      script = ./warm-test.py;
+      after = [ "test" ];
+    };
   };
   nodes = {
     server = {
@@ -60,6 +67,20 @@ vivarium.mkTest {
       services.openssh = {
         enable = true;
         ports = [ 22 ];
+        # sshd ends a session whose client stops answering, so the warm
+        # server sees its connection close: 3 × 2 s.
+        settings = {
+          ClientAliveInterval = 2;
+          ClientAliveCountMax = 3;
+        };
+      };
+      # The warm server: one process that outlives every connection.
+      systemd.services.huggorm-server = {
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          ExecStart = "${python} -c 'from huggorm.server import main; main()' ${socket} --experimental-callbacks";
+          RuntimeDirectory = "huggorm";
+        };
       };
       # git: a `git` flake input fetches with the git binary.
       environment.systemPackages = [
@@ -80,13 +101,15 @@ vivarium.mkTest {
       environment.systemPackages = [ venv ];
       vivarium.lateClosure = [
         "${./client.py}"
+        "${./warm.py}"
         "${./project}"
       ];
     };
   };
   settings = {
-    inherit python;
+    inherit python socket;
     client = "${./client.py}";
+    warm = "${./warm.py}";
     project = "${./project}";
     server = "192.168.98.2";
   };
