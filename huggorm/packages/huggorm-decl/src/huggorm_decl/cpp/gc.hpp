@@ -28,6 +28,9 @@
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#if defined(__GLIBC__)
+#  include <malloc.h>
+#endif
 
 // `NIX_USE_BOEHMGC`, and `gc.h` with `GC_THREADS` when it is set.
 #include "nix/expr/eval-gc.hh"
@@ -240,6 +243,31 @@ inline void gc_collect()
     GC_gcollect();
 #else
     no_collector("collect");
+#endif
+}
+
+/**
+ * A full collection that gives the free heap back to the kernel.
+ *
+ * The collector keeps a freed block mapped until it has stayed free
+ * through MUNMAP_THRESHOLD collections (7 by default), and a process
+ * that idles after its work runs none. So without this an SBOM worker
+ * held its peak, 13.6 GiB, after an evaluation it had freed (sg1,
+ * nixidae/nixidae#1624). `GC_gcollect_and_unmap` unmaps every free
+ * block now; `malloc_trim` does the same for the C++ heap Nix allocates
+ * outside the collector.
+ */
+inline void gc_release_memory()
+{
+#if NIX_USE_BOEHMGC
+    gc_register_thread();
+    GC_gcollect();
+    GC_gcollect_and_unmap();
+#  if defined(__GLIBC__)
+    malloc_trim(0);
+#  endif
+#else
+    no_collector("release memory");
 #endif
 }
 

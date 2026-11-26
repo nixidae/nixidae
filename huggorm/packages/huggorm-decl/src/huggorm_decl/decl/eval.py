@@ -2449,6 +2449,9 @@ def gc_stats() -> Map[I64]:
             {"collections", static_cast<std::int64_t>(GC_get_gc_no())},
             {"used_bytes",
              static_cast<std::int64_t>(GC_get_heap_size() - GC_get_free_bytes())},
+            // Heap the collector has given back to the kernel, by
+            // `release_memory` or after MUNMAP_THRESHOLD idle collections.
+            {"unmapped_bytes", static_cast<std::int64_t>(GC_get_unmapped_bytes())},
             // Uncollectable blocks, and every root is one: the number moves with
             // the live roots, in bytes rather than in count.
             {"non_gc_bytes", static_cast<std::int64_t>(GC_get_non_gc_bytes())},
@@ -2482,6 +2485,20 @@ def collect_garbage() -> None:
     signalling every registered thread, and a thread it does not know
     cannot answer - the collection aborts the process with "Collecting
     from unknown thread"."""
+
+
+@needs(Local("huggorm_decl/cpp/gc.hpp"))
+@threading("pool")
+@blocks
+@binds("huggorm::gc_release_memory")
+def release_memory() -> None:
+    """Collect, then give the free heap back to the kernel.
+
+    For a process that is done with an evaluation and then idles: the
+    collector keeps a freed block mapped until it has stayed free through
+    several collections, and an idle process runs none, so its memory
+    stays at the peak. This unmaps every free block now, and trims the C++
+    heap. Blocking - dispatch it to a thread from async code."""
 
 
 @needs(Local("huggorm_decl/cpp/gc.hpp"))
