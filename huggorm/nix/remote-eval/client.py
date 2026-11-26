@@ -94,6 +94,7 @@ class Options:
     escape: str | None
     settings: dict[str, str]
     repeat: int
+    load_config: bool
 
 
 @dataclass(slots=True)
@@ -134,7 +135,7 @@ async def run(options: Options) -> Report:
     started = time.monotonic()
     local = Store(DUMMY).add_accessor_to_store("source", Tracked(options.root, shown))
     report.seconds["hash_locally"] = time.monotonic() - started
-    command = ssh.server_command(ServerOptions(callbacks=True), python=options.python)
+    command = ssh.server_command(ServerOptions(callbacks=True, load_config=options.load_config), python=options.python)
     started = time.monotonic()
     async with (
         asyncssh.connect(
@@ -182,6 +183,7 @@ def main() -> None:
     parser.add_argument("--escape", help="an expression that must fail on the server")
     parser.add_argument("--setting", nargs=2, action="append", default=[], metavar=("NAME", "VALUE"))
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--load-config", action="store_true", help="the server reads its own nix.conf")
     args = parser.parse_args()
     options = Options(
         server=args.server,
@@ -195,6 +197,7 @@ def main() -> None:
         escape=args.escape,
         settings=dict(args.setting),
         repeat=args.repeat,
+        load_config=args.load_config,
     )
     json.dump(asdict(anyio.run(run, options)), sys.stdout)
 

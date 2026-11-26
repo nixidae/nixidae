@@ -12,6 +12,7 @@
       nix run --file . internal.remote-eval.qemu.driver -- --out DIR
 */
 {
+  pkgs,
   vivarium,
   nixvenv,
   python3,
@@ -56,7 +57,19 @@ vivarium.mkTest {
         enable = true;
         ports = [ 22 ];
       };
-      environment.systemPackages = [ venv ];
+      # git: a `git` flake input fetches with the git binary.
+      environment.systemPackages = [
+        venv
+        pkgs.git
+      ];
+      # A project with flake inputs fetches them here, into the guest's
+      # store, which lives in memory. Guest RAM is sparse, so the ceiling
+      # costs nothing until a fetch touches it.
+      vivarium.memory = "6144M";
+      nix.settings.experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
     };
     client = {
       imports = [ (lan "192.168.98.3/24") ];
