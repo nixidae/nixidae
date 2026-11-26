@@ -260,6 +260,30 @@ async def test_a_claimed_state_mounts_the_same_path_again(callback_server: Serve
     assert "/default.nix" in fresh.reads
 
 
+async def test_a_client_whose_connection_died_without_detaching_claims_its_state(callback_server: Server) -> None:
+    """A dropped link gives the client no chance to detach. Its leases
+    stay under its token until the sweeper reaps a silent connection, so
+    a new connection with that token takes the state back."""
+    async with remote.connect(callback_server.path, experimental_callbacks=True) as first:
+        store = await first.acquire(AsyncStore, DUMMY)
+        state = await first.acquire(AsyncEvalState, store)
+        path = await store.print_store_path(
+            await (await state.mount(Memory(SOURCE), "source", local_path(SOURCE))).path()
+        )
+        with anyio.fail_after(30):
+            assert await (await state.eval_file(f"{path}/sub/x.nix")).integer() == 42
+        token, state_id = first.token, remote.handle_of(state)
+        first._close()
+    fresh = Counted(SOURCE)
+    async with remote.connect(callback_server.path, claim=token, experimental_callbacks=True) as second:
+        claimed = second.proxy(AsyncEvalState, state_id)
+        with anyio.fail_after(30):
+            await claimed.mount(fresh, "source", local_path(SOURCE))
+            got = json.loads(await (await claimed.eval_file(f"{path}/default.nix")).to_json())
+    assert got["imported"] == 42
+    assert "/sub/x.nix" not in fresh.reads
+
+
 async def test_a_hung_client_does_not_stall_another_clients_state(callback_server: Server) -> None:
     """Two clients, one server process, a state each. A's hook never
     answers; B evaluates its own tree while A waits."""
