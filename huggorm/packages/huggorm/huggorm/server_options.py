@@ -24,8 +24,9 @@ DEFAULT_TTL = 120.0
 @dataclass(frozen=True, slots=True)
 class SshListen:
     """Where a server listens on SSH itself (`huggorm.ssh_server`), and
-    whom it admits: the keys in `authorized_keys`. A host key that does
-    not exist yet is made at `host_key`."""
+    whom it admits: the keys in `authorized_keys`, read at each
+    connection. A host key that does not exist yet is made at
+    `host_key`."""
 
     host: str
     port: int

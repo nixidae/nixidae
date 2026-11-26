@@ -36,6 +36,25 @@ KEEPALIVE_COUNT_MAX = 3
 Serve = Callable[..., Awaitable[None]]
 
 
+class _Admits(asyncssh.SSHServer):
+    """Reads `authorized_keys` at each connection, as sshd does: a key
+    added to the file is admitted with no restart. A file that is absent
+    admits nobody."""
+
+    def __init__(self, authorized_keys: pathlib.Path) -> None:
+        self._authorized_keys = anyio.Path(authorized_keys)
+        self._connection: asyncssh.SSHServerConnection | None = None
+
+    def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
+        self._connection = conn
+
+    async def begin_auth(self, username: str) -> bool:
+        if self._connection is not None and await self._authorized_keys.exists():
+            keys = asyncssh.import_authorized_keys(await self._authorized_keys.read_text())
+            self._connection.set_authorized_keys(keys)
+        return True
+
+
 def load_host_key(path: pathlib.Path) -> asyncssh.SSHKey:
     """The key at `path`, or a new ed25519 key written there."""
     if path.exists():
@@ -81,7 +100,7 @@ async def serve_ssh(
             listen.host,
             listen.port,
             server_host_keys=[host_key],
-            authorized_client_keys=str(listen.authorized_keys),
+            server_factory=lambda: _Admits(listen.authorized_keys),
             process_factory=session,
             encoding=None,
             keepalive_interval=KEEPALIVE_INTERVAL,

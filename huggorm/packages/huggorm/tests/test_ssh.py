@@ -332,6 +332,7 @@ class _Listening:
     path: pathlib.Path
     port: int
     key: asyncssh.SSHKey
+    authorized: pathlib.Path
 
 
 def _free_port() -> int:
@@ -353,7 +354,7 @@ async def listening(tmp_path: pathlib.Path) -> AsyncIterator[_Listening]:
     listen = SshListen("127.0.0.1", port, tmp_path / "host_key", authorized)
     async with anyio.create_task_group() as tg:
         await tg.start(functools.partial(serve, str(path), callbacks=True, ssh=listen))
-        yield _Listening(path, port, key)
+        yield _Listening(path, port, key, authorized)
         tg.cancel_scope.cancel()
 
 
@@ -380,6 +381,23 @@ async def test_the_ssh_listener_refuses_a_key_it_does_not_list(listening: _Liste
     stranger = asyncssh.generate_private_key("ssh-ed25519")
     with anyio.fail_after(60), pytest.raises(asyncssh.PermissionDenied):
         async with _over_ssh(listening, stranger):
+            pass
+
+
+async def test_the_ssh_listener_admits_a_key_added_while_it_runs(listening: _Listening) -> None:
+    later = asyncssh.generate_private_key("ssh-ed25519")
+    with anyio.fail_after(60):
+        authorized = anyio.Path(listening.authorized)
+        await authorized.write_bytes(await authorized.read_bytes() + later.export_public_key())
+        async with _over_ssh(listening, later) as dial, remote.connect(dial) as client:
+            state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, DUMMY))
+            assert await (await state.eval_expr("1")).integer() == 1
+
+
+async def test_the_ssh_listener_admits_nobody_without_authorized_keys(listening: _Listening) -> None:
+    await anyio.Path(listening.authorized).unlink()
+    with anyio.fail_after(60), pytest.raises(asyncssh.PermissionDenied):
+        async with _over_ssh(listening):
             pass
 
 
