@@ -485,7 +485,7 @@ let
               # breaks is this repo's named failure mode. One line names the
               # root instead, and a run that lost it says so.
               echo "temp: $PYTEST_DEBUG_TEMPROOT/pytest-of-$(id -un)"
-              exec python3 -m pytest "$@"
+              exec ${lib.optionalString (sanitizer != null) sanitizer.testPrefix}python3 -m pytest "$@"
             '';
           };
         }

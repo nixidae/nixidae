@@ -8,6 +8,7 @@
 {
   lib,
   stdenv,
+  util-linux,
   # "thread", "undefined" or "address". Not a free-form flag string: the
   # runtime library, the shadow-memory rules and the set of libraries to
   # instrument all follow from which sanitizer this is.
@@ -252,6 +253,14 @@ assert lib.assertMsg (
     lib.optionalAttrs (runtime != null) { LD_PRELOAD = runtime; }
     // lib.optionalAttrs isAddress { ASAN_OPTIONS = "detect_leaks=0"; }
     // lib.optionalAttrs (freeThreaded != null) { TSAN_OPTIONS = "report_bugs=0"; };
+
+  # Shell words in front of a test command, or "". TSAN re-execs a
+  # process whose memory layout high-entropy ASLR breaks, and that re-exec
+  # gives a shebang script its own path twice: pytest then collected
+  # nothing in every TSAN lane, 19 runs of 20 (nixidae/nixidae#1637,
+  # upstream defect nixidae/nixidae#1638). Without ASLR TSAN does not
+  # re-exec, and every child inherits the personality.
+  testPrefix = lib.optionalString isThread "${util-linux}/bin/setarch -R ";
 
   # Shell text that exports what a test process under this variant needs.
   # huggorm's suite and nanopynix's runner both source it, so the two run

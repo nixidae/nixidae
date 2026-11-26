@@ -140,7 +140,9 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
       # store. The live half runs from the devshell: nix run --file . internal.test
       # (nixidae/nixidae#574). The `pytest` script, not `python -m`, so the
       # tree's `huggorm/` stays off sys.path and the installed one is tested.
-      ${venv}/bin/pytest -p no:cacheprovider -m "not live"
+      ${
+        lib.optionalString (sanitizer != null) sanitizer.testPrefix
+      }${venv}/bin/pytest -p no:cacheprovider -m "not live"
       touch $out
     ''
   )
