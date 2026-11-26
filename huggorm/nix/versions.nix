@@ -227,12 +227,13 @@ in
       recordDerivationsDeterminate
       setOptionsByName235
     ];
-    # The fork's collector is newer bdwgc: the same three changes as
+    # The fork's collector is newer bdwgc: the same four changes as
     # `boehmgcPatches` below, where its code moved.
     boehmgcPatches = [
       (patch "bdwgc-determinate-tolerate-suspend-thread-exit-race")
       (patch "bdwgc-determinate-log-file-pid")
       (patch "bdwgc-determinate-late-interior-pointers")
+      (patch "bdwgc-determinate-clear-collection-residue")
     ];
     # libexpr links wasmtime, which `nix/manylinux` does not build.
     wheels = false;
@@ -250,5 +251,9 @@ in
     # `GC_set_all_interior_pointers` after `GC_init` keeps offset 0
     # (nixidae/nixidae#638).
     (patch "bdwgc-late-interior-pointers")
+    # A collection leaves mark stack entries on the collecting thread's
+    # stack and in its vector registers, and the next collection keeps
+    # what they point at (nixidae/nixidae#1624).
+    (patch "boehmgc-clear-collection-residue")
   ];
 }

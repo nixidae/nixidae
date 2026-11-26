@@ -1,0 +1,166 @@
+Clear the collecting thread's stack and vector registers after a collection.
+
+Symptom. A program evaluates a large Nix expression (about 1.25 GiB of
+collector memory), drops every reference to it, and runs GC_gcollect.
+In most runs the whole evaluation stays alive. Which run, and which
+round of a loop of such evaluations, keeps it changes from run to run.
+Over many rounds the heap grows by one evaluation per kept round.
+huggorm (Python bindings for Nix, nixidae/nixidae) hit it as
+nixidae/nixidae#1624, where an SBOM worker grew to 12.4 GiB and was
+killed for lack of memory.
+
+Cause. The collector leaves the addresses of heap objects on the thread
+that ran the collection:
+
+- Mark stack entries (an object's base and its length descriptor) stay
+  in the frames below GC_stopped_mark, where GC_mark_some and its
+  callees ran.
+- The same entries pass through vector registers: BCOPY and memmove of
+  mark stack ranges (GC_return_mark_stack, GC_do_local_mark), and the
+  copies of 16-byte mse structs. glibc's EVEX string functions use
+  zmm16-31, and little other code writes them, so an entry in one of
+  those registers can stay for many cycles.
+
+The thread then returns to its caller, or blocks. At the next
+collection, GC_push_all_stacks scans that thread from the stack pointer
+of its suspend handler. That range includes the signal frame, where the
+kernel saved the vector registers, and the stale frames below the
+thread's own stack pointer. A stale entry is read as a pointer and keeps
+its object, and everything the object reaches, for one more cycle. The
+cycle repeats while the stale word stays.
+
+GC_stopped_mark already calls GC_clear_a_few_frames to "minimize junk
+left in my registers and on the stack", but only before marking, and
+only 64 words. Nothing clears after marking, and nothing clears vector
+registers.
+
+Evidence. A build with KEEP_BACK_PTRS and GC_DEBUG clients gave, from a
+kept attribute set, a chain of 63 to 790 heap objects through
+GC_get_back_ptr_info. Each chain ended at GC_REFD_FROM_ROOT on a thread
+stack. gdb named the owner: a worker thread blocked in a futex, root
+0x2b8 below its stack pointer, inside the saved signal frame. The root
+word was the raw base of an 80-byte debug object (client pointers point
+0x30 past the base, so no client code wrote it). The words beside it
+were (base, 0x50) pairs: mark stack entries with a GC_DS_LENGTH
+descriptor. The thread's zmm24 held the same pairs. Other kept rounds
+had their root in the stale frames below the stack pointer of the thread
+that ran GC_gcollect.
+
+Fix. GC_clear_collection_residue zeroes 2048 words below the caller and
+clears every vector register (zmm0-31 with AVX-512F, vzeroall with AVX,
+pxor xmm0-15 otherwise). It runs twice on the collecting thread: after
+the marking loop in GC_stopped_mark, and after GC_finish_collection in
+GC_try_to_collect_inner, because the sweep and finalization leave their
+own residue. On targets other than x86-64 with GCC or Clang it only
+clears the stack.
+
+Measured on an AMD EPYC (AVX-512), bdwgc 8.2.12, parallel marking, four
+rounds of evaluate-close-collect per run, MiB in use after each round:
+
+- unpatched: kept an evaluation in every run (1250 to 2650 MiB)
+- clear after marking only: 3 of 4 runs kept one (1250 to 1255)
+- clear after the collection only: 2 of 6 runs kept one (1258, 1286)
+- clear after marking, 256 KiB instead of 16 KiB: 1 of 4 runs kept one
+  for a round, and 1 kept 47 MiB
+- both clears (this patch): 10 of 10 runs, all 40 rounds at 1 MiB,
+  heap flat
+
+Ruled out on the way: Nix's per-thread GC_malloc_many caches for Values
+and environments (either or both bypassed: still kept), GC_MARKERS=1
+(still kept), finalizers (none registered on the kept objects).
+
+Cost: one 16 KiB memset and a few register instructions per collection.
+
+Upstream. Base: bdwgc 8.2.12. bdwgc master at ef728c09 (2026-11-24)
+clears only before a collection (GC_clear_a_few_frames, GC_noop6) and
+has no vector register clearing, so it has the same defect. No
+standalone C reproduction exists yet; the measurements above come from
+huggorm's repro (an evaluation of every top-level nixpkgs attribute).
+A C reproduction would allocate a large linked structure, drop it, run
+GC_gcollect from a second registered thread, and test GC_is_marked or
+heap use after a further collection.
+
+This file is the same change for Determinate Systems' bdwgc fork, which
+is bdwgc 8.3.0 and moved the code. The measurements above are from the
+8.2.12 file; this one is built and run through huggorm's suite only.
+
+--- a/alloc.c
++++ b/alloc.c
+@@ -461,6 +461,61 @@
+   BZERO(CAST_AWAY_VOLATILE_PVOID(frames), sizeof(frames));
+ }
+ 
++/*
++ * A collection leaves the addresses of heap objects behind on the
++ * thread that ran it: mark stack entries in the frames below the
++ * caller, and in the vector registers that `BCOPY`, `memmove` and
++ * struct copies go through.  The thread then runs on or blocks, and
++ * the next collection scans its stack and its saved registers.
++ * A stale entry then keeps its object, and all that it reaches, for
++ * one more cycle.  glibc's EVEX string functions use `zmm16`-`zmm31`
++ * and little else writes them, so an entry there can stay for many
++ * cycles.  `GC_clear_a_few_frames` runs before marking and does not
++ * cover this.
++ */
++#ifndef CLEAR_COLLECTION_RESIDUE_NPTRS
++#  define CLEAR_COLLECTION_RESIDUE_NPTRS 2048 /*< pointers */
++#endif
++
++STATIC void
++GC_clear_collection_residue(void)
++{
++  volatile ptr_t frames[CLEAR_COLLECTION_RESIDUE_NPTRS];
++
++  BZERO(CAST_AWAY_VOLATILE_PVOID(frames), sizeof(frames));
++#if defined(__x86_64__) && defined(__GNUC__)
++  __builtin_cpu_init();
++  if (__builtin_cpu_supports("avx512f")) {
++    /*
++     * `zmm16`-`zmm31` need no clobber: code built without AVX-512
++     * never keeps a value in them.
++     */
++    __asm__ __volatile__(
++        ".irp r,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,"
++        "20,21,22,23,24,25,26,27,28,29,30,31\n\t"
++        "vpxord %%zmm\\r, %%zmm\\r, %%zmm\\r\n\t"
++        ".endr" ::
++            : "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6",
++              "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13",
++              "xmm14", "xmm15", "memory");
++  } else if (__builtin_cpu_supports("avx")) {
++    __asm__ __volatile__("vzeroall" ::
++                             : "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5",
++                               "xmm6", "xmm7", "xmm8", "xmm9", "xmm10",
++                               "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
++                               "memory");
++  } else {
++    __asm__ __volatile__(
++        ".irp r,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15\n\t"
++        "pxor %%xmm\\r, %%xmm\\r\n\t"
++        ".endr" ::
++            : "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6",
++              "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13",
++              "xmm14", "xmm15", "memory");
++  }
++#endif
++}
++
+ GC_API void GC_CALL
+ GC_start_incremental_collection(void)
+ {
+@@ -695,6 +750,7 @@
+     return FALSE;
+   }
+   GC_finish_collection();
++  GC_clear_collection_residue();
+ #ifndef NO_CLOCK
+   if (start_time_valid) {
+     CLOCK_TYPE current_time;
+@@ -991,6 +1047,7 @@
+ #ifdef PARALLEL_MARK
+   GC_parallel_mark_disabled = FALSE;
+ #endif
++  GC_clear_collection_residue();
+ 
+   if (abandoned_at > 0) {
+     /* Give the mutator a chance. */
