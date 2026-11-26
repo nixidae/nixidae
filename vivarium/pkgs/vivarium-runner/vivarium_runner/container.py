@@ -908,6 +908,9 @@ def link_relay(pid: int, lan: int, name: str, mtu: int, mac: str) -> int:
         os.close(user)
     end = _open_link(guest_net, name, mtu, mac)
     os.close(guest_net)
+    # The launcher holds the guest's init until every link says so.
+    os.write(sys.stdout.fileno(), LINK_UP)
+    sys.stdout.close()
     selector = selectors.DefaultSelector()
     selector.register(end, selectors.EVENT_READ, lan)
     selector.register(lan, selectors.EVENT_READ, end.fileno())
@@ -924,6 +927,13 @@ def link_relay(pid: int, lan: int, name: str, mtu: int, mac: str) -> int:
             # A full queue drops the frame, as a wire would.
             with contextlib.suppress(OSError):
                 os.write(key.data, frame)
+
+
+LINK_UP = b"up\n"
+"""What a link relay writes once its link is in the guest."""
+
+HOOK_WAIT = 30.0
+"""Seconds crun waits for the hook, and the launcher for the hook to call."""
 
 
 def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen[bytes]:
@@ -945,9 +955,60 @@ def _lan(pid: int, fd: int, name: str, mtu: int, mac: str) -> subprocess.Popen[b
             mac,
         ],
         pass_fds=(fd,),
+        stdout=subprocess.PIPE,
         start_new_session=True,
         preexec_fn=die_with_parent,
     )
+
+
+def _add_hook(bundle: Path, listen: Path) -> None:
+    """Run `crun_hook.py` before the init, calling the launcher at *listen*."""
+    config = json.loads((bundle / "config.json").read_text())
+    hook = Path(__file__).with_name("crun_hook.py")
+    config["hooks"] = {
+        "createRuntime": [
+            {
+                "path": sys.executable,
+                "args": [sys.executable, "-I", "-S", str(hook), str(listen)],
+                "timeout": int(HOOK_WAIT),
+            }
+        ]
+    }
+    (bundle / "config.json").write_text(json.dumps(config))
+
+
+def _links(
+    listener: socket.socket,
+    proc: subprocess.Popen[bytes],
+    lans: list[str],
+    helpers: list[subprocess.Popen[bytes]],
+) -> int:
+    """Make each segment link once the hook names the init; the init's pid.
+
+    The hook returns, and crun starts the init, after every relay wrote
+    `LINK_UP`: an init that looks for its NICs finds them, as in a VM.
+    """
+    deadline = time.monotonic() + HOOK_WAIT
+    listener.settimeout(0.5)
+    while True:
+        try:
+            conn, _ = listener.accept()
+            break
+        except TimeoutError:
+            if proc.poll() is not None or time.monotonic() > deadline:
+                raise RuntimeError("crun never ran the link hook") from None
+    with conn:
+        conn.settimeout(HOOK_WAIT)
+        pid = int(conn.makefile("rb").readline())
+        for lan in lans:
+            fd, nic, mac, mtu = lan.split(",")
+            helper = _lan(pid, int(fd), nic, int(mtu), mac)
+            helpers.append(helper)
+            if helper.stdout is None or helper.stdout.readline() != LINK_UP:
+                raise RuntimeError(f"the relay for {nic} made no link")
+            helper.stdout.close()
+        conn.sendall(b"1")
+    return pid
 
 
 MS_REC = 0x4000
@@ -1091,6 +1152,12 @@ def main(argv: list[str] | None = None) -> int:
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(console))
     listener.listen(1)
+    hook: socket.socket | None = None
+    if args.lan:
+        hook = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        hook.bind(str(sockets / "hook"))
+        hook.listen(1)
+        _add_hook(Path(bundle), sockets / "hook")
 
     # --no-new-keyring: a session keyring per container is charged to
     # the user every container maps root to, whose quota is 200 keys
@@ -1111,10 +1178,18 @@ def main(argv: list[str] | None = None) -> int:
 
     signal.signal(signal.SIGTERM, stop)
 
-    listener.settimeout(0.5)
     master: int | None = None
+    pid: int | None = None
     helpers: list[subprocess.Popen[bytes]] = []
     try:
+        if hook is not None:
+            # The console may come first: crun's send waits in the backlog.
+            try:
+                pid = _links(hook, proc, args.lan, helpers)
+            except (RuntimeError, ValueError, OSError) as error:
+                print(f"vivarium-crun: {error}", flush=True)  # noqa: T201 -- the launcher's stdout is the guest console
+                return 1
+        listener.settimeout(0.5)
         while master is None and proc.poll() is None:
             try:
                 conn, _ = listener.accept()
@@ -1130,11 +1205,9 @@ def main(argv: list[str] | None = None) -> int:
             master = fds[0]
         if master is not None:
             try:
-                pid = _init_pid(crun, name, proc)
+                if pid is None:
+                    pid = _init_pid(crun, name, proc)
                 (Path(args.state) / INIT_PID).write_text(f"{pid}\n")
-                for lan in args.lan:
-                    fd, nic, mac, mtu = lan.split(",")
-                    helpers.append(_lan(pid, int(fd), nic, int(mtu), mac))
             except (RuntimeError, subprocess.CalledProcessError) as error:
                 # On the console, which is where Machine looks for why a
                 # guest did not come up.
@@ -1146,6 +1219,9 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         listener.close()
         console.unlink(missing_ok=True)
+        if hook is not None:
+            hook.close()
+            (sockets / "hook").unlink(missing_ok=True)
         sockets.rmdir()
         if proc.poll() is None:
             stop(signal.SIGTERM, None)

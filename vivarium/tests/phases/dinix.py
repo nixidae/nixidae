@@ -41,6 +41,12 @@ async def test(vms: Machines) -> None:
         return found if f" {want}/" in found else None
 
     print(f"[test] vec0 leased {want}: {(await box.until('vec0 to lease', leased, timeout=30, poll=0.2)).strip()}")
+    # The uplink found its NIC on the first start: the backend made vec0
+    # before the init ran. A retry costs dinit's 5 s restart delay.
+    missed = [line for line in box.console_tail(2000) if "no NIC has the uplink's MAC" in line]
+    if missed:
+        raise AssertionError(f"the uplink started before vec0 existed: {missed}")
+    print("[test] vec0 was there when the uplink started")
 
     async def served() -> bytes | None:
         try:
