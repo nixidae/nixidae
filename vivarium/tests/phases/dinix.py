@@ -4,11 +4,23 @@ router, and the host reaches a server through it."""
 
 from __future__ import annotations
 
+import socket
+
 import anyio
 from vivarium_runner import Machines
 
 WEB = 8080
 """`web` in tests/dinix: busybox httpd, serving "dinix"."""
+
+GATEWAY = "10.0.2.2"
+"""The uplink's gateway: the egress maps it to the host's loopback (nix/uplink.nix)."""
+
+
+async def answer(server: socket.socket) -> None:
+    await anyio.wait_readable(server)
+    conn, _ = server.accept()
+    with conn:
+        conn.sendall(b"host\n")
 
 
 async def fetch(address: str) -> bytes:
@@ -57,6 +69,21 @@ async def test(vms: Machines) -> None:
 
     await box.until("the host to reach web", served, timeout=30, poll=0.5)
     print(f"[test] the host reached web through {box.reachable(WEB)[0]}")
+
+    # Outbound: a server on the host's loopback, which the guest reaches as
+    # the gateway.
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        server.setblocking(False)
+        port = server.getsockname()[1]
+        async with anyio.create_task_group() as group:
+            group.start_soon(answer, server)
+            # busybox nc waits on an open stdin after the host closes.
+            got = (await box.succeed(f"timeout 10 nc {GATEWAY} {port} </dev/null")).stdout.strip()
+            # Nothing may have connected: the answer then waits forever.
+            group.cancel_scope.cancel()
+    if got != "host":
+        raise AssertionError(f"the host's server said {got!r}")
+    print("[test] the guest reached the host's loopback through its uplink")
 
     # The boot phase returned, so `slow` had started: boot waits for it.
     slow = (await box.succeed("dinitctl is-started slow")).stdout
