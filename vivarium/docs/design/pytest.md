@@ -316,8 +316,12 @@ the store and the project share replace its code shipping.
    `pytest_configure_node`, the first worker starts the run under a
    file lock, and the controller stops it after the last worker.
    `checks.pytest-pool-xdist`: two workers get two guests of one run (a
-   run of their own each gives both `i-0001`). Left: the worker kept
-   alive across dirty scopes of one guest.
+   run of their own each gives both `i-0001`). A dirty guest keeps its
+   in-guest worker after a batch, and the next batch there collects in
+   the same session (`collect(files)`, 1-2 ms against a 0.3 s worker
+   start on a container guest). Each batch ends with every fixture torn
+   down, so only module state carries over. One xdist process keeps a
+   worker; another process that gets the guest starts its own.
 6. QEMU forked guests, if 4 and 5 leave a start time worth cutting.
    Researched, not started (Hot guests, above).
 

@@ -1,11 +1,13 @@
 """The run's pool, as tests see it: fresh guests for clean scopes, one
-shared guest for dirty ones, and a test that runs inside a pooled guest.
+shared guest for dirty ones, a pytest worker that dirty scopes inside
+that guest share, and a test that runs inside a pooled guest.
 
 pytest runs the tests in file order; each records the guest it got.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,6 +49,20 @@ async def test_dirty_first(vm: RemoteMachine) -> None:
 async def test_dirty_second_shares_it(vm: RemoteMachine) -> None:
     assert vm.name == GOT["dirty_first"]
     assert await marked(vm)
+
+
+WORKER: dict[str, int] = {}
+"""In the guest's worker: the pid of the process that ran the first dirty test inside."""
+
+
+@pytest.mark.vivarium("boxes", template="box", scope="function", guest="box", dirty=True)
+def test_dirty_inside_first() -> None:
+    WORKER["pid"] = os.getpid()
+
+
+@pytest.mark.vivarium("boxes", template="box", scope="function", guest="box", dirty=True)
+def test_dirty_inside_reuses_the_worker() -> None:
+    assert WORKER.get("pid") == os.getpid(), "a dirty guest keeps its pytest worker for the next scope"
 
 
 @pytest.mark.vivarium("boxes", template="box", scope="function", guest="box")

@@ -5,11 +5,11 @@ Python in the guest's store view, and starts:
 
     python -m vivarium.pytest_worker SOCKET LOG [--coverage FILE ...] -- PYTEST-ARGS... NODEIDS...
 
-This is plain pytest with one more plugin, kept alive: it collects once,
+This is plain pytest with one more plugin, kept alive: it collects,
 then runs one test each time the host asks. The host reaches it through
 the agent (`Machine.relay`), which calls the arpyc service on SOCKET:
 
-    collect()           -> JSON {"items": [nodeid, ...], "reports": [...]}
+    collect(files=None) -> JSON {"items": [nodeid, ...], "reports": [...]}
     run(nodeid, nextid) -> JSON [report, ...]
     stop()              -> pytest's exit code, once the session has ended
 
@@ -18,6 +18,10 @@ A report is in the form xdist sends between processes
 and hands it to its own pytest, so its reporters see an ordinary test.
 `nextid` is the test the host runs after this one, so pytest tears down a
 fixture only when no later test shares it, as it does in one process.
+
+`collect(files)` collects again in the same session, for the next batch
+of a dirty guest: the host keeps the worker and saves its start. A batch
+ends with every fixture torn down, so only module state carries over.
 
 The worker listens on SOCKET before it leaves the host's command, so the
 host's first call can never come before the socket exists: a call that
@@ -76,6 +80,7 @@ class Request:
     kind: Kind
     nodeid: str | None = None
     nextid: str | None = None
+    files: list[str] | None = None
     done: anyio.Event = field(default_factory=anyio.Event)
     answer: object = None
     error: BaseException | None = None
@@ -146,6 +151,9 @@ class Loop:
                 return True
             try:
                 if request.kind is Kind.COLLECT:
+                    if request.files is not None:
+                        self.recorder.take()
+                        items = {item.nodeid: item for item in session.perform_collect(request.files)}
                     answer = json.dumps({"items": list(items), "reports": self.recorder.take()})
                 else:
                     answer = self._run(items, request)
@@ -170,8 +178,8 @@ class Worker(Service):
             raise request.error
         return request.answer
 
-    async def exposed_collect(self) -> object:
-        return await self._ask(Request(Kind.COLLECT))
+    async def exposed_collect(self, files: list[str] | None = None) -> object:
+        return await self._ask(Request(Kind.COLLECT, files=None if files is None else list(files)))
 
     async def exposed_run(self, nodeid: str, nextid: str | None = None) -> object:
         return await self._ask(Request(Kind.RUN, nodeid, nextid))

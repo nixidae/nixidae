@@ -344,6 +344,8 @@ class Driver:
         self.coverage = Measure.of(config)
         self.batches: dict[BatchKey, list[str]] = {}
         self.workers: dict[BatchKey, GuestWorker] = {}
+        self.idle: dict[tuple[Path, str], GuestWorker] = {}
+        """Workers kept in dirty guests after their batch, by run and guest: the next batch there reuses one."""
         self.prepared: set[tuple[Path, str]] = set()
         self._portal: BlockingPortal | None = None
         self._portal_cm: Any = None  # anyio's portal context manager, entered by hand
@@ -473,9 +475,14 @@ class Driver:
 
     def _start_worker(self, item: pytest.Item, key: BatchKey) -> GuestWorker:
         """A pytest in the guest that has collected the batch's tests and
-        waits for the host to name each one."""
+        waits for the host to name each one: one kept in the guest, or a new one."""
         box = self.acquire(item)
         guest = key[2]
+        files = batch_files(self.rootdir, self.batches.get(key, [item.nodeid]))
+        kept = self.idle.pop((box.run.out, box.vms[guest].name), None)
+        if kept is not None:
+            kept.box = box
+            return self._collect(item, key, kept, files)
         host = self._prepare(box, guest)
         stem = f"worker-{time.time_ns()}"
         worker = [
@@ -490,35 +497,49 @@ class Driver:
         args = ["--rootdir", str(self.rootdir), "-q"]
         if self.inifile is not None:
             args += ["-c", str(self.inifile)]
-        files = batch_files(self.rootdir, self.batches.get(key, [item.nodeid]))
         command = shlex.join([*worker, "--", *args, *files])
         vm = box.vms[guest]
         # Returns once the worker listens and has left the command.
         start = f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command} 2>&1"
         self.portal.call(functools.partial(vm.succeed, start))
-        started = GuestWorker(box, guest, stem, host, frozenset(), [])
+        return self._collect(item, key, GuestWorker(box, guest, stem, host, frozenset(), []), None)
+
+    def _collect(self, item: pytest.Item, key: BatchKey, worker: GuestWorker, files: list[str] | None) -> GuestWorker:
+        """What `worker` collected: at its start, or now from *files*."""
         try:
-            collected = json.loads(str(self._ask(started, "collect")))
+            collected = json.loads(str(self._ask(worker, "collect", *([] if files is None else [files]))))
         except Exception as error:
-            raise RunFailed(f"pytest in {guest} did not collect: {error}\n{started.said()}") from error
-        started.items = frozenset(collected["items"])
-        started.collect_errors = [
+            raise RunFailed(f"pytest in {worker.guest} did not collect: {error}\n{worker.said()}") from error
+        worker.items = frozenset(collected["items"])
+        worker.collect_errors = [
             item.config.hook.pytest_report_from_serializable(config=item.config, data=data)
             for data in collected["reports"]
         ]
-        self.workers[key] = started
-        return started
+        self.workers[key] = worker
+        return worker
 
     def _ask(self, worker: GuestWorker, method: str, *args: object) -> object:
         vm = worker.box.vms[worker.guest]
         return self.portal.call(functools.partial(vm.relay, worker.socket, method, args, timeout=GUEST_TIMEOUT))
 
+    def _end_batch(self, key: BatchKey) -> None:
+        """After a batch's last test, which tore down every fixture: a dirty
+        guest keeps its worker for the next batch there, any other ends it."""
+        worker = self.workers.get(key)
+        if worker is not None and worker.box.dirty:
+            del self.workers[key]
+            self.idle[(worker.box.run.out, worker.box.vms[worker.guest].name)] = worker
+            return
+        self._stop_worker(key)
+
     def _stop_worker(self, key: BatchKey) -> None:
+        worker = self.workers.pop(key, None)
+        if worker is not None:
+            self._stop(worker)
+
+    def _stop(self, worker: GuestWorker) -> None:
         """End the worker's session: pytest tears down what is still set
         up, and coverage.py saves."""
-        worker = self.workers.pop(key, None)
-        if worker is None:
-            return
         try:
             self._ask(worker, "stop")
         except Exception as error:
@@ -552,7 +573,7 @@ class Driver:
             ]
         finally:
             if nextid is None:
-                self._stop_worker(key)
+                self._end_batch(key)
 
     def release(self, key: tuple[str, str]) -> None:
         box = self.boxes.pop(key, None)
@@ -578,6 +599,10 @@ class Driver:
     def close(self) -> None:
         for key in list(self.boxes):
             self.release(key)
+        # Before the runs stop: each saves its coverage on the way out.
+        for worker in self.idle.values():
+            self._stop(worker)
+        self.idle.clear()
         for run in self.pools.values():
             self._down(run, stop=False)
         self.pools.clear()

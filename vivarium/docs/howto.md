@@ -693,7 +693,8 @@ async def test_fresh(vm):                  # the run's only guest
   the test inside it. Every pooled test of one `attr` shares one run, up
   until pytest ends. Under pytest-xdist the workers share that run too,
   so a dirty guest one worker gives back serves the next dirty test on
-  any worker.
+  any worker. A dirty test with `guest=` reuses the guest's pytest from
+  the scope before: fixtures end with their scope, module state stays.
 
   ```python
   @pytest.mark.vivarium("boxes", template="box", scope="function", dirty=True)
