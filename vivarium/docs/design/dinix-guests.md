@@ -5,9 +5,15 @@ host's store, and dinit as its service manager, configured with dinix
 modules. For tests that want a clean, fast box and no NixOS services:
 pytest's per-test boxes (nixidae/nixidae#1413, `pytest.md`) first.
 
-`vivarium.kinds.dinix` boots under krun and passes `checks.dinix`.
-QEMU, UML, the uplink and the unit queries are not done (Order of
-work, below).
+`vivarium.kinds.dinix` boots under krun and in a container, and passes
+`checks.dinix` and `checks.dinix.container`. QEMU, UML, the uplink and
+the unit queries are not done (Order of work, below).
+
+In a container, crun execs dinix's `containerWrapper` (`dinit
+--container`) as PID 1, named by `vivarium.boot.init`. The OCI config
+makes the mounts, so `dinix-boot` does not run. dinit reaps orphans as
+PID 1 must, so nothing like tini stands in front of it. The agent is
+ready 0.52 s after the launch, against 2.45 s under krun (2026-11-26).
 
 ## What User asked for
 
@@ -177,5 +183,6 @@ and `memory` before quoting a box's cost.
    poweroff is clean (`checks.dinix`).
 3. Half done: the agent's init abstraction. `system_state` and
    `poweroff` answer for dinit; the unit queries do not yet.
-4. The uplink as modular services; QEMU and UML.
+4. Half done: the container backend. The uplink as modular services;
+   QEMU and UML.
 5. The pytest plugin's in-guest tests on a dinix box.

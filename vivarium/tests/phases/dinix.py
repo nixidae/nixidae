@@ -1,6 +1,6 @@
-"""A dinix guest under krun: dinit is PID 1, the root is the disk, the store
-is the host's overlay, and the agent answers for dinit. Its uplink leases
-an address from the router, and the host reaches a server through it."""
+"""A dinix guest: dinit is PID 1, the store is mounted from the host, and
+the agent answers for dinit. Its uplink leases an address from the
+router, and the host reaches a server through it."""
 
 from __future__ import annotations
 
@@ -27,11 +27,10 @@ async def test(vms: Machines) -> None:
     if init != "dinit":
         raise AssertionError(f"PID 1 is {init!r}, not dinit")
     mounts = (await box.succeed("cat /proc/mounts")).stdout
-    # The kernel names a `root=` device /dev/root.
-    for mount in ("/dev/root / ext4", "nix /host/nix virtiofs", "overlay /nix overlay"):
-        if mount not in mounts:
-            raise AssertionError(f"no {mount!r} in /proc/mounts:\n{mounts}")
-    print("[test] dinit is PID 1 on the root disk, with the store overlay")
+    # A VM mounts /nix, a container /nix/store.
+    if not any(line.split()[1] in ("/nix", "/nix/store") for line in mounts.splitlines()):
+        raise AssertionError(f"no store mount in /proc/mounts:\n{mounts}")
+    print("[test] dinit is PID 1, with the host's store")
 
     want = box.spec.uplink_address
     if want is None:

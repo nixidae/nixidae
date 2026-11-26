@@ -1,6 +1,8 @@
-# A guest with no NixOS in it: its own kernel booted straight into
-# `dinix-boot`, an ephemeral root disk, the host's store, and dinit as PID 1
-# running a dinix service tree (docs/design/dinix-guests.md).
+# A guest with no NixOS in it: dinit as PID 1 running a dinix service tree
+# over the host's store (docs/design/dinix-guests.md). Under krun, its own
+# kernel boots straight into `dinix-boot` on an ephemeral root disk. In a
+# container, crun execs dinix's containerWrapper, and the OCI config makes
+# the mounts.
 #
 # As with the other guest kinds, the node's NixOS system is never built:
 # its evaluation is there for vivarium's own options.
@@ -15,6 +17,11 @@ let
   cfg = config.vivarium.dinix;
   inherit (lib) mkOption types;
   krun = config.vivarium.backend == "krun";
+  container = config.vivarium.backend == "container";
+  # A container's dinit runs with `--container`: a power-off ends it, and it
+  # reaps every orphan as PID 1 does.
+  init = if container then dinix.config.containerWrapper else dinix.config.systemWrapper;
+  agentDevice = if container then config.vivarium.agentDevice else "virtio-port:vivarium-agent";
 
   agent = config.system.build.vivariumAgentPackage;
   krunExit = pkgs.callPackage ../pkgs/krun-exit/package.nix { };
@@ -33,12 +40,15 @@ let
 
   # The uplink: the NIC with vec0's MAC, renamed as NixOS's networkd does,
   # leased by DHCP from the router. virtio_net and af_packet are modules in
-  # this kernel, and udhcpc needs a packet socket.
+  # the VM's kernel, and udhcpc needs a packet socket. A container has the
+  # host's kernel and its vec0 from the launcher.
   uplink = pkgs.writeScript "vivarium-dinix-uplink" ''
     #!${pkgs.busybox}/bin/sh
     set -eu
     PATH=${pkgs.busybox}/bin
-    ${pkgs.kmod}/bin/modprobe -d ${kernel.modules} -a virtio_net af_packet
+    ${lib.optionalString (
+      !container
+    ) "${pkgs.kmod}/bin/modprobe -d ${kernel.modules} -a virtio_net af_packet"}
     for dev in /sys/class/net/*; do
       if [ "$(cat "$dev/address")" = ${config.vivarium.uplinkMac} ]; then
         name=''${dev##*/}
@@ -69,7 +79,7 @@ let
         type = "process";
         command = lib.concatStringsSep " " [
           "${pkgs.coreutils}/bin/env"
-          "VIVARIUM_AGENT_DEVICE=virtio-port:vivarium-agent"
+          "VIVARIUM_AGENT_DEVICE=${agentDevice}"
           "VIVARIUM_GUEST_PATH=${guestPath}/bin"
           "VIVARIUM_INIT=dinit"
           "VIVARIUM_DINIT_SOCKET=${dinix.config.socketPath}"
@@ -154,6 +164,14 @@ let
     ]
   );
 
+  # A container's root is a directory, which the runner copies per run. The
+  # mount points are the OCI config's; the overlay's two directories are
+  # modules/container.nix's.
+  rootDirectory = pkgs.runCommand "vivarium-dinix-root-${config.networking.hostName}" { } ''
+    mkdir -p $out/{bin,etc,root,var,artifacts,nix/store,.nix-upper,.nix-work}
+    ln -s ${pkgs.bash}/bin/sh $out/bin/sh
+  '';
+
   rootImage =
     pkgs.runCommand "vivarium-dinix-root-${config.networking.hostName}"
       {
@@ -192,8 +210,8 @@ in
   options.vivarium.dinix = mkOption {
     default = null;
     description = ''
-      Run dinit as PID 1 with a dinix service tree instead of NixOS. krun
-      backend only, so far.
+      Run dinit as PID 1 with a dinix service tree instead of NixOS. krun and
+      container backends only, so far.
 
       `execute` and `succeed` run `/bin/sh -c` with `packages` and
       `dinitctl` on PATH. `system_state` and the power-off at teardown ask
@@ -222,22 +240,24 @@ in
   config = lib.mkIf (cfg != null) {
     assertions = [
       {
-        assertion = krun;
-        message = "vivarium.dinix boots under krun only so far; this guest is ${config.vivarium.backend}.";
+        assertion = krun || container;
+        message = "vivarium.dinix boots under krun and in a container only so far; this guest is ${config.vivarium.backend}.";
       }
     ];
     vivarium.kind = "dinix";
     # The relay does not run here; vec0 leases its address by DHCP.
     vivarium.uplink.wantsRouter = lib.mkDefault (config.vivarium.uplink.segment == null);
-    vivarium.rootImage = rootImage;
+    vivarium.rootImage = if container then rootDirectory else rootImage;
     vivarium.closure = pkgs.closureInfo {
       rootPaths = [
-        dinix.config.systemWrapper
+        init
         agent
         guestPath
         pkgs.bash
       ]
-      ++ lib.optional krun krunExit;
+      ++ lib.optional krun krunExit
+      # The launcher execs the init through it, inside the container.
+      ++ lib.optional container config.vivarium.launch.config.setpriv;
     };
     vivarium.nixDatabase.enable = false;
     # The store is virtiofs, which serves a file as the guest user that
@@ -246,12 +266,16 @@ in
     # For CI's kernel job (`packages.directKernel`).
     system.build.dinixKernel = kernel;
     # No initrd: the kernel mounts the root disk itself.
-    vivarium.boot = {
-      kernel = {
-        image = "${kernel}/${config.system.boot.loader.kernelFile}";
-        vmlinux = "${vmlinux}";
-        inherit cmdline;
-      };
-    };
+    vivarium.boot =
+      if container then
+        { init = lib.getExe init; }
+      else
+        {
+          kernel = {
+            image = "${kernel}/${config.system.boot.loader.kernelFile}";
+            vmlinux = "${vmlinux}";
+            inherit cmdline;
+          };
+        };
   };
 }
