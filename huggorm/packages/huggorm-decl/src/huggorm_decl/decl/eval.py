@@ -33,7 +33,7 @@ from huggorm_decl.decl.log import (  # noqa: F401 -- named by `@spells` on LogRe
     Verbosity,
 )
 from huggorm_decl.decl.path import ErrorInfo, NativeError, Position, SourcePos, StorePath
-from huggorm_decl.decl.source_accessor import SourceAccessor
+from huggorm_decl.decl.source_accessor import Mount, SourceAccessor
 from huggorm_decl.decl.store import Store
 from huggorm_dsl.declare import (
     DETERMINATE,
@@ -1815,7 +1815,7 @@ class EvalState:
         """)
 
     @needs(Local("nix/fetchers/fetch-to-store.hh"), Local("nix/util/mounted-source-accessor.hh"))
-    def mount(self, accessor: SourceAccessor, name: Str = "source", path: Opt[StorePath] = None) -> StorePath:
+    def mount(self, accessor: SourceAccessor, name: Str = "source", path: Opt[StorePath] = None) -> Mount:
         """Show `accessor`'s tree to the evaluator at its store path.
 
         What Nix does with a lazily fetched input (`mountInput`): the
@@ -1835,16 +1835,49 @@ class EvalState:
         connection is not. It is TRUSTED: a wrong one shows the tree
         under the wrong name. A path the store already holds is not
         mounted, so a caller cannot replace a real store object, and
-        the evaluator reads the store's own copy."""
+        the evaluator reads the store's own copy.
+
+        Mounting again at a path this state mounted rebinds that mount
+        to `accessor` and answers it: the path names the content, so the
+        tree is the same one. A client that reconnects and claims the
+        state mounts again to replace the accessor of its old
+        connection. A path Nix mounted itself (a lazily fetched input)
+        is refused."""
         Cxx("""
             auto & state = self.state();
             nix::ref<nix::SourceAccessor> tree{accessor};
             auto at = path ? *path : nix::fetchToStore2(
                 state.fetchSettings, *state.store, nix::SourcePath{tree}, nix::FetchMode::DryRun, name).first;
+            nix::CanonPath point{state.store->printStorePath(at)};
+            // Nix's mount table keeps the first accessor at a point
+            // (`emplace`), so mounting over one would change nothing.
+            if (auto existing = state.storeFS->getMount(point)) {
+                auto shown = std::dynamic_pointer_cast<huggorm::Mount>(existing);
+                if (!shown)
+                    throw nix::Error("Nix mounted '%s' on this state itself; huggorm cannot replace it", point.abs());
+                shown->rebind(accessor);
+                return shown;
+            }
             state.allowPath(at);
-            if (!path || !state.store->isValidPath(at))
-                state.storeFS->mount(nix::CanonPath(state.store->printStorePath(at)), tree);
-            return at;
+            bool mounted = !path || !state.store->isValidPath(at);
+            auto shown = std::make_shared<huggorm::Mount>(at, accessor, mounted);
+            if (mounted)
+                state.storeFS->mount(point, nix::ref<nix::SourceAccessor>{shown});
+            return shown;
+        """)
+
+    @needs(Local("nix/util/mounted-source-accessor.hh"))
+    def mount_at(self, path: StorePath) -> Mount:
+        """The mount `mount` made at `path` on this state. Raises when
+        there is none, or when Nix mounted that path itself (a lazily
+        fetched input)."""
+        Cxx("""
+            auto & state = self.state();
+            nix::CanonPath point{state.store->printStorePath(path)};
+            auto shown = std::dynamic_pointer_cast<huggorm::Mount>(state.storeFS->getMount(point));
+            if (!shown)
+                throw nix::Error("nothing huggorm mounted is at '%s' on this state", point.abs());
+            return shown;
         """)
 
     @blocks

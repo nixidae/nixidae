@@ -63,7 +63,7 @@ async def test_a_store_reads_an_async_tree() -> None:
 async def test_an_evaluator_reads_an_async_tree() -> None:
     state = AsyncEvalState(AsyncStore(DUMMY))
     with anyio.fail_after(30):
-        path = await state.mount(Tree(SOURCE))
+        path = await (await state.mount(Tree(SOURCE))).path()
         assert path == local_path()
         got = await evaluated(state, path)
     assert got["imported"] == 42
@@ -76,7 +76,7 @@ async def test_pure_evaluation_reads_a_mounted_tree() -> None:
     (nixidae/nixidae#738)."""
     state = AsyncEvalState(AsyncStore(DUMMY), {"pure-eval": "true"})
     with anyio.fail_after(30):
-        path = await state.mount(Memory(SOURCE))
+        path = await (await state.mount(Memory(SOURCE))).path()
         got = await evaluated(state, path)
         assert got["imported"] == 42
         with pytest.raises(Exception, match=PURE_EVAL):
@@ -94,7 +94,7 @@ async def test_a_hook_calls_the_state_that_reads_it() -> None:
         answers.append(await (await state.eval_expr("1 + 1")).integer())
 
     with anyio.fail_after(30):
-        path = await state.mount(Tree(SOURCE, asks))
+        path = await (await state.mount(Tree(SOURCE, asks))).path()
         assert (await evaluated(state, path))["imported"] == 42
     assert answers and set(answers) == {2}
     await state.aclose()

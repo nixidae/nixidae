@@ -191,7 +191,7 @@ def test_the_evaluator_reads_a_mounted_tree(pure: bool) -> None:
 
     store = dummy()
     state = EvalState(store, {"pure-eval": str(pure).lower()})
-    path = state.mount(Memory(SOURCE))
+    path = state.mount(Memory(SOURCE)).path()
     assert path == dummy().add_accessor_to_store("source", Memory(SOURCE))
     entry = f"{store.print_store_path(path)}/default.nix"
     got = json.loads(state.eval_file(entry).to_json())
@@ -208,7 +208,7 @@ def test_mounting_reads_without_adding() -> None:
     from huggorm_bindings import EvalState
 
     store = dummy()
-    path = EvalState(store).mount(Memory(SOURCE))
+    path = EvalState(store).mount(Memory(SOURCE)).path()
     assert not store.is_valid_path(path)
 
 
@@ -217,7 +217,7 @@ def test_interpolating_a_mounted_path_copies_it_through_python() -> None:
 
     store = dummy()
     state = EvalState(store)
-    path = state.mount(Memory(SOURCE))
+    path = state.mount(Memory(SOURCE)).path()
     sub = f"{store.print_store_path(path)}/sub"
     copied = state.eval_expr(f'"${{{sub}}}"').string_value()
     added = store.add_accessor_to_store("sub", Memory(SOURCE), "/sub")
@@ -323,7 +323,8 @@ def test_mounting_at_a_given_path_reads_nothing_until_evaluation() -> None:
     store = dummy()
     path = dummy().add_accessor_to_store("source", Memory(SOURCE))
     state = EvalState(store)
-    assert state.mount(Counted(SOURCE), path=path) == path
+    mounted = state.mount(Counted(SOURCE), path=path)
+    assert mounted.path() == path and mounted.is_mounted()
     assert reads == []
     entry = f"{store.print_store_path(path)}/default.nix"
     assert json.loads(state.eval_file(entry).to_json())["imported"] == 42
@@ -337,9 +338,58 @@ def test_a_given_path_the_store_holds_keeps_the_store_content() -> None:
     store = dummy()
     path = store.add_accessor_to_store("source", Memory(SOURCE))
     state = EvalState(store)
-    state.mount(Memory({**SOURCE, "/sub/x.nix": b"0\n"}), path=path)
+    assert not state.mount(Memory({**SOURCE, "/sub/x.nix": b"0\n"}), path=path).is_mounted()
     entry = f"{store.print_store_path(path)}/default.nix"
     assert json.loads(state.eval_file(entry).to_json())["imported"] == 42
+
+
+def test_mounting_again_rebinds_the_mount() -> None:
+    """Nix keeps the first accessor at a mount point, so huggorm swaps
+    the tree behind its own mount. The second accessor answers the reads
+    the first one never made."""
+    from huggorm_bindings import EvalState
+
+    first: list[str] = []
+    second: list[str] = []
+
+    class Logged(Memory):
+        def __init__(self, tree: dict[str, Any], log: list[str]) -> None:
+            super().__init__(tree)
+            self.log = log
+
+        def read_file(self, path: str) -> bytes:
+            self.log.append(path)
+            return super().read_file(path)
+
+    # A given path, so neither mount hashes the tree through its accessor.
+    path = dummy().add_accessor_to_store("source", Memory(SOURCE))
+    store = dummy()
+    state = EvalState(store)
+    mounted = state.mount(Logged(SOURCE, first), path=path)
+    root = store.print_store_path(path)
+    assert state.eval_file(f"{root}/sub/x.nix").integer() == 42
+    again = state.mount(Logged(SOURCE, second), path=path)
+    assert again.path() == mounted.path() == path
+    assert json.loads(state.eval_file(f"{root}/default.nix").to_json())["joined"] == "hello\n"
+    assert first == ["/sub/x.nix"]
+    assert "/default.nix" in second and "/sub/x.nix" not in second
+
+
+def test_rebind_swaps_the_tree_and_mount_at_finds_it() -> None:
+    from huggorm_bindings import EvalState
+    from huggorm_bindings.errors import NixError
+
+    store = dummy()
+    state = EvalState(store)
+    mounted = state.mount(Memory(SOURCE))
+    path = mounted.path()
+    found = state.mount_at(path)
+    assert found.path() == path
+    found.rebind(Memory({**SOURCE, "/hello.txt": b"rebound\n"}))
+    entry = f"{store.print_store_path(path)}/hello.txt"
+    assert state.eval_expr(f"builtins.readFile {entry}").string_value() == "rebound\n"
+    with pytest.raises(NixError, match="nothing huggorm mounted"):
+        state.mount_at(dummy().add_accessor_to_store("other", Memory(SOURCE)))
 
 
 def test_a_filesystem_tree_reads_as_nix_reads_it(tmp_path: pathlib.Path) -> None:

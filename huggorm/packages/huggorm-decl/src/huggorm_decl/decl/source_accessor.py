@@ -26,6 +26,7 @@ callbacks: the server then calls the client's accessor back over the
 connection for every read (nixidae/nixidae#738).
 """
 
+from huggorm_decl.decl.path import StorePath
 from huggorm_decl.decl.words import FileType
 from huggorm_dsl.declare import (
     U64,
@@ -127,6 +128,35 @@ class SourceAccessor:
                                          : nlohmann::json(nix::listNarShallow(self, at));
             return j.dump();
         """)
+
+
+@header(Local("huggorm_decl/cpp/source_accessor.hpp"))
+@binding(cxx="huggorm::Mount", holder="shared_ptr", threading="pool", blocking=False)
+class Mount:
+    """A tree an `EvalState` shows at a store path: what `EvalState.mount`
+    answers.
+
+    Nix cannot replace a mounted tree, so the state mounts this once and
+    `rebind` swaps the tree behind it. A client that reconnects and
+    claims the state rebinds its mount to the accessor it holds now."""
+
+    # nixidae/nixidae#738
+
+    def path(self) -> StorePath:
+        """The store path the tree is shown at."""
+        Cxx("return self.path();")
+
+    def is_mounted(self) -> Bint:
+        """Whether the evaluator reads the tree through this mount. False
+        when the store already held the path: the evaluator then reads
+        the store's own copy."""
+        Cxx("return self.isMounted();")
+
+    def rebind(self, accessor: SourceAccessor) -> None:
+        """Show `accessor`'s tree at this path from now on. It must hold
+        the same files: the path names their content, and the evaluator
+        keeps what it read through the old tree."""
+        Cxx("self.rebind(accessor);")
 
 
 @needs(Local("huggorm_decl/cpp/source_accessor.hpp"))

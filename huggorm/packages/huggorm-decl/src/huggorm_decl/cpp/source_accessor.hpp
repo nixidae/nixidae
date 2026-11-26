@@ -14,6 +14,7 @@
  */
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -21,6 +22,7 @@
 
 #include "nix/util/error.hh"
 #include "nix/util/serialise.hh"
+#include "nix/store/path.hh"
 #include "nix/util/source-accessor.hh"
 
 namespace huggorm {
@@ -132,6 +134,79 @@ private:
     }
 
     std::shared_ptr<nix::SourceAccessor> below_;
+};
+
+/**
+ * One mount point in an EvalState's store filesystem, whose tree can be
+ * replaced (nixidae/nixidae#738).
+ *
+ * Nix's mount table keeps the first accessor at a path:
+ * `MountedSourceAccessor::mount` is `emplace`, and nothing unmounts. So
+ * huggorm mounts this forwarder once and swaps what it forwards to. A
+ * client that lost its connection reconnects, claims the state, and
+ * rebinds the mount to its new accessor; the evaluator keeps its work.
+ *
+ * Reads take a copy of the target under the lock and run outside it, so
+ * a rebind never waits for a read that is blocked on a client.
+ */
+class Mount : public AccessorBase
+{
+public:
+    Mount(nix::StorePath path, std::shared_ptr<nix::SourceAccessor> target, bool mounted)
+        : path_(std::move(path))
+        , mounted_(mounted)
+        , target_(std::move(target))
+    {
+    }
+
+    const nix::StorePath & path() const
+    {
+        return path_;
+    }
+
+    /** False when the store already held the path: the evaluator reads the store's copy, not this. */
+    bool isMounted() const
+    {
+        return mounted_;
+    }
+
+    void rebind(std::shared_ptr<nix::SourceAccessor> target)
+    {
+        std::lock_guard lock(mutex_);
+        target_ = std::move(target);
+    }
+
+    std::optional<Stat> maybeLstat(const nix::CanonPath & path) override
+    {
+        return target()->maybeLstat(path);
+    }
+
+    DirEntries readDirectory(const nix::CanonPath & path) override
+    {
+        return target()->readDirectory(path);
+    }
+
+    std::string readLink(const nix::CanonPath & path) override
+    {
+        return target()->readLink(path);
+    }
+
+    void readFile(const nix::CanonPath & path, nix::Sink & sink, nix::fun<void(uint64_t)> sizeCallback) override
+    {
+        target()->readFile(path, sink, std::move(sizeCallback));
+    }
+
+private:
+    std::shared_ptr<nix::SourceAccessor> target() const
+    {
+        std::lock_guard lock(mutex_);
+        return target_;
+    }
+
+    nix::StorePath path_;
+    bool mounted_;
+    mutable std::mutex mutex_;
+    std::shared_ptr<nix::SourceAccessor> target_;
 };
 
 } // namespace huggorm

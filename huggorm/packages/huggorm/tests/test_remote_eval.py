@@ -48,7 +48,7 @@ async def test_the_server_evaluates_the_clients_files(callback_server: Server) -
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
         path = local_path(SOURCE)
-        assert await state.mount(tree, "source", path) == path
+        assert await (await state.mount(tree, "source", path)).path() == path
         assert tree.reads == []
         got = await evaluated(state, store, path)
     assert got["imported"] == 42
@@ -62,7 +62,7 @@ async def test_mounting_without_a_path_hashes_through_the_client(callback_server
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
         with anyio.fail_after(30):
-            path = await state.mount(Memory(SOURCE))
+            path = await (await state.mount(Memory(SOURCE))).path()
         assert path == local_path(SOURCE)
         assert (await evaluated(state, store, path))["imported"] == 42
 
@@ -128,7 +128,7 @@ async def test_the_server_evaluates_a_directory_on_the_client(callback_server: S
     async with remote.connect(callback_server.path, experimental_callbacks=True) as client:
         store = await client.acquire(AsyncStore, DUMMY)
         state = await client.acquire(AsyncEvalState, store)
-        assert await state.mount(filesystem_accessor(root), "source", path) == path
+        assert await (await state.mount(filesystem_accessor(root), "source", path)).path() == path
         got = await evaluated(state, store, path)
     assert got == {"answer": 42, "text": "hello\n"}
 
@@ -148,7 +148,7 @@ async def test_an_async_client_tree_calls_the_server_back(callback_server: Serve
 
         tree = Tree(SOURCE, asks)
         with anyio.fail_after(30):
-            path = await state.mount(tree)
+            path = await (await state.mount(tree)).path()
             assert path == local_path(SOURCE)
             got = await evaluated(state, store, path)
     assert got["imported"] == 42
@@ -209,3 +209,36 @@ async def test_the_server_locks_a_flake_on_the_client(callback_server: Server, t
             x = await outputs.get("x")
             await state.force(x)
             assert await x.integer() == 42
+
+
+async def mounted_and_detached(server: Server, tree: Memory) -> tuple[str, str, str]:
+    """Mount `tree` on a fresh state, read one file, detach everything and
+    leave. The token, the state's handle and the mounted store path."""
+    async with remote.connect(server.path, experimental_callbacks=True) as client:
+        store = await client.acquire(AsyncStore, DUMMY)
+        state = await client.acquire(AsyncEvalState, store)
+        mounted = await state.mount(tree, "source", local_path(SOURCE))
+        path = await store.print_store_path(await mounted.path())
+        with anyio.fail_after(30):
+            assert await (await state.eval_file(f"{path}/sub/x.nix")).integer() == 42
+        assert await client.detach(all=True)
+        token = client.token
+    assert token is not None
+    return token, remote.handle_of(state), path
+
+
+async def test_a_claimed_state_mounts_the_same_path_again(callback_server: Server) -> None:
+    """A successor mounts its own accessor at the same store path. The
+    state rebinds the mount, and the evaluator reads through the new
+    accessor."""
+    token, state_id, path = await mounted_and_detached(callback_server, Memory(SOURCE))
+    fresh = Counted(SOURCE)
+    async with remote.connect(callback_server.path, claim=token, experimental_callbacks=True) as client:
+        state = client.proxy(AsyncEvalState, state_id)
+        store = await client.acquire(AsyncStore, DUMMY)
+        with anyio.fail_after(30):
+            mounted = await state.mount(fresh, "source", local_path(SOURCE))
+            assert await store.print_store_path(await mounted.path()) == path
+            got = json.loads(await (await state.eval_file(f"{path}/default.nix")).to_json())
+    assert got["joined"] == "hello\n"
+    assert "/default.nix" in fresh.reads

@@ -150,7 +150,7 @@ async def run(options: Options) -> Report:
 
         tree = Tracked(options.root, shown)
         started = time.monotonic()
-        at = await state.mount(tree, "source", local)
+        at = await (await state.mount(tree, "source", local)).path()
         report.seconds["mount"] = time.monotonic() - started
         report.calls_mount = dict(tree.calls)
         report.mounted_at = await store.print_store_path(at)
