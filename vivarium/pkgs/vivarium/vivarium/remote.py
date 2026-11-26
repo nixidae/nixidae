@@ -37,6 +37,7 @@ from vivarium_runner.machine import Machine, MachineError
 
 from . import places
 from .control import reachable
+from .pool import Pool
 
 if TYPE_CHECKING:
     from anyio.abc import SocketStream, TaskStatus
@@ -204,10 +205,25 @@ CALLS: Final = frozenset(_calls)
 
 
 class MachinesService(Service):
-    """`machines`, `call`, `get` and `artifacts` on the run's guests that are up."""
+    """`machines`, `call`, `get` and `artifacts` on the run's guests that are up,
+    and `acquire` and `release` of pool guests (`vivarium.pool`)."""
 
     def __init__(self, session: Session) -> None:
         self.session = session
+        self._pool: Pool | None = None
+
+    @property
+    def pool(self) -> Pool:
+        """One for the run, made at its first request: every client of machines.sock shares it."""
+        if self._pool is None:
+            self._pool = Pool(self.session.cloud)
+        return self._pool
+
+    async def exposed_acquire(self, template: str, clean: bool, spares: int) -> str:  # noqa: FBT001 -- arpyc passes it positionally
+        return await self.pool.acquire(template, clean=clean, spares=spares)
+
+    async def exposed_release(self, name: str, dirty: bool) -> None:  # noqa: FBT001 -- arpyc passes it positionally
+        await self.pool.release(name, dirty=dirty)
 
     def exposed_machines(self) -> tuple[str, ...]:
         return tuple(self.session.vms_up)

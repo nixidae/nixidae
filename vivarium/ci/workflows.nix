@@ -304,6 +304,12 @@ let
       timeoutMinutes = 30;
       after = [ "direct-kernel" ];
     };
+    pytest-pool = {
+      # Clean scopes get fresh guests of a template, dirty scopes share one.
+      attr = "checks.pytest-pool";
+      description = "pooled guests: clean, dirty, and a test inside one";
+      timeoutMinutes = 30;
+    };
     pytest-host = {
       # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
       # (`lib.pytestCheck`, nixidae/nixidae#1413).

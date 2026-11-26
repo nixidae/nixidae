@@ -15,6 +15,17 @@ The guests are a `mkTest` in a Nix file, named from Python:
     async def test_fresh(vm):
         assert (await vm.succeed("hostname")).stdout == "vm"
 
+    @pytest.mark.vivarium("boxes", template="box", dirty=True)
+    async def test_shared(vm):
+        await vm.succeed("true")
+
+With `template=`, the test's guest comes from the run's pool
+(`vivarium.pool`): a booted spare of that `mkTest` template, so the test
+waits for no boot, terminated after its scope. `dirty=True` takes a
+guest an earlier dirty scope gave back, and gives it back for the next.
+Every pooled test of one `attr` shares one run, up for the whole
+session.
+
 **The run is its own process, not this one.** vivarium needs a user and
 mount namespace; entered here, every test in the run would be root of
 it. So the plugin is a client: it starts a run, the run's
@@ -97,6 +108,9 @@ class Want:
     attr: str
     scope: Scope
     guest: str | None = None
+    template: str | None = None
+    """The pool template the test's guest comes from, if any."""
+    dirty: bool = False
 
     @classmethod
     def of(cls, item: pytest.Item) -> Want | None:
@@ -111,7 +125,15 @@ class Want:
         guest = mark.kwargs.get("guest")
         if guest is not None and not isinstance(guest, str):
             raise pytest.UsageError(f"{item.nodeid}: vivarium guest is a guest's name, not {guest!r}")
-        return cls(mark.args[0], scope, guest)
+        template = mark.kwargs.get("template")
+        if template is not None and not isinstance(template, str):
+            raise pytest.UsageError(f"{item.nodeid}: vivarium template is a template's name, not {template!r}")
+        if template is not None and guest not in (None, template):
+            raise pytest.UsageError(f"{item.nodeid}: with template={template!r}, the guest it runs in is {template!r}")
+        dirty = mark.kwargs.get("dirty", False)
+        if not isinstance(dirty, bool) or (dirty and template is None):
+            raise pytest.UsageError(f"{item.nodeid}: vivarium dirty is True or False, and needs template=")
+        return cls(mark.args[0], scope, guest, template, dirty)
 
 
 def scope_key(item: pytest.Item, scope: Scope) -> str:
@@ -236,10 +258,21 @@ class Run:
 
 
 @dataclass
+class Box:
+    """What one scope holds: its run, and the guests its tests see."""
+
+    run: Run
+    vms: dict[str, RemoteMachine]
+    lease: str | None = None
+    """The pool guest's name, for a test with `template=`."""
+    dirty: bool = False
+
+
+@dataclass
 class GuestWorker:
     """The pytest that runs one batch's tests in a guest (`vivarium.pytest_worker`)."""
 
-    run: Run
+    box: Box
     guest: str
     stem: str
     host: Path
@@ -288,7 +321,10 @@ class Driver:
         self.keep: bool = config.getoption("vivarium_keep")
         prebuilt = os.environ.get(PREBUILT)
         self.prebuilt: dict[str, str] | None = json.loads(Path(prebuilt).read_text()) if prebuilt else None
-        self.runs: dict[tuple[str, str], Run] = {}
+        self.spares: int = config.getoption("vivarium_spares")
+        self.boxes: dict[tuple[str, str], Box] = {}
+        self.pools: dict[str, Run] = {}
+        """The run each pooled `attr` shares, up for the session."""
         self.rootdir = config.rootpath
         self.inifile = config.inipath
         # The guest's pytest starts where this one did, so a relative --cov
@@ -309,19 +345,30 @@ class Driver:
             self._portal = self._portal_cm.__enter__()
         return self._portal
 
-    def acquire(self, item: pytest.Item) -> Run:
+    def acquire(self, item: pytest.Item) -> Box:
         want = Want.of(item)
         if want is None:
             raise pytest.UsageError(f"{item.nodeid}: vms and vm need @pytest.mark.vivarium(attr)")
         key = (want.attr, scope_key(item, want.scope))
-        if key in self.runs:
-            return self.runs[key]
-        name = out_name(want.attr)
+        if key in self.boxes:
+            return self.boxes[key]
+        if want.template is None:
+            run = self._up(want.attr, out_name(want.attr))
+            self.boxes[key] = Box(run, run.vms)
+            return self.boxes[key]
+        run = self.pools.get(want.attr) or self._up(want.attr, f"{out_name(want.attr)}-pool")
+        self.pools[want.attr] = run
+        name = str(self.portal.call(run.conn.call, "acquire", (want.template, not want.dirty, self.spares), {}))
+        self.boxes[key] = Box(run, {want.template: RemoteMachine(run.conn, name)}, name, want.dirty)
+        return self.boxes[key]
+
+    def _up(self, attr: str, name: str) -> Run:
         out = self.base / name if self.keep else self.base / f"{name}-{time.time_ns()}"
-        if not (self.keep and places.socket(out, SOCKET).exists() and self._try_open(out, key)):
-            self._start(want.attr, out)
-            self._open(out, key)
-        return self.runs[key]
+        if self.keep and places.socket(out, SOCKET).exists():
+            with contextlib.suppress(OSError):
+                return self._open(attr, out)
+        self._start(attr, out)
+        return self._open(attr, out)
 
     def _start(self, attr: str, out: Path) -> None:
         if self.prebuilt is None:
@@ -359,19 +406,12 @@ class Driver:
             [program, "up", attr, "--file", str(self.file), "--out", str(out)], check=True, stdout=subprocess.DEVNULL
         )
 
-    def _try_open(self, out: Path, key: tuple[str, str]) -> bool:
-        try:
-            self._open(out, key)
-        except OSError:
-            return False
-        return True
-
-    def _open(self, out: Path, key: tuple[str, str]) -> None:
+    def _open(self, attr: str, out: Path) -> Run:
         conn = self.portal.call(_connect, out)
         # In the portal's task group, which outlives each test that calls on it.
         self.portal.start_task(conn.serve_forever)
         names: tuple[str, ...] = self.portal.call(conn.call, "machines", (), {})
-        self.runs[key] = Run(key[0], out, conn, {name: RemoteMachine(conn, name) for name in names})
+        return Run(attr, out, conn, {name: RemoteMachine(conn, name) for name in names})
 
     # ── tests that run in a guest ───────────────────────────────────
 
@@ -388,16 +428,16 @@ class Driver:
         )
         return done.stdout.split()
 
-    def _prepare(self, run: Run, guest: str) -> Path:
+    def _prepare(self, box: Box, guest: str) -> Path:
         """This Python in the guest's store view, and the project unpacked
         at its own path: once a guest. Returns the host's side of the
         guest's `/artifacts`."""
-        vm = run.vms[guest]
+        vm = box.vms[guest]
         artifacts = self.portal.call(vm.artifacts)
         if artifacts is None:
             raise RunFailed(f"{guest} has no /artifacts to hand it the project through")
         host = Path(artifacts) / "pytest"
-        if (run.out, guest) in self.prepared:
+        if (box.run.out, vm.name) in self.prepared:
             return host
         self.portal.call(vm.add_paths, self._python_closure())
         host.mkdir(parents=True, exist_ok=True)
@@ -406,15 +446,15 @@ class Driver:
         unpack = "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2], filter='tar')"
         command = shlex.join([sys.executable, "-c", unpack, f"{GUEST_ARTIFACTS}/pytest/project.tar", str(self.rootdir)])
         self.portal.call(functools.partial(vm.succeed, f"mkdir -p {shlex.quote(str(self.rootdir))} && {command}"))
-        self.prepared.add((run.out, guest))
+        self.prepared.add((box.run.out, vm.name))
         return host
 
     def _start_worker(self, item: pytest.Item, key: BatchKey) -> GuestWorker:
         """A pytest in the guest that has collected the batch's tests and
         waits for the host to name each one."""
-        run = self.acquire(item)
+        box = self.acquire(item)
         guest = key[2]
-        host = self._prepare(run, guest)
+        host = self._prepare(box, guest)
         stem = f"worker-{time.time_ns()}"
         worker = [
             sys.executable,
@@ -430,11 +470,11 @@ class Driver:
             args += ["-c", str(self.inifile)]
         files = batch_files(self.rootdir, self.batches.get(key, [item.nodeid]))
         command = shlex.join([*worker, "--", *args, *files])
-        vm = run.vms[guest]
+        vm = box.vms[guest]
         # Returns once the worker listens and has left the command.
         start = f"cd {shlex.quote(str(self.cwd))} && PYTHONDONTWRITEBYTECODE=1 {command} 2>&1"
         self.portal.call(functools.partial(vm.succeed, start))
-        started = GuestWorker(run, guest, stem, host, frozenset(), [])
+        started = GuestWorker(box, guest, stem, host, frozenset(), [])
         try:
             collected = json.loads(str(self._ask(started, "collect")))
         except Exception as error:
@@ -448,7 +488,7 @@ class Driver:
         return started
 
     def _ask(self, worker: GuestWorker, method: str, *args: object) -> object:
-        vm = worker.run.vms[worker.guest]
+        vm = worker.box.vms[worker.guest]
         return self.portal.call(functools.partial(vm.relay, worker.socket, method, args, timeout=GUEST_TIMEOUT))
 
     def _stop_worker(self, key: BatchKey) -> None:
@@ -493,12 +533,20 @@ class Driver:
                 self._stop_worker(key)
 
     def release(self, key: tuple[str, str]) -> None:
-        run = self.runs.pop(key, None)
-        if run is None:
+        box = self.boxes.pop(key, None)
+        if box is None:
             return
-        # Those `-x` left running: their sessions end before the run does.
-        for batch in [batch for batch, worker in self.workers.items() if worker.run is run]:
+        # Those `-x` left running: their sessions end before the guest does.
+        for batch in [batch for batch, worker in self.workers.items() if worker.box is box]:
             self._stop_worker(batch)
+        if box.lease is not None:
+            if not box.dirty:
+                self.prepared.discard((box.run.out, box.lease))
+            self.portal.call(box.run.conn.call, "release", (box.lease, box.dirty), {})
+            return
+        self._down(box.run)
+
+    def _down(self, run: Run) -> None:
         self.prepared = {done for done in self.prepared if done[0] != run.out}
         # On its loop: closing wakes a write that waits on the fd there.
         self.portal.call(run.conn.close, None)
@@ -506,8 +554,11 @@ class Driver:
             self.portal.call(_stop, run.out)
 
     def close(self) -> None:
-        for key in list(self.runs):
+        for key in list(self.boxes):
             self.release(key)
+        for run in self.pools.values():
+            self._down(run)
+        self.pools.clear()
         if self._portal_cm is not None:
             self._portal_cm.__exit__(None, None, None)
             self._portal = self._portal_cm = None
@@ -528,13 +579,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("vivarium")
     group.addoption("--vivarium-keep", action="store_true", help="leave each run up, and take a run left up")
     group.addoption("--vivarium-out", default=None, help="where the runs' --out directories go")
+    group.addoption(
+        "--vivarium-spares",
+        type=int,
+        default=1,
+        help="booted guests of each pool template kept ready for the next test",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "vivarium(attr, scope='class'): guests from the mkTest `attr` of vivarium_file, "
-        "shared over function, class, module or session",
+        "vivarium(attr, scope='class', guest=None, template=None, dirty=False): guests from the mkTest "
+        "`attr` of vivarium_file, shared over function, class, module or session; with template=, one "
+        "guest of that template from the run's pool",
     )
     config.stash[_DRIVER] = Driver(config)
 
