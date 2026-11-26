@@ -258,3 +258,38 @@ async def test_a_claimed_state_mounts_the_same_path_again(callback_server: Serve
             got = json.loads(await (await state.eval_file(f"{path}/default.nix")).to_json())
     assert got["joined"] == "hello\n"
     assert "/default.nix" in fresh.reads
+
+
+async def test_a_hung_client_does_not_stall_another_clients_state(callback_server: Server) -> None:
+    """Two clients, one server process, a state each. A's hook never
+    answers; B evaluates its own tree while A waits."""
+    from test_async_accessor import Tree
+
+    reading, stopped = anyio.Event(), anyio.Event()
+
+    async def hangs(path: str) -> None:
+        reading.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            stopped.set()
+
+    async with (
+        remote.connect(callback_server.path, experimental_callbacks=True) as a,
+        remote.connect(callback_server.path, experimental_callbacks=True) as b,
+    ):
+        state_a = await a.acquire(AsyncEvalState, await a.acquire(AsyncStore, DUMMY))
+        store_b = await b.acquire(AsyncStore, DUMMY)
+        state_b = await b.acquire(AsyncEvalState, store_b)
+
+        async def stuck() -> None:
+            await state_a.mount(Tree(SOURCE, hangs))
+
+        with anyio.fail_after(30):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(stuck)
+                await reading.wait()
+                path = await (await state_b.mount(Memory(SOURCE), "source", local_path(SOURCE))).path()
+                assert (await evaluated(state_b, store_b, path))["imported"] == 42
+                tg.cancel_scope.cancel()
+            await stopped.wait()
