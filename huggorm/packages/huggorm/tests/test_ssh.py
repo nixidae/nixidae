@@ -5,10 +5,13 @@ An asyncssh server in this process, with a generated host key, serves
 real SSH and the test stays hermetic.
 """
 
+import functools
+import json
 import os
 import pathlib
 import socket
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 import anyio
@@ -19,7 +22,8 @@ from test_remote_eval import DUMMY, Counted, local_path
 from test_source_accessor import SOURCE, Memory
 
 from huggorm import ServerOptions, remote, transport, worker
-from huggorm.server import serve_stream
+from huggorm.server import serve, serve_stream
+from huggorm.server_options import SshListen
 from huggorm.session import AsyncRemoteSession
 from huggorm.spawn import STOP_GRACE
 from huggorm.ssh import (
@@ -318,3 +322,86 @@ async def test_openssh_names_a_host_that_does_not_answer(ssh_key: pathlib.Path) 
     with anyio.fail_after(60), pytest.raises(transport.SshFailed, match="refused"):
         async with remote.connect(dial):
             pass
+
+
+# -- huggorm.server listening on SSH itself --------------------------------
+
+
+@dataclass(frozen=True)
+class _Listening:
+    path: pathlib.Path
+    port: int
+    key: asyncssh.SSHKey
+
+
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+        return port
+
+
+@pytest.fixture
+async def listening(tmp_path: pathlib.Path) -> AsyncIterator[_Listening]:
+    """`serve` on a Unix socket and on SSH, one dispatcher, in this
+    process. The client key is the one `authorized_keys` lists."""
+    key = asyncssh.generate_private_key("ssh-ed25519")
+    authorized = tmp_path / "authorized_keys"
+    authorized.write_bytes(key.export_public_key())
+    path = tmp_path / "server.sock"
+    port = _free_port()
+    listen = SshListen("127.0.0.1", port, tmp_path / "host_key", authorized)
+    async with anyio.create_task_group() as tg:
+        await tg.start(functools.partial(serve, str(path), callbacks=True, ssh=listen))
+        yield _Listening(path, port, key)
+        tg.cancel_scope.cancel()
+
+
+def _over_ssh(at: _Listening, key: asyncssh.SSHKey | None = None) -> Any:
+    # Any: an async context manager over a huggorm.transport.Dialer.
+    return connected(
+        "127.0.0.1",
+        port=at.port,
+        username="t",
+        command="huggorm",
+        client_keys=[key or at.key],
+        known_hosts=None,
+    )
+
+
+async def test_the_server_listens_on_ssh_itself(listening: _Listening) -> None:
+    with anyio.fail_after(60):
+        async with _over_ssh(listening) as dial, remote.connect(dial) as client:
+            state = await client.acquire(AsyncEvalState, await client.acquire(AsyncStore, DUMMY))
+            assert await (await state.eval_expr("40 + 2")).integer() == 42
+
+
+async def test_the_ssh_listener_refuses_a_key_it_does_not_list(listening: _Listening) -> None:
+    stranger = asyncssh.generate_private_key("ssh-ed25519")
+    with anyio.fail_after(60), pytest.raises(asyncssh.PermissionDenied):
+        async with _over_ssh(listening, stranger):
+            pass
+
+
+async def test_a_state_detached_on_the_socket_is_claimed_over_ssh(listening: _Listening) -> None:
+    """One dispatcher serves both listeners, so the token is good on
+    either."""
+    with anyio.fail_after(60):
+        async with remote.connect(listening.path, experimental_callbacks=True) as local:
+            store = await local.acquire(AsyncStore, DUMMY)
+            state = await local.acquire(AsyncEvalState, store)
+            mounted = await state.mount(Memory(SOURCE), "source", local_path(SOURCE))
+            root = await store.print_store_path(await mounted.path())
+            assert await (await state.eval_file(f"{root}/sub/x.nix")).integer() == 42
+            assert await local.detach(all=True)
+            token, state_id = local.token, remote.handle_of(state)
+        fresh = Counted(SOURCE)
+        async with (
+            _over_ssh(listening) as dial,
+            remote.connect(dial, claim=token, experimental_callbacks=True) as far,
+        ):
+            claimed = far.proxy(AsyncEvalState, state_id)
+            await claimed.mount(fresh, "source", local_path(SOURCE))
+            got = json.loads(await (await claimed.eval_file(f"{root}/default.nix")).to_json())
+    assert got["imported"] == 42
+    assert "/sub/x.nix" not in fresh.reads

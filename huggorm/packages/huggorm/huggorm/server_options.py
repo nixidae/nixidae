@@ -10,6 +10,7 @@ over SSH; a `multiprocessing` child takes the value itself.
 from __future__ import annotations
 
 import os
+import pathlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -18,6 +19,18 @@ from .namespace import TEMPORARY, Temporary
 
 #: How long a silent connection lives before the server sweeps it.
 DEFAULT_TTL = 120.0
+
+
+@dataclass(frozen=True, slots=True)
+class SshListen:
+    """Where a server listens on SSH itself (`huggorm.ssh_server`), and
+    whom it admits: the keys in `authorized_keys`. A host key that does
+    not exist yet is made at `host_key`."""
+
+    host: str
+    port: int
+    host_key: pathlib.Path
+    authorized_keys: pathlib.Path
 
 
 @dataclass(frozen=True, slots=True)

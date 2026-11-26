@@ -21,6 +21,7 @@ import enum
 import functools
 import logging
 import os
+import pathlib
 import signal
 import socket
 import weakref
@@ -29,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import anyio
-from anyio.abc import ByteStream, TaskGroup
+from anyio.abc import ByteStream, Listener, TaskGroup
 
 from huggorm_generated._callspec import Acquire, Call
 from huggorm_generated._classes import CLASSES, DECLARED
@@ -63,7 +64,7 @@ from .protocol import (
     build_identity,
     peer_uid,
 )
-from .server_options import DEFAULT_TTL, ServerOptions
+from .server_options import DEFAULT_TTL, ServerOptions, SshListen
 from .walk import Build, TreeWalk
 
 logger = logging.getLogger(__name__)
@@ -780,26 +781,45 @@ async def dispatching(
 
 
 async def serve(
-    path: str,
+    path: str | None,
     lease_ttl: float = DEFAULT_TTL,
     *,
     escrow_ttl: float | None = 300.0,
     callbacks: bool = False,
+    ssh: SshListen | None = None,
     task_status: Any = anyio.TASK_STATUS_IGNORED,
 ) -> None:
-    """The server on the Unix socket at `path`.
+    """The server on the Unix socket at `path`, on SSH as `ssh` says, or
+    on both: one dispatcher, so a client may detach on one and claim on
+    the other.
 
     The socket is mode 0600, and a connection checks the peer's uid
-    as well: only this uid may connect."""
-    async with dispatching(lease_ttl, escrow_ttl=escrow_ttl, callbacks=callbacks) as dispatcher:
-        listener = await anyio.create_unix_listener(path, mode=0o600)
-        logger.info("listening on %s (lease ttl: %s)", path, lease_ttl if lease_ttl else "off")
+    as well: only this uid may connect. An SSH session is admitted by
+    its key alone."""
+    if path is None and ssh is None:
+        raise ValueError("serve needs a socket path, an SSH listener, or both")
+    async with (
+        dispatching(lease_ttl, escrow_ttl=escrow_ttl, callbacks=callbacks) as dispatcher,
+        anyio.create_task_group() as tg,
+    ):
+        if ssh is not None:
+            # The `ssh` extra: a server without it never listens on SSH.
+            from .ssh_server import serve_ssh
+
+            await tg.start(serve_ssh, dispatcher.connection, ssh)
+        if path is not None:
+            listener = await anyio.create_unix_listener(path, mode=0o600)
+            logger.info("listening on %s (lease ttl: %s)", path, lease_ttl if lease_ttl else "off")
+            tg.start_soon(_serve_unix, listener, path, dispatcher)
         task_status.started()
-        try:
-            await listener.serve(dispatcher.connection)
-        finally:
-            with contextlib.suppress(OSError):
-                os.unlink(path)
+
+
+async def _serve_unix(listener: Listener[Any], path: str, dispatcher: Dispatcher) -> None:
+    try:
+        await listener.serve(dispatcher.connection)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
 
 
 async def serve_stream(
@@ -831,19 +851,37 @@ def main(argv: list[str] | None = None) -> None:
     `--overlay ROOT` serves from a private user namespace over an
     overlay store laid out under ROOT; a client opens
     `OverlayNamespace.under(ROOT, ...).store_uri()`. With
-    `--remove-overlay` the server holds ROOT and removes it at exit."""
+    `--remove-overlay` the server holds ROOT and removes it at exit.
+
+    `--ssh-listen HOST:PORT` listens on SSH itself, with or without a
+    socket PATH beside it; `--ssh-host-key` and `--ssh-authorized-keys`
+    go with it."""
     parser = _parser()
     args = parser.parse_args(argv)
-    if (args.path is None) == (not args.stdio):
-        parser.error("give one of a socket PATH and --stdio")
+    ssh = _ssh_listen(parser, args)
+    if args.stdio == (args.path is not None or ssh is not None):
+        parser.error("give --stdio, or a socket PATH, --ssh-listen or both")
     options = _options(args)
     with _owned(options):
         _configure(options)
         if args.stdio:
             serving = functools.partial(serve_stream, _stdio_stream(), options.ttl, callbacks=options.callbacks)
         else:
-            serving = functools.partial(serve, args.path, options.ttl, callbacks=options.callbacks)
+            serving = functools.partial(serve, args.path, options.ttl, callbacks=options.callbacks, ssh=ssh)
         anyio.run(_until_signalled, serving, args.ready_fd)
+
+
+def _ssh_listen(parser: argparse.ArgumentParser, args: argparse.Namespace) -> SshListen | None:
+    if args.ssh_listen is None:
+        if args.ssh_host_key or args.ssh_authorized_keys:
+            parser.error("--ssh-host-key and --ssh-authorized-keys go with --ssh-listen")
+        return None
+    host, _, port = args.ssh_listen.rpartition(":")
+    if not host or not port.isdigit():
+        parser.error(f"--ssh-listen takes HOST:PORT, not {args.ssh_listen!r}")
+    if args.ssh_host_key is None or args.ssh_authorized_keys is None:
+        parser.error("--ssh-listen needs --ssh-host-key and --ssh-authorized-keys")
+    return SshListen(host, int(port), pathlib.Path(args.ssh_host_key), pathlib.Path(args.ssh_authorized_keys))
 
 
 def serve_on_socket(sock: socket.socket, options: ServerOptions) -> None:
@@ -874,6 +912,9 @@ def _parser() -> argparse.ArgumentParser:
         "unsafe for a state that several clients share",
     )
     parser.add_argument("--load-config", action="store_true", help="read nix.conf and NIX_CONFIG as nix does")
+    parser.add_argument("--ssh-listen", metavar="HOST:PORT", help="listen on SSH itself (needs the ssh extra)")
+    parser.add_argument("--ssh-host-key", metavar="PATH", help="the SSH host key, made there if it does not exist")
+    parser.add_argument("--ssh-authorized-keys", metavar="PATH", help="the keys an SSH session may log in with")
     parser.add_argument(
         "--overlay",
         metavar="ROOT",
