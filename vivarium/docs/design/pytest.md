@@ -238,8 +238,16 @@ templates (the cloud API's `launch` and `terminate`, #1408).
 dirty)`. A function-scoped fixture is then an `acquire` and a
 `release`, with no boot in the test's time while the pool has a spare.
 
-**A Python-init guest.** For a test that needs a kernel and a clean
-userspace but no services: a kernel, the host's store, and Python as
+**Shared guests are the other lever (User, 2026-11-26).** Often a test
+wants isolation from the host and does not care whether the guest is
+pristine. Both levers are wanted: the pool for clean boxes, and a
+`dirty` guest that many tests use in turn, across modules and across
+xdist workers, which today each start their own guests. A `dirty`
+release puts the guest back for the next `dirty` acquire; only `clean`
+waits for a fresh spare.
+
+**A Python-init guest** (done as a dinix guest; see Order of work).
+For a test that needs a kernel and a clean userspace but no services: a kernel, the host's store, and Python as
 PID 1. It mounts `/proc`, `/sys`, `/dev` and the project share, reaps
 children, and serves the worker over the agent channel. No NixOS
 system, no systemd. A busybox guest of the same shape booted in 1.0 s on
