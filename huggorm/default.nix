@@ -471,6 +471,7 @@ let
               export HUGGORM_ORACLE_NIX="${self.nix}/bin/nix"
               export HUGGORM_ORACLE_BASH="${pkgs.bash}"
               export HUGGORM_TCP_STORE_PLUGINS="${self.nix-tcp-store}/lib/nix/plugins"
+              export HUGGORM_TEST_SSH="${pkgs.openssh}/bin/ssh"
               # What the build tells the suite in `packages/huggorm`'s `env`.
               ${lib.toShellVars self.nixEnv}
               export ${toString (lib.attrNames self.nixEnv)}

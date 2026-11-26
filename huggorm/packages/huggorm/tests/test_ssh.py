@@ -5,6 +5,8 @@ An asyncssh server in this process, with a generated host key, serves
 real SSH and the test stays hermetic.
 """
 
+import os
+import pathlib
 import socket
 from collections.abc import AsyncIterator
 from typing import Any
@@ -16,7 +18,7 @@ from conftest import Server
 from test_remote_eval import DUMMY, Counted, local_path
 from test_source_accessor import SOURCE, Memory
 
-from huggorm import ServerOptions, remote, worker
+from huggorm import ServerOptions, remote, transport, worker
 from huggorm.server import serve_stream
 from huggorm.session import AsyncRemoteSession
 from huggorm.spawn import STOP_GRACE
@@ -159,6 +161,13 @@ class _Forwarding(_AnyPassword):
     def unix_connection_requested(self, dest_path: str) -> bool:
         return dest_path == self.allowed
 
+    # Any key: the OpenSSH client runs in batch mode and offers no password.
+    def public_key_auth_supported(self) -> bool:
+        return True
+
+    def validate_public_key(self, username: str, key: asyncssh.SSHKey) -> bool:
+        return True
+
 
 @pytest.fixture
 async def forwarding_port(callback_server: Server) -> AsyncIterator[int]:
@@ -237,3 +246,75 @@ async def test_a_socket_the_ssh_server_refuses_raises_connection_refused(
     )
     with anyio.fail_after(30), pytest.raises(ConnectionRefusedError, match=r"/nowhere\.sock"):
         await dial()
+
+
+# -- the same server through the OpenSSH client ---------------------------
+
+
+@pytest.fixture
+def ssh_key(tmp_path: pathlib.Path) -> pathlib.Path:
+    key = tmp_path / "id_ed25519"
+    asyncssh.generate_private_key("ssh-ed25519").write_private_key(str(key))
+    key.chmod(0o600)
+    return key
+
+
+def _openssh(path: str, port: int, key: pathlib.Path) -> Any:
+    # Any: huggorm.transport.Dialer, a callable alias.
+    return transport.openssh(
+        "t@127.0.0.1",
+        path,
+        ssh=os.environ.get("HUGGORM_TEST_SSH", "ssh"),
+        options=[
+            "-p",
+            str(port),
+            "-i",
+            str(key),
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+        ],
+    )
+
+
+async def test_openssh_reaches_a_running_server_and_redials(
+    callback_server: Server, forwarding_port: int, ssh_key: pathlib.Path
+) -> None:
+    """One `ssh -W` per dial: the second connection claims the state the
+    first detached."""
+    dial = _openssh(str(callback_server.path), forwarding_port, ssh_key)
+    with anyio.fail_after(60):
+        async with remote.connect(dial) as first:
+            state = await first.acquire(AsyncEvalState, await first.acquire(AsyncStore, DUMMY))
+            assert await (await state.eval_expr("40 + 2")).integer() == 42
+            assert await first.detach(all=True)
+            token, state_id = first.token, remote.handle_of(state)
+        async with remote.connect(dial, claim=token) as second:
+            assert await (await second.proxy(AsyncEvalState, state_id).eval_expr("1 + 1")).integer() == 2
+
+
+async def test_openssh_names_a_socket_the_server_refuses(
+    callback_server: Server, forwarding_port: int, ssh_key: pathlib.Path
+) -> None:
+    dial = _openssh("/nowhere.sock", forwarding_port, ssh_key)
+    with anyio.fail_after(60), pytest.raises(transport.SshFailed) as caught:
+        async with remote.connect(dial):
+            pass
+    assert caught.value.returncode == 255
+    assert "forwarding failed" in caught.value.stderr or "open failed" in caught.value.stderr
+
+
+async def test_openssh_names_a_host_that_does_not_answer(ssh_key: pathlib.Path) -> None:
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    listener.close()
+    dial = _openssh("/any.sock", port, ssh_key)
+    with anyio.fail_after(60), pytest.raises(transport.SshFailed, match="refused"):
+        async with remote.connect(dial):
+            pass

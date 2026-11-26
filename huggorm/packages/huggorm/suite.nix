@@ -26,6 +26,8 @@
   huggorm-decl,
   huggorm-dsl,
   nix-tcp-store,
+  # The client `transport.openssh` runs, against the suite's own SSH server.
+  openssh,
   # The CLI of the Nix the bindings link, which `private_daemon` runs.
   nix,
   # The suite branches on the `NIX_2_3x` names, and a type checker holds
@@ -89,6 +91,7 @@ runCommand "huggorm-suite-${huggorm-bindings.nixVersion}"
       # as a plugin must be.
       HUGGORM_TCP_STORE_PLUGINS = "${nix-tcp-store}/lib/nix/plugins";
       HUGGORM_ORACLE_NIX = "${nix}/bin/nix";
+      HUGGORM_TEST_SSH = "${openssh}/bin/ssh";
     };
   }
   (
