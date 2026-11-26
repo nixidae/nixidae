@@ -5,7 +5,7 @@ No line that it then writes carries a process id. A program that forks
 therefore gives every process the same name, all of them append to the one
 file, and the result cannot be read: no line says which process wrote it.
 
-That is not a theoretical problem here. The short reproduction of issue #70
+That is not a theoretical problem here. The short reproduction of nixidae/nanopynix#70
 runs four processes that each initialise the collector, because the
 forkserver of nanopynix starts a Nix worker. Every count in such a log is a
 sum over the four. "Pushed %d thread stacks" is the line that issue needs,
@@ -20,6 +20,11 @@ The expansion happens before the open, and it uses a static buffer, because
 GC_init runs once for each process and nothing here is re-entrant. A name
 that does not fit the buffer keeps its original form rather than losing a
 part, so the failure of the expansion is a shared log and not a wrong path.
+
+Upstream. Base: Determinate Systems' bdwgc fork (bdwgc 8.3.0).
+bdwgc master at ef728c09 (2026-11-24) still
+opens GC_LOG_FILE as given, with no process id (misc.c:1207). No bdwgc
+issue asks for this (searched 2026-11-26).
 
 This file is the same change for Determinate Systems' bdwgc fork, which
 is newer bdwgc and moved the code.

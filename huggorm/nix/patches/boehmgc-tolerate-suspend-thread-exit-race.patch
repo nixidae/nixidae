@@ -27,11 +27,9 @@ for the entire lifetime of the process (computed once at GC_thr_init), so
 EINVAL from pthread_kill on either cannot mean "invalid signal number" in
 this codebase -- the only realistic cause is the same already-tolerated
 already-gone-thread race, just surfacing under a different errno on this
-glibc/kernel combination. This exact race (pthread_kill vs. thread
-teardown, undefined by POSIX) is a known, previously-discussed bdwgc/glibc
-issue upstream; treating EINVAL the same as ESRCH here is the same
-tolerance both switches already apply, just widened to the errno this
-environment actually produces.
+glibc/kernel combination. Treating EINVAL the same as ESRCH here is the
+same tolerance both switches already apply, widened to the errno this
+environment produces.
 
 The tolerated branch also logs, under `GC_PRINT_STATS=1`. Tolerating the
 race removes an abort that killed the process, and it leaves behind a
@@ -39,13 +37,22 @@ thread that this collection did not suspend and whose stack it did not
 push. When the thread really is gone that is correct. When it is not, the
 collection frees whatever only that stack refers to, and the next read of
 one of those objects gives a value of the wrong type. That is the shape of
-issue #70, and the branch reported nothing at all until now: bdwgc's own
+nixidae/nanopynix#70, and the branch reported nothing at all until now: bdwgc's own
 `Resent %d signals after timeout` and `Lost some threads while stopping or
 starting world?!` cover the retry path and not this one.
 
 `GC_COND_LOG_PRINTF` writes only when `GC_print_stats` is set, which is what
 `GC_PRINT_STATS=1` sets, so a normal run prints nothing. The same file
 already logs from this machinery at the retry site.
+
+Upstream. Base: bdwgc 8.2.12.
+bdwgc master at ef728c09 (2026-11-24) still
+tolerates only ESRCH at both sites (pthread_stop_world.c:1039 and
+:1404). No bdwgc issue covers EINVAL here (searched 2026-11-26); the
+nearest is bdwgc/bdwgc#425, which retries pthread_kill on EAGAIN. The
+glibc and kernel versions of the observed aborts were not recorded.
+Reproduction: nanopynix's multithreaded EvalState suite under
+ThreadSanitizer, nixidae/nanopynix#70.
 
 diff -ruN a/pthread_stop_world.c b/pthread_stop_world.c
 --- a/pthread_stop_world.c	2026-08-15 19:24:37.312809840 +0200
