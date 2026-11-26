@@ -291,6 +291,12 @@ let
       description = "the guest's pytest worker runs one test at a time for the host";
       timeoutMinutes = 30;
     };
+    pytest-worker-dinix = {
+      # The same, in a dinix container guest: dinit is PID 1.
+      attr = "checks.pytest-worker-dinix";
+      description = "the guest's pytest worker runs in a dinix guest";
+      timeoutMinutes = 30;
+    };
     pytest-host = {
       # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
       # (`lib.pytestCheck`, nixidae/nixidae#1413).
