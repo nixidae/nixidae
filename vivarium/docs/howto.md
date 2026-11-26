@@ -682,6 +682,22 @@ async def test_fresh(vm):                  # the run's only guest
   `vivarium` CLI must be on PATH. With pytest-cov (`--cov`), the guest
   measures its tests the same way and pytest-cov's report includes
   them. Shortcuts taken are listed in `docs/design/pytest.md`.
+- `template=` takes the test's guest from a pool of the `mkTest`'s
+  `templates.<name>`, not from its nodes. The run keeps booted spares
+  (`--vivarium-spares`, one by default), so the test waits for no boot
+  while a spare is ready. After the scope the guest is terminated: the
+  next test gets a fresh one. With `dirty=True` a scope takes a guest an
+  earlier `dirty=True` scope gave back, and gives it back after: tests
+  that want isolation from the host but not a pristine guest share one.
+  `vm` and `vms["<template>"]` are the guest; `guest="<template>"` runs
+  the test inside it. Every pooled test of one `attr` shares one run, up
+  until pytest ends.
+
+  ```python
+  @pytest.mark.vivarium("boxes", template="box", scope="function", dirty=True)
+  async def test_shared(vm):
+      await vm.succeed("touch /root/seen")
+  ```
 - The runs are in `.vivarium/pytest/`, one `--out` each: `vivarium ctl`
   and the MCP server reach them as any run.
 - `--vivarium-keep` leaves each run up, at `.vivarium/pytest/<attr>`, and

@@ -304,7 +304,16 @@ the store and the project share replace its code shipping.
    router. One in-guest pytest run: 3.1 s in a container, 6.0 s under
    krun, against 5.3 s for a NixOS container guest
    (docs/design/dinix-guests.md).
-5. The pool, the `clean`/`dirty` marker keyword, function-scoped boxes.
+5. Half done: the pool, in one pytest process. `vivarium/pool.py` keeps
+   booted spares of a template through the run's cloud API, tagged
+   `vivarium.pool`; `machines.sock` serves `acquire(template, clean,
+   spares)` and `release(name, dirty)`. The marker's `template=` and
+   `dirty=` choose a pooled guest; every pooled test of one `attr` shares
+   one run for the session. `checks.pytest-pool`: two clean scopes get
+   two guests and the second sees nothing of the first; two dirty scopes
+   share one; a test runs inside a pooled guest. Left: one pooled run
+   shared by xdist workers, and the worker kept alive across dirty
+   scopes of one guest.
 6. QEMU forked guests, if 4 and 5 leave a start time worth cutting.
    Researched, not started (Hot guests, above).
 
