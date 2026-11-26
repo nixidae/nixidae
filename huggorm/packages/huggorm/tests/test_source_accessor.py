@@ -392,40 +392,67 @@ def test_rebind_swaps_the_tree_and_mount_at_finds_it() -> None:
         state.mount_at(dummy().add_accessor_to_store("other", Memory(SOURCE)))
 
 
+class Calls(Memory):
+    """`Memory`, with each hook call recorded as `<hook> <path>`."""
+
+    def __init__(self, tree: dict[str, Any]) -> None:
+        super().__init__(tree)
+        self.calls: list[str] = []
+
+    def maybe_lstat(self, path: str) -> Stat | None:
+        self.calls.append(f"lstat {path}")
+        return super().maybe_lstat(path)
+
+    def read_directory(self, path: str) -> dict[str, FileType | None]:
+        self.calls.append(f"readdir {path}")
+        return super().read_directory(path)
+
+    def read_link(self, path: str) -> str:
+        self.calls.append(f"readlink {path}")
+        return super().read_link(path)
+
+    def read_file(self, path: str) -> bytes:
+        self.calls.append(f"read {path}")
+        return super().read_file(path)
+
+
 def test_a_mount_answers_a_read_it_made_once() -> None:
     """The store path names the content, so the mount keeps every answer.
     A pass that runs its reads again costs the accessor nothing: each
     would be one round trip to a remote client."""
     from huggorm_bindings import EvalState
 
-    calls: list[str] = []
-
-    class Counted(Memory):
-        def maybe_lstat(self, path: str) -> Stat | None:
-            calls.append(f"lstat {path}")
-            return super().maybe_lstat(path)
-
-        def read_directory(self, path: str) -> dict[str, FileType | None]:
-            calls.append(f"readdir {path}")
-            return super().read_directory(path)
-
-        def read_file(self, path: str) -> bytes:
-            calls.append(f"read {path}")
-            return super().read_file(path)
-
+    tree = Calls(SOURCE)
     path = dummy().add_accessor_to_store("source", Memory(SOURCE))
     store = dummy()
     state = EvalState(store)
-    state.mount(Counted(SOURCE), path=path)
+    state.mount(tree, path=path)
     root = store.print_store_path(path)
     rerun = (
         f"[ (builtins.readDir {root}/sub) (builtins.readFile {root}/hello.txt) (builtins.pathExists {root}/absent) ]"
     )
     state.eval_expr(rerun).to_json()
-    assert any(c.startswith("read ") for c in calls) and any(c.startswith("readdir ") for c in calls)
-    calls.clear()
+    assert any(c.startswith("read ") for c in tree.calls) and any(c.startswith("readdir ") for c in tree.calls)
+    tree.calls.clear()
     state.eval_expr(rerun).to_json()
-    assert calls == []
+    assert tree.calls == []
+
+
+def test_a_listing_leaves_only_file_contents_to_read() -> None:
+    """With the tree's NAR listing, the mount answers every stat, listing
+    and link itself, and a path the listing lacks does not exist."""
+    from huggorm_bindings import EvalState
+
+    tree = Calls(SOURCE)
+    path = dummy().add_accessor_to_store("source", Memory(SOURCE))
+    store = dummy()
+    state = EvalState(store)
+    state.mount(tree, path=path, listing=Memory(SOURCE).list_nar("/", True))
+    entry = f"{store.print_store_path(path)}/default.nix"
+    got = json.loads(state.eval_file(entry).to_json())
+    assert got["missing"] is False and got["linked"] == "hello\n"
+    assert got["listed"] == {"default.nix": "regular", "hello.txt": "regular", "link": "symlink", "sub": "directory"}
+    assert tree.calls and all(c.startswith("read ") for c in tree.calls), tree.calls
 
 
 def test_a_filesystem_tree_reads_as_nix_reads_it(tmp_path: pathlib.Path) -> None:

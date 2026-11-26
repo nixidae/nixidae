@@ -1814,8 +1814,18 @@ class EvalState:
             return self.wrap(made);
         """)
 
-    @needs(Local("nix/fetchers/fetch-to-store.hh"), Local("nix/util/mounted-source-accessor.hh"))
-    def mount(self, accessor: SourceAccessor, name: Str = "source", path: Opt[StorePath] = None) -> Mount:
+    @needs(
+        Local("nix/fetchers/fetch-to-store.hh"),
+        Local("nix/util/mounted-source-accessor.hh"),
+        Local("nlohmann/json.hpp"),
+    )
+    def mount(
+        self,
+        accessor: SourceAccessor,
+        name: Str = "source",
+        path: Opt[StorePath] = None,
+        listing: Opt[Str] = None,
+    ) -> Mount:
         """Show `accessor`'s tree to the evaluator at its store path.
 
         What Nix does with a lazily fetched input (`mountInput`): the
@@ -1842,10 +1852,20 @@ class EvalState:
         tree is the same one. A client that reconnects and claims the
         state mounts again to replace the accessor of its old
         connection. A path Nix mounted itself (a lazily fetched input)
-        is refused."""
+        is refused.
+
+        `listing` is the tree's shape, as `accessor.list_nar("/",
+        recursive=True)` gives it. With it the evaluator stats files,
+        lists directories and reads links without asking `accessor`,
+        and a path the listing lacks does not exist; only file contents
+        are read. Over a remote link that removes most round trips. It
+        is TRUSTED, as `path` is."""
         Cxx("""
             auto & state = self.state();
             nix::ref<nix::SourceAccessor> tree{accessor};
+            std::optional<nix::NarListing> shape;
+            if (listing)
+                shape = nlohmann::json::parse(*listing).get<nix::NarListing>();
             auto at = path ? *path : nix::fetchToStore2(
                 state.fetchSettings, *state.store, nix::SourcePath{tree}, nix::FetchMode::DryRun, name).first;
             nix::CanonPath point{state.store->printStorePath(at)};
@@ -1856,11 +1876,15 @@ class EvalState:
                 if (!shown)
                     throw nix::Error("Nix mounted '%s' on this state itself; huggorm cannot replace it", point.abs());
                 shown->rebind(accessor);
+                if (shape)
+                    shown->learn(*shape);
                 return shown;
             }
             state.allowPath(at);
             bool mounted = !path || !state.store->isValidPath(at);
             auto shown = std::make_shared<huggorm::Mount>(at, accessor, mounted);
+            if (shape)
+                shown->learn(*shape);
             if (mounted)
                 state.storeFS->mount(point, nix::ref<nix::SourceAccessor>{shown});
             return shown;

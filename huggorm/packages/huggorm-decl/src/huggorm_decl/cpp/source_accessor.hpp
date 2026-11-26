@@ -24,7 +24,9 @@
 #include "nix/util/error.hh"
 #include "nix/util/serialise.hh"
 #include "nix/store/path.hh"
+#include "nix/util/nar-listing.hh"
 #include "nix/util/source-accessor.hh"
+#include "nix/util/util.hh"
 
 namespace huggorm {
 
@@ -187,9 +189,26 @@ public:
         target_ = std::move(target);
     }
 
+    /**
+     * Learn the whole tree's shape from `listing`, a NAR listing of its
+     * root, so `lstat`, directory listings and links need no read. The
+     * listing is complete: a path it lacks does not exist. TRUSTED, as
+     * the store path is: a wrong one shows the evaluator a wrong tree.
+     */
+    void learn(const nix::NarListing & listing)
+    {
+        std::lock_guard lock(mutex_);
+        learnAt(nix::CanonPath::root, listing);
+        complete_ = true;
+    }
+
     std::optional<Stat> maybeLstat(const nix::CanonPath & path) override
     {
-        return kept(stats_, path, [&] { return target()->maybeLstat(path); });
+        return kept(stats_, path, [&]() -> std::optional<Stat> {
+            if (completeNow())
+                return std::nullopt;
+            return target()->maybeLstat(path);
+        });
     }
 
     DirEntries readDirectory(const nix::CanonPath & path) override
@@ -226,6 +245,48 @@ private:
         return target_;
     }
 
+    bool completeNow() const
+    {
+        std::lock_guard lock(mutex_);
+        return complete_;
+    }
+
+    void learnAt(const nix::CanonPath & at, const nix::NarListing & node)
+    {
+        std::visit(
+            nix::overloaded{
+                [&](const nix::NarListing::Regular & file) {
+                    stats_.insert_or_assign(
+                        at.abs(), Stat{.type = tRegular, .fileSize = file.contents.fileSize, .isExecutable = file.executable});
+                },
+                [&](const nix::NarListing::Directory & directory) {
+                    stats_.insert_or_assign(at.abs(), Stat{.type = tDirectory});
+                    DirEntries entries;
+                    for (auto & [name, child] : directory.entries) {
+                        entries.emplace(name, typeOf(child));
+                        learnAt(at / name, child);
+                    }
+                    directories_.insert_or_assign(at.abs(), std::move(entries));
+                },
+                [&](const nix::NarListing::Symlink & link) {
+                    stats_.insert_or_assign(at.abs(), Stat{.type = tSymlink});
+                    links_.insert_or_assign(at.abs(), link.target);
+                },
+            },
+            node.raw);
+    }
+
+    static Type typeOf(const nix::NarListing & node)
+    {
+        return std::visit(
+            nix::overloaded{
+                [](const nix::NarListing::Regular &) { return tRegular; },
+                [](const nix::NarListing::Directory &) { return tDirectory; },
+                [](const nix::NarListing::Symlink &) { return tSymlink; },
+            },
+            node.raw);
+    }
+
     template<typename T>
     std::optional<T> find(const std::map<std::string, T> & from, const nix::CanonPath & path) const
     {
@@ -257,6 +318,7 @@ private:
     std::map<std::string, std::string> links_;
     std::map<std::string, std::string> files_;
     size_t fileBytes_ = 0;
+    bool complete_ = false;
 };
 
 } // namespace huggorm
