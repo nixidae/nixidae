@@ -15,6 +15,7 @@ one JSON document.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -220,7 +221,7 @@ async def sweep(target: Target) -> Sweep:
             took(name, started, before)
         # A second state, mounted with the tree's listing: only file
         # contents cross the link.
-        listing = filesystem_accessor(target.root).list_nar("/", True)
+        listing = listing_of(target.root)
         listed = await client.acquire(AsyncEvalState, store)
         before, started = tree.calls, time.monotonic()
         await listed.mount(tree, "source", path, listing)
@@ -228,7 +229,31 @@ async def sweep(target: Target) -> Sweep:
         before, started = tree.calls, time.monotonic()
         await (await listed.eval_expr("builtins.toJSON (import ./default.nix)", root)).to_json()
         took("cold+listing", started, before)
+        # An edit: a new store path, so a new mount, sent with each
+        # file's hash. Only the edited file should cross the link.
+        await anyio.Path(target.root / "live.txt").write_text(f"edit {time.time_ns()}\n")
+        edited, sums = await anyio.to_thread.run_sync(edited_tree, target)
+        before, started = tree.calls, time.monotonic()
+        mounted = await listed.mount(tree, "source", edited, listing_of(target.root), sums)
+        edited_root = await store.print_store_path(await mounted.path())
+        await (await listed.eval_expr("builtins.toJSON (import ./default.nix)", edited_root)).to_json()
+        took("edit", started, before)
     return report
+
+
+def listing_of(root: pathlib.Path) -> str:
+    return str(filesystem_accessor(root).list_nar("/", True))
+
+
+def edited_tree(target: Target) -> tuple[Any, dict[str, str]]:
+    """The tree's store path, and each file's SHA-256 by its path in the
+    tree, computed on this side."""
+    sums = {
+        "/" + str(file.relative_to(target.root)): hashlib.sha256(file.read_bytes()).hexdigest()
+        for file in target.root.rglob("*")
+        if file.is_file() and not file.is_symlink()
+    }
+    return target.path(), sums
 
 
 def main() -> None:
