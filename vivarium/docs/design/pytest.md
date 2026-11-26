@@ -242,7 +242,7 @@ dirty)`. A function-scoped fixture is then an `acquire` and a
 wants isolation from the host and does not care whether the guest is
 pristine. Both levers are wanted: the pool for clean boxes, and a
 `dirty` guest that many tests use in turn, across modules and across
-xdist workers, which today each start their own guests. A `dirty`
+xdist workers, which share the pooled run. A `dirty`
 release puts the guest back for the next `dirty` acquire; only `clean`
 waits for a fresh spare.
 
@@ -311,9 +311,13 @@ the store and the project share replace its code shipping.
    `dirty=` choose a pooled guest; every pooled test of one `attr` shares
    one run for the session. `checks.pytest-pool`: two clean scopes get
    two guests and the second sees nothing of the first; two dirty scopes
-   share one; a test runs inside a pooled guest. Left: one pooled run
-   shared by xdist workers, and the worker kept alive across dirty
-   scopes of one guest.
+   share one; a test runs inside a pooled guest. xdist workers share the
+   pooled run: the controller names a directory through
+   `pytest_configure_node`, the first worker starts the run under a
+   file lock, and the controller stops it after the last worker.
+   `checks.pytest-pool-xdist`: two workers get two guests of one run (a
+   run of their own each gives both `i-0001`). Left: the worker kept
+   alive across dirty scopes of one guest.
 6. QEMU forked guests, if 4 and 5 leave a start time worth cutting.
    Researched, not started (Hot guests, above).
 

@@ -310,6 +310,12 @@ let
       description = "pooled guests: clean, dirty, and a test inside one";
       timeoutMinutes = 30;
     };
+    pytest-pool-xdist = {
+      # Two pytest-xdist workers share one pooled run.
+      attr = "checks.pytest-pool-xdist";
+      description = "xdist workers share the pooled run";
+      timeoutMinutes = 30;
+    };
     pytest-host = {
       # Plain pytest drives QEMU guests, each run from a prebuilt `.up`
       # (`lib.pytestCheck`, nixidae/nixidae#1413).

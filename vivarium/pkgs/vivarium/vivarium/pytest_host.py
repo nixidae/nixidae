@@ -24,7 +24,9 @@ With `template=`, the test's guest comes from the run's pool
 waits for no boot, terminated after its scope. `dirty=True` takes a
 guest an earlier dirty scope gave back, and gives it back for the next.
 Every pooled test of one `attr` shares one run, up for the whole
-session.
+session. Under pytest-xdist the workers share it too: the first starts
+it, the others take it, and the controller stops it at the end. So a
+dirty guest one worker gives back serves the next dirty test of any.
 
 **The run is its own process, not this one.** vivarium needs a user and
 mount namespace; entered here, every test in the run would be root of
@@ -49,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import functools
 import inspect
 import json
@@ -94,6 +97,8 @@ GUEST_ARTIFACTS: Final = "/artifacts"
 GUEST_TIMEOUT: Final = 3600.0
 """What one test in a guest may take, its fixtures' setup and teardown included."""
 WORKER_SOCKETS: Final = "/run/vivarium/pytest"
+POOLS: Final = "vivarium_pools"
+"""The `workerinput` key that names the pool runs' directory to each xdist worker."""
 
 
 class RunFailed(RuntimeError):
@@ -325,6 +330,11 @@ class Driver:
         self.boxes: dict[tuple[str, str], Box] = {}
         self.pools: dict[str, Run] = {}
         """The run each pooled `attr` shares, up for the session."""
+        # xdist sets `workerinput` on a worker's config only.
+        shared = getattr(config, "workerinput", {}).get(POOLS)
+        self.owns_pools = shared is None
+        """Whether this process stops the pool runs: a lone pytest or the xdist controller."""
+        self.pool_dir = Path(shared) if shared else self.base / ("pools" if self.keep else f"pools-{time.time_ns()}")
         self.rootdir = config.rootpath
         self.inifile = config.inipath
         # The guest's pytest starts where this one did, so a relative --cov
@@ -356,7 +366,7 @@ class Driver:
             run = self._up(want.attr, out_name(want.attr))
             self.boxes[key] = Box(run, run.vms)
             return self.boxes[key]
-        run = self.pools.get(want.attr) or self._up(want.attr, f"{out_name(want.attr)}-pool")
+        run = self.pools.get(want.attr) or self._pool_run(want.attr)
         self.pools[want.attr] = run
         name = str(self.portal.call(run.conn.call, "acquire", (want.template, not want.dirty, self.spares), {}))
         self.boxes[key] = Box(run, {want.template: RemoteMachine(run.conn, name)}, name, want.dirty)
@@ -364,11 +374,23 @@ class Driver:
 
     def _up(self, attr: str, name: str) -> Run:
         out = self.base / name if self.keep else self.base / f"{name}-{time.time_ns()}"
-        if self.keep and places.socket(out, SOCKET).exists():
+        return self._take(attr, out, reuse=self.keep)
+
+    def _take(self, attr: str, out: Path, *, reuse: bool) -> Run:
+        if reuse and places.socket(out, SOCKET).exists():
             with contextlib.suppress(OSError):
                 return self._open(attr, out)
         self._start(attr, out)
         return self._open(attr, out)
+
+    def _pool_run(self, attr: str) -> Run:
+        """The pool run of `attr` that every process of this session shares:
+        started by the first to ask, under a lock the others wait on."""
+        self.pool_dir.mkdir(parents=True, exist_ok=True)
+        name = out_name(attr)
+        with (self.pool_dir / f"{name}.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return self._take(attr, self.pool_dir / name, reuse=True)
 
     def _start(self, attr: str, out: Path) -> None:
         if self.prebuilt is None:
@@ -546,19 +568,24 @@ class Driver:
             return
         self._down(box.run)
 
-    def _down(self, run: Run) -> None:
+    def _down(self, run: Run, *, stop: bool = True) -> None:
         self.prepared = {done for done in self.prepared if done[0] != run.out}
         # On its loop: closing wakes a write that waits on the fd there.
         self.portal.call(run.conn.close, None)
-        if not self.keep:
+        if stop and not self.keep:
             self.portal.call(_stop, run.out)
 
     def close(self) -> None:
         for key in list(self.boxes):
             self.release(key)
         for run in self.pools.values():
-            self._down(run)
+            self._down(run, stop=False)
         self.pools.clear()
+        if self.owns_pools and not self.keep and self.pool_dir.is_dir():
+            # Every worker has closed: the owner ends the runs they shared.
+            for out in sorted(path for path in self.pool_dir.iterdir() if path.is_dir()):
+                if places.socket(out, control.SOCKET).exists():
+                    self.portal.call(_stop, out)
         if self._portal_cm is not None:
             self._portal_cm.__exit__(None, None, None)
             self._portal = self._portal_cm = None
@@ -595,6 +622,16 @@ def pytest_configure(config: pytest.Config) -> None:
         "guest of that template from the run's pool",
     )
     config.stash[_DRIVER] = Driver(config)
+    if config.pluginmanager.hasplugin("xdist"):
+        config.pluginmanager.register(_XdistHooks(), "vivarium-xdist")
+
+
+class _XdistHooks:
+    """Registered only beside pytest-xdist: pluggy refuses a hook it does not know."""
+
+    @staticmethod
+    def pytest_configure_node(node: Any) -> None:  # noqa: ANN401 -- xdist's WorkerController, untyped
+        node.workerinput[POOLS] = str(_driver(node.config).pool_dir)
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:

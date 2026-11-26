@@ -691,7 +691,9 @@ async def test_fresh(vm):                  # the run's only guest
   that want isolation from the host but not a pristine guest share one.
   `vm` and `vms["<template>"]` are the guest; `guest="<template>"` runs
   the test inside it. Every pooled test of one `attr` shares one run, up
-  until pytest ends.
+  until pytest ends. Under pytest-xdist the workers share that run too,
+  so a dirty guest one worker gives back serves the next dirty test on
+  any worker.
 
   ```python
   @pytest.mark.vivarium("boxes", template="box", scope="function", dirty=True)
