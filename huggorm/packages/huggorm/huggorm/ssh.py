@@ -5,7 +5,13 @@ SSH channel as its one connection (nixidae/nixidae#551).
 `Ssh(host)` is the `via` for `huggorm.worker`, and `SshConnection` the
 one over a connection the caller opened and manages itself.
 `connected(host)` and `spawned(connection, command)` are the layer
-below them.
+below them. Each starts a server per connection: a cold one.
+
+`forwarded(connection, path)` and `socket_dialer(host, path)` reach a
+server that already runs, `huggorm.server PATH` on the far host, over
+SSH Unix socket forwarding: a warm one. Several clients share it, each
+with its own state, and a client that reconnects claims its state
+again.
 
 asyncssh opens a connection the way the OpenSSH client does by
 default: `~/.ssh/config`, the agent, the default keys and
@@ -108,6 +114,78 @@ async def spawned(connection: asyncssh.SSHClientConnection, command: str) -> Asy
             if process.returncode is None:
                 process.kill()
             process.close()
+
+
+async def _open_socket(connection: asyncssh.SSHClientConnection, path: str) -> SshStream:
+    try:
+        reader, writer = await connection.open_unix_connection(path)
+    except asyncssh.ChannelOpenError as e:
+        # What `transport.unix` raises for a socket nobody serves.
+        raise ConnectionRefusedError(f"ssh refused a connection to {path!r}: {e.reason}") from e
+    return SshStream(reader, writer)
+
+
+def forwarded(connection: asyncssh.SSHClientConnection, path: str) -> transport.Dialer:
+    """Dial the Unix socket at `path` on the far end of `connection`,
+    once per call: a long-lived `huggorm.server PATH` there.
+
+    The caller owns `connection`. Each dial is its own channel, so a
+    client redials while the connection lives. The SSH server must
+    allow Unix socket forwarding (`AllowStreamLocalForwarding`, on by
+    default in OpenSSH)."""
+
+    async def dial() -> anyio.abc.ByteStream:
+        return await _open_socket(connection, path)
+
+    return dial
+
+
+class _OwningStream(SshStream):
+    """A channel that closes its own SSH connection when it closes."""
+
+    def __init__(self, stream: SshStream, connection: asyncssh.SSHClientConnection) -> None:
+        super().__init__(stream._reader, stream._writer)
+        self._connection = connection
+
+    async def aclose(self) -> None:
+        with anyio.CancelScope(shield=True):
+            await super().aclose()
+            self._connection.close()
+            with anyio.move_on_after(STOP_GRACE):
+                await self._connection.wait_closed()
+
+
+def socket_dialer(
+    host: str,
+    path: str,
+    *,
+    username: str | None = None,
+    port: int | None = None,
+    password: str | None = None,
+    **options: Any,
+) -> transport.Dialer:
+    """Dial the Unix socket at `path` on `host`, with a new SSH
+    connection per call. The stream owns that connection and closes it.
+
+    For a client that must outlive its SSH link: a dropped link ends the
+    huggorm connection, and the next dial opens a new link. A detached
+    session claims its state again over it. `options` go to
+    `asyncssh.connect` as they are; `keepalive_interval` makes a link
+    that stops answering fail instead of hanging."""
+    given = {"username": username, "port": port, "password": password}
+    # Any: asyncssh's option names, passed through unread.
+    arguments: dict[str, Any] = {k: v for k, v in given.items() if v is not None}
+
+    async def dial() -> anyio.abc.ByteStream:
+        connection = await asyncssh.connect(host, **arguments, **options)
+        try:
+            stream = await _open_socket(connection, path)
+        except BaseException:
+            connection.close()
+            raise
+        return _OwningStream(stream, connection)
+
+    return dial
 
 
 @contextlib.asynccontextmanager
