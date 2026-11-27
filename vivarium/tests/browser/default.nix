@@ -4,10 +4,10 @@
 
   `web` serves https://web.test/ with a certificate the run's intermediate
   signs, and answers DNS for `test`; the router's SOCKS proxy resolves
-  `test` there. The `fetch` phase prepares Chromium as the command does
-  (vivarium/browser.py: the split proxy, the lab root in its NSS
+  `test` there. The `fetch` phase prepares Chromium and Firefox as the command does
+  (vivarium/browser.py: the split proxy, the lab root in an NSS
   database) and loads the page headless. Negative control: the same
-  Chromium without the lab root is refused. https://alt.test/ has no
+  browser without the lab root is refused. https://alt.test/ has no
   address, only an SRV record for web.test:8443: the proxy follows it,
   and the page says port 8443. tests/browser.py.
 
@@ -70,6 +70,7 @@ mkTest {
   };
   settings = {
     chromium = lib.getExe pkgs.chromium;
+    firefox = lib.getExe pkgs.firefox;
     certutil = lib.getExe' pkgs.nss.tools "certutil";
   };
   phases = {
