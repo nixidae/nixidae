@@ -10,7 +10,7 @@ import dns.resolver
 import pytest
 from vivarium_socks import protocol
 from vivarium_socks.protocol import AddressType, ProtocolError, Reply
-from vivarium_socks.resolve import IPAddress, Resolver, Unresolved, servers_for
+from vivarium_socks.resolve import IPAddress, Resolver, Service, Unresolved, pick, servers_for
 from vivarium_socks.server import Resolving, serve
 from vivarium_socks.split import Lab, Split
 
@@ -65,11 +65,15 @@ def test_servers_for_takes_the_longest_domain() -> None:
 class FakeResolver:
     def __init__(self, names: dict[str, list[IPAddress]]) -> None:
         self.names = names
+        self.services: dict[tuple[str, int], tuple[str, int]] = {}
 
     async def resolve(self, name: str) -> list[IPAddress]:
         if name not in self.names:
             raise Unresolved(name)
         return self.names[name]
+
+    async def service(self, name: str, port: int) -> tuple[str, int] | None:
+        return self.services.get((name, port))
 
 
 async def echo(stream: anyio.abc.SocketStream) -> None:
@@ -236,3 +240,51 @@ async def test_a_refused_type_keeps_the_other_types_addresses() -> None:
 async def test_a_name_no_type_answers_says_why() -> None:
     with pytest.raises(Unresolved, match="web.lab: All nameservers failed"):
         await Refusing({}).resolve("web.lab")
+
+
+async def test_a_service_record_sends_the_connection_to_its_target_and_port() -> None:
+    """https://alt.lab/ reaches echo.lab on its own port, as a browser reaches a Service's named port."""
+    resolver = FakeResolver({"echo.lab": [ipaddress.IPv4Address("127.0.0.1")]})
+    async with anyio.create_task_group() as group:
+        listener = await anyio.create_tcp_listener(local_host="127.0.0.1", local_port=0)
+        group.start_soon(listener.serve, echo)
+        resolver.services[("alt.lab", 443)] = ("echo.lab", listener.extra(anyio.abc.SocketAttribute.local_port))
+        proxy = await group.start(serve, "127.0.0.1", 0, Resolving(resolver))
+        stream, answer = await socks_connect(proxy, bytes([3, 7]) + b"alt.lab", 443)
+        async with stream:
+            assert answer[1] == Reply.SUCCEEDED
+            await stream.send(b"hi")
+            assert await stream.receive() == b"echo:hi"
+        group.cancel_scope.cancel()
+
+
+def test_the_record_with_the_lowest_priority_and_then_the_highest_weight_wins() -> None:
+    records = [Service(20, 100, 1, "late.lab"), Service(10, 1, 2, "light.lab"), Service(10, 5, 3, "heavy.lab")]
+    assert pick(records) == ("heavy.lab", 3)
+    assert pick([Service(0, 0, 443, "")]) is None, "a target of `.` says the service is not there"
+    assert pick([]) is None
+
+
+class Services(Resolver):
+    """SRV answers by owner name; any other owner fails as a server that does not know it."""
+
+    def __init__(self, records: dict[str, list[Service]]) -> None:
+        super().__init__({"lab": ["10.0.2.15"]})
+        self.records = records
+        self.asked: list[str] = []
+
+    async def _services(self, servers: Sequence[str], owner: str) -> list[Service]:
+        del servers
+        self.asked.append(owner)
+        if owner not in self.records:
+            raise dns.resolver.NXDOMAIN
+        return self.records[owner]
+
+
+async def test_only_web_ports_of_lab_names_ask_for_a_service_record() -> None:
+    resolver = Services({"_https._tcp.shop.lab": [Service(0, 0, 8443, "shop.lab")]})
+    assert await resolver.service("shop.lab", 443) == ("shop.lab", 8443)
+    assert await resolver.service("shop.lab", 80) is None, "no `_http._tcp` record: the request's own port"
+    assert await resolver.service("shop.lab", 5432) is None
+    assert await resolver.service("example.com", 443) is None
+    assert resolver.asked == ["_https._tcp.shop.lab", "_http._tcp.shop.lab"]

@@ -89,6 +89,9 @@ class Resolving:
         self.resolver = resolver
 
     async def open(self, request: Request) -> anyio.abc.ByteStream:
+        if isinstance(request.host, str) and (moved := await self.resolver.service(request.host, request.port)):
+            target, port = moved
+            return await connect(await self.resolver.resolve(target), port)
         return await connect(await addresses(request, self.resolver), request.port)
 
 

@@ -7,7 +7,9 @@
   `test` there. The `fetch` phase prepares Chromium as the command does
   (vivarium/browser.py: the split proxy, the lab root in its NSS
   database) and loads the page headless. Negative control: the same
-  Chromium without the lab root is refused. tests/browser.py.
+  Chromium without the lab root is refused. https://alt.test/ has no
+  address, only an SRV record for web.test:8443: the proxy follows it,
+  and the page says port 8443. tests/browser.py.
 
   `vivarium up checks.browser` keeps it up for `vivarium browser browser`.
 */
@@ -43,6 +45,7 @@ mkTest {
           resolveLocalQueries = false;
           settings = {
             address = "/web.test/${here}";
+            srv-host = "_https._tcp.alt.test,web.test,8443";
             # Answers for `test` itself: "no such record", never a refusal.
             local = "/test/";
             listen-address = here;
@@ -59,6 +62,7 @@ mkTest {
           allowedTCPPorts = [
             53
             443
+            8443
           ];
           allowedUDPPorts = [ 53 ];
         };

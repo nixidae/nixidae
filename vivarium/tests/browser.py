@@ -19,11 +19,11 @@ async def test(vms: Machines) -> None:
         raise AssertionError("the run has no lab CA")
     issuer = await vms.trust.issuer()
     intermediate = authority.load(issuer.certificate, issuer.key)
-    leaf = authority.leaf(intermediate, ["web.test"], datetime.datetime.now(datetime.UTC))
+    leaf = authority.leaf(intermediate, ["web.test", "alt.test"], datetime.datetime.now(datetime.UTC))
     tls = web.artifacts / "tls"
     tls.mkdir(parents=True, exist_ok=True)
     (tls / "cert.pem").write_text(leaf.certificate_pem() + issuer.certificate)
     (tls / "key.pem").write_text(leaf.key_pem())
     await web.succeed("systemctl start web-https")
-    await web.wait_until_succeeds("ss -Htln sport = :443 | grep -q .")
+    await web.wait_until_succeeds("ss -Htln sport = :8443 | grep -q .")
     web.say("https://web.test/ serves a leaf of the run's intermediate")
