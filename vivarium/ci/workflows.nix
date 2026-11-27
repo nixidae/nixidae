@@ -304,6 +304,23 @@ let
       timeoutMinutes = 30;
       after = [ "direct-kernel" ];
     };
+    kept-container = {
+      # checks.kept runs under UML; this keeps the store in a host directory.
+      attr = "checks.kept.container";
+      description = "a named environment keeps its paths across runs, in a container guest";
+      timeoutMinutes = 30;
+    };
+    kept-qemu = {
+      attr = "checks.kept.qemu";
+      description = "a named environment keeps its paths across runs, in a QEMU guest";
+      timeoutMinutes = 30;
+    };
+    kept-krun = {
+      attr = "checks.kept.krun";
+      description = "a named environment keeps its paths across runs, in a krun guest";
+      timeoutMinutes = 30;
+      after = [ "direct-kernel" ];
+    };
     pytest-pool = {
       # Clean scopes get fresh guests of a template, dirty scopes share one.
       attr = "checks.pytest-pool";
