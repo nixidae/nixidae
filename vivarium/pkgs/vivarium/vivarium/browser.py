@@ -246,9 +246,14 @@ def prepare(
     root: Path | None,
     platform: str,
     tool: str | None = None,
+    environ: Mapping[str, str] | None = None,
+    user_home: Path | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     """The command and the variables a launch with profile *home* needs; writes the profile.
-    *tool* is certutil, from PATH when None."""
+    *tool* is certutil, from PATH when None; *environ* and *user_home* are the user's, this
+    process's when None."""
+    environ = os.environ if environ is None else environ
+    user_home = Path.home() if user_home is None else user_home
     profile = home / "profile"
     profile.mkdir(parents=True, exist_ok=True)
     extra: dict[str, str] = {}
@@ -260,8 +265,46 @@ def prepare(
     if root is not None and platform != "darwin":
         # Chromium on Linux reads ~/.pki/nssdb only, so this launch gets a home of its own.
         add_root(home / ".pki/nssdb", root, tool or certutil())
-        extra["HOME"] = str(home)
+        extra |= own_home(home, profile, environ, user_home)
     return chromium_argv(browser, profile, proxy), extra
+
+
+def downloads(environ: Mapping[str, str], home: Path) -> Path:
+    """The user's download directory: `XDG_DOWNLOAD_DIR` in `user-dirs.dirs`, else ~/Downloads."""
+    dirs = Path(environ.get("XDG_CONFIG_HOME") or home / ".config") / "user-dirs.dirs"
+    try:
+        lines = dirs.read_text().splitlines()
+    except OSError:
+        return home / "Downloads"
+    for line in lines:
+        name, _, value = line.partition("=")
+        if name.strip() == "XDG_DOWNLOAD_DIR":
+            path = value.strip().strip('"').replace("$HOME", str(home))
+            if path.startswith("/"):
+                return Path(path)
+    return home / "Downloads"
+
+
+def own_home(home: Path, profile: Path, environ: Mapping[str, str], user_home: Path) -> dict[str, str]:
+    """The variables that give Chromium *home*, and keep what the user's home holds for it besides
+    trust: their configuration and data (fonts, themes), and their download directory. Measured:
+    with HOME alone moved and no XDG_CONFIG_HOME, a download lands in *home* and goes with it."""
+    target = str(downloads(environ, user_home))
+    preferences = {"download": {"default_directory": target}, "savefile": {"default_directory": target}}
+    (profile / "Default").mkdir(parents=True, exist_ok=True)
+    (profile / "Default" / "Preferences").write_text(json.dumps(preferences))
+    return {
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": environ.get("XDG_CONFIG_HOME") or str(user_home / ".config"),
+        "XDG_DATA_HOME": environ.get("XDG_DATA_HOME") or str(user_home / ".local/share"),
+    }
+
+
+def page(url: str) -> str:
+    """*url*, or `https://` *url* when it names no scheme: `web.test` is a page, not a search."""
+    if "://" in url or url.partition(":")[0] in {"about", "chrome", "data", "file", "view-source"}:
+        return url
+    return f"https://{url}"
 
 
 def launch(browser: Browser, exported: Mapping[str, str], out: Path, urls: Sequence[str], platform: str) -> int:
@@ -280,6 +323,6 @@ def launch(browser: Browser, exported: Mapping[str, str], out: Path, urls: Seque
     with tempfile.TemporaryDirectory(prefix="vivarium-browser-") as home:
         argv, extra = prepare(browser, Path(home), proxy, lab_root, platform)
         try:
-            return subprocess.run([*argv, *urls], env=os.environ | extra, check=False).returncode
+            return subprocess.run([*argv, *map(page, urls)], env=os.environ | extra, check=False).returncode
         except OSError as error:
             raise BrowserError(f"{argv[0]}: {error.strerror}") from None

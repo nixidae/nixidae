@@ -629,8 +629,8 @@ control socket (`vivarium ctl --out O env` prints them as JSON).
 
 `vivarium browser NAME` starts your default browser into a live run's
 lab, and waits until you close it. `--url URL` opens a page; repeat it
-for more. `--browser PROGRAM` names a Chromium or Firefox family
-program instead.
+for more. A URL with no scheme opens as `https://`. `--browser PROGRAM`
+names a Chromium or Firefox family program instead.
 
 ```console
 $ vivarium up checks.browser
@@ -639,7 +639,8 @@ $ vivarium browser browser --url https://web.test/
 
 - The browser gets a profile of its own for this launch, so it runs
   beside your open browser and leaves your profile alone. The profile
-  goes when the browser exits.
+  goes when the browser exits. Downloads go to your own download
+  directory.
 - It reaches the lab through `VIVARIUM_PROXY`, with names resolved at
   the proxy: lab names resolve inside the lab, and the rest goes
   straight out from the host.

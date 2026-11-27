@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import plistlib
 import subprocess
 from pathlib import Path
@@ -156,11 +157,58 @@ def test_firefox_gets_prefs_and_the_lab_root_in_its_profile(tmp_path: Path) -> N
 
 
 def test_chromium_on_linux_gets_a_home_with_the_lab_root(tmp_path: Path) -> None:
-    home = tmp_path / "home"
+    home, user = tmp_path / "home", tmp_path / "user"
     chromium = Browser(Family.CHROMIUM, ("chromium",), "chromium")
-    _, extra = browser.prepare(chromium, home, ("127.0.0.1", 1080), _root(tmp_path), "linux")
-    assert extra == {"HOME": str(home)}
+    _, extra = browser.prepare(
+        chromium, home, ("127.0.0.1", 1080), _root(tmp_path), "linux", environ={}, user_home=user
+    )
+    assert extra == {
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(user / ".config"),
+        "XDG_DATA_HOME": str(user / ".local/share"),
+    }
     assert browser.LAB_ROOT_NICKNAME in _trusted(home / ".pki/nssdb")
+
+
+def test_chromium_saves_downloads_in_the_users_directory_not_its_own_home(tmp_path: Path) -> None:
+    home, user = tmp_path / "home", tmp_path / "user"
+    _write(user / "config/user-dirs.dirs", 'XDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOWNLOAD_DIR="$HOME/Hämtningar"\n')
+    chromium = Browser(Family.CHROMIUM, ("chromium",), "chromium")
+    environ = {"XDG_CONFIG_HOME": str(user / "config")}
+    _, extra = browser.prepare(
+        chromium, home, ("127.0.0.1", 1080), _root(tmp_path), "linux", environ=environ, user_home=user
+    )
+    assert extra["XDG_CONFIG_HOME"] == str(user / "config")
+    preferences = json.loads((home / "profile/Default/Preferences").read_text())
+    assert preferences["download"]["default_directory"] == str(user / "Hämtningar")
+
+
+@pytest.mark.parametrize(
+    ("dirs", "expected"),
+    [
+        (None, "Downloads"),
+        ('XDG_DOWNLOAD_DIR="/srv/drop"\n', "/srv/drop"),
+        ("# no download line\n", "Downloads"),
+        ('XDG_DOWNLOAD_DIR="relative"\n', "Downloads"),
+    ],
+)
+def test_the_download_directory_comes_from_user_dirs(tmp_path: Path, dirs: str | None, expected: str) -> None:
+    if dirs is not None:
+        _write(tmp_path / ".config/user-dirs.dirs", dirs)
+    assert browser.downloads({}, tmp_path) == tmp_path / expected
+
+
+@pytest.mark.parametrize(
+    ("given", "opened"),
+    [
+        ("web.test", "https://web.test"),
+        ("web.test:8443/x", "https://web.test:8443/x"),
+        ("http://web.test/", "http://web.test/"),
+        ("about:blank", "about:blank"),
+    ],
+)
+def test_a_url_without_a_scheme_is_https(given: str, opened: str) -> None:
+    assert browser.page(given) == opened
 
 
 def test_chromium_on_macos_leaves_its_home_alone(tmp_path: Path) -> None:
