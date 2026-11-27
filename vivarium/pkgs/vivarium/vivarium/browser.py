@@ -107,9 +107,16 @@ def mimeapps_lists(environ: Mapping[str, str], home: Path) -> list[Path]:
     config_home = Path(environ.get("XDG_CONFIG_HOME") or home / ".config")
     config_dirs = [Path(each) for each in (environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(":") if each]
     data_home = Path(environ.get("XDG_DATA_HOME") or home / ".local/share")
-    data_dirs = [Path(each) for each in (environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if each]
+    data_dirs = [
+        Path(each) for each in (environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if each
+    ]
     desktops = [each.lower() for each in environ.get("XDG_CURRENT_DESKTOP", "").split(":") if each]
-    directories = [config_home, *config_dirs, data_home / "applications", *(each / "applications" for each in data_dirs)]
+    directories = [
+        config_home,
+        *config_dirs,
+        data_home / "applications",
+        *(each / "applications" for each in data_dirs),
+    ]
     return [
         directory / name
         for directory in directories
@@ -130,7 +137,9 @@ def https_handlers(lists: Sequence[Path]) -> list[str]:
         except configparser.Error:
             continue
         if parser.has_option("Default Applications", HTTPS_HANDLER):
-            found += [each.strip() for each in parser.get("Default Applications", HTTPS_HANDLER).split(";") if each.strip()]
+            found += [
+                each.strip() for each in parser.get("Default Applications", HTTPS_HANDLER).split(";") if each.strip()
+            ]
     return found
 
 
@@ -138,7 +147,9 @@ def desktop_exec(desktop_id: str, environ: Mapping[str, str], home: Path) -> lis
     """The program of *desktop_id*'s `Exec=` line, field codes such as `%U` dropped. None when
     its program is not there, as for `TryExec`: a profile's entry can outlive its store path."""
     data_home = Path(environ.get("XDG_DATA_HOME") or home / ".local/share")
-    data_dirs = [Path(each) for each in (environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if each]
+    data_dirs = [
+        Path(each) for each in (environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if each
+    ]
     for directory in [data_home, *data_dirs]:
         path = directory / "applications" / desktop_id
         if not path.is_file():

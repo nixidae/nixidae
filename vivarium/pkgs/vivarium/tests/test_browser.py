@@ -47,7 +47,10 @@ def test_a_desktops_own_list_and_the_users_config_come_first(tmp_path: Path) -> 
     }
     lists = browser.mimeapps_lists(environ, tmp_path)
     assert lists[:2] == [tmp_path / "config/gnome-mimeapps.list", tmp_path / "config/mimeapps.list"]
-    _write(tmp_path / "share/applications/mimeapps.list", "[Default Applications]\nx-scheme-handler/https=firefox.desktop\n")
+    _write(
+        tmp_path / "share/applications/mimeapps.list",
+        "[Default Applications]\nx-scheme-handler/https=firefox.desktop\n",
+    )
     assert browser.https_handlers(lists) == ["firefox.desktop"]
     _write(tmp_path / "config/mimeapps.list", "[Default Applications]\nx-scheme-handler/https=;chromium.desktop;\n")
     assert browser.https_handlers(lists) == ["chromium.desktop", "firefox.desktop"]
@@ -73,7 +76,10 @@ def test_the_program_is_the_exec_line_without_field_codes(tmp_path: Path) -> Non
 def test_an_entry_whose_program_is_gone_gives_way_to_the_next(tmp_path: Path) -> None:
     """A Firefox entry naming a garbage-collected store path, then a Chromium that is there."""
     chromium = _program(tmp_path / "bin/chromium")
-    _write(tmp_path / "share/applications/firefox.desktop", "[Desktop Entry]\nExec=/nix/store/gone-firefox/bin/firefox %U\n")
+    _write(
+        tmp_path / "share/applications/firefox.desktop",
+        "[Desktop Entry]\nExec=/nix/store/gone-firefox/bin/firefox %U\n",
+    )
     _write(tmp_path / "share/applications/chromium.desktop", f"[Desktop Entry]\nExec={chromium} %U\n")
     _write(
         tmp_path / "config/mimeapps.list",
@@ -84,7 +90,9 @@ def test_an_entry_whose_program_is_gone_gives_way_to_the_next(tmp_path: Path) ->
         "XDG_DATA_DIRS": str(tmp_path / "share"),
         "XDG_DATA_HOME": str(tmp_path / "none"),
     }
-    assert browser.find(None, environ, tmp_path, "linux") == Browser(Family.CHROMIUM, (str(chromium),), "chromium.desktop")
+    assert browser.find(None, environ, tmp_path, "linux") == Browser(
+        Family.CHROMIUM, (str(chromium),), "chromium.desktop"
+    )
 
 
 def test_macos_reads_the_https_handler_from_launch_services(tmp_path: Path) -> None:
@@ -101,7 +109,9 @@ def test_macos_reads_the_https_handler_from_launch_services(tmp_path: Path) -> N
     _write(tmp_path / browser.LAUNCH_SERVICES, "")
     (tmp_path / browser.LAUNCH_SERVICES).write_bytes(plist)
     found = browser.find(None, {}, tmp_path, "darwin")
-    assert found == Browser(Family.FIREFOX, ("open", "-n", "-W", "-b", "org.mozilla.firefox", "--args"), "org.mozilla.firefox")
+    assert found == Browser(
+        Family.FIREFOX, ("open", "-n", "-W", "-b", "org.mozilla.firefox", "--args"), "org.mozilla.firefox"
+    )
 
 
 def test_a_named_program_of_neither_family_is_refused() -> None:

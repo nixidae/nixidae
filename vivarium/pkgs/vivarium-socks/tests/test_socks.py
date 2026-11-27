@@ -238,7 +238,7 @@ async def test_a_refused_type_keeps_the_other_types_addresses() -> None:
 
 
 async def test_a_name_no_type_answers_says_why() -> None:
-    with pytest.raises(Unresolved, match="web.lab: All nameservers failed"):
+    with pytest.raises(Unresolved, match=r"web\.lab: All nameservers failed"):
         await Refusing({}).resolve("web.lab")
 
 
