@@ -55,6 +55,7 @@ Guests that stay up after the phases, for work from the host (a cluster to `kube
 vivarium up <test> [--name N] [--daemonize]   # background; exits 0 at ready with access.json on stdout, 4 if a phase failed (paused); --daemonize: own systemd user unit vivarium-N.service, outlives the caller's cgroup
 vivarium shell N [-- CMD]           # $SHELL or CMD with the run's variables: KUBECONFIG, SSL_CERT_FILE, ALL_PROXY...
 vivarium env N [--json]             # the same as `export` lines
+vivarium browser N [--url U]        # the default browser, own profile, into the lab: proxy + lab CA; waits for it to close
 vivarium logs N [-g GUEST] [-u UNIT] [-k KIND] [--grep T] [-n N] [-f]   # events as `log` shows them; any run, live or not
 vivarium load N IMAGE.tar... [--node G]   # docker save / OCI tarball into every node's runtime (kind load); JSON of images per node
 vivarium node add N NODE [--template T] / node rm N NODE   # a worker from a Kubernetes template, joined and routed; JSON {name, ip}

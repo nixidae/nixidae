@@ -1,5 +1,6 @@
 {
   lib,
+  nss,
   python3Packages,
   vivarium-agent,
   vivarium-ca,
@@ -54,7 +55,11 @@ python3Packages.buildPythonPackage {
   # a guest to find out what a failure skips. `vivarium/tests/` holds only
   # what needs no machine; anything that needs one is a test in `tests/`
   # at the root, where a guest is available.
-  nativeCheckInputs = [ python3Packages.pytestCheckHook ];
+  nativeCheckInputs = [
+    python3Packages.pytestCheckHook
+    # tests/test_browser.py puts a lab root in an NSS database.
+    nss.tools
+  ];
 
   meta = {
     description = "Drive a run of NixOS guests a step at a time";

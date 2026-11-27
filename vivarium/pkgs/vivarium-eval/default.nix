@@ -48,7 +48,10 @@ let
 
   app = nanopynix.lib.mkApp {
     name = "vivarium-eval";
+    program = "vivarium";
     inherit pythonSet;
+    # `vivarium browser` puts the lab root in an NSS database with certutil.
+    pathInputs = [ pkgs.nss.tools ];
   };
 
   # A Python with `vivarium`, the pytest plugin and pytest: what a dev

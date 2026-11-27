@@ -46,7 +46,7 @@ import huggorm
 from huggorm.attrpath import AttrPathError, auto_call, select_attr_path
 from huggorm.errors import NixError
 from huggorm_bindings import DerivedPathBuilt, OutputsSpec
-from vivarium import access, cli as runner_cli, control, environments, liveness, logs, monitor, places, registry
+from vivarium import access, browser, cli as runner_cli, control, environments, liveness, logs, monitor, places, registry
 from vivarium.exits import Exit, describe
 from vivarium.phases import VERDICT, Verdict
 from vivarium_runner.forward import InboundJson
@@ -212,6 +212,14 @@ def parser() -> argparse.ArgumentParser:
         if command == "env":
             entering.add_argument("--json", action="store_true", help="one JSON object")
         entering.set_defaults(handler=enter)
+    browsing = sub.add_parser(
+        "browser",
+        help="the default browser, with a profile of its own, into a live run's lab: its proxy and its lab CA",
+    )
+    add_target(browsing)
+    browsing.add_argument("--browser", help="a Chromium or Firefox family program, not the default browser")
+    browsing.add_argument("--url", action="append", default=[], help="a page to open; repeat for more")
+    browsing.set_defaults(handler=open_browser)
     loading = sub.add_parser(
         "load",
         help=(
@@ -790,6 +798,20 @@ def without_name(words: list[str]) -> list[str]:
         elif not word.startswith("--name="):
             kept.append(word)
     return kept
+
+
+def open_browser(args: argparse.Namespace) -> int:
+    """`browser`: runs until the browser exits, then drops its profile."""
+    out = target_of(args)
+    if not anyio.run(environments.live, out):
+        print(f"vivarium browser: {out} is not up; `vivarium up` it first", file=sys.stderr)
+        return Exit.NO_RUN
+    try:
+        found = browser.find(args.browser, os.environ, Path.home(), sys.platform)
+        return browser.launch(found, anyio.run(shell.exported, out), out, args.url, sys.platform)
+    except (browser.BrowserError, shell.ShellError, subprocess.CalledProcessError) as error:
+        print(f"vivarium browser: {error}", file=sys.stderr)
+        return 1
 
 
 def enter(args: argparse.Namespace) -> int:

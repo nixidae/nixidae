@@ -625,6 +625,34 @@ A phase adds a variable with `await vms.export(NAME, VALUE)`. The run
 keeps them, and `env` and `shell` ask the live run for them on its
 control socket (`vivarium ctl --out O env` prints them as JSON).
 
+### Open a browser into the lab
+
+`vivarium browser NAME` starts your default browser into a live run's
+lab, and waits until you close it. `--url URL` opens a page; repeat it
+for more. `--browser PROGRAM` names a Chromium or Firefox family
+program instead.
+
+```console
+$ vivarium up checks.browser
+$ vivarium browser browser --url https://web.test/
+```
+
+- The browser gets a profile of its own for this launch, so it runs
+  beside your open browser and leaves your profile alone. The profile
+  goes when the browser exits.
+- It reaches the lab through `VIVARIUM_PROXY`, with names resolved at
+  the proxy: lab names resolve inside the lab, and the rest goes
+  straight out from the host.
+- It trusts the lab root (`access/ca.pem`) from a certificate store,
+  where the root's name constraints hold: Firefox's profile, and on
+  Linux Chromium's NSS database under a home of its own. On macOS,
+  Chromium trusts the keychain alone; the command prints the
+  `security add-trusted-cert` line that adds the root once.
+- The default browser is the `https` handler: `mimeapps.list` on Linux,
+  LaunchServices on macOS. Safari takes no proxy or profile per launch,
+  so a Safari default falls back to the first Chromium or Firefox on
+  `PATH`.
+
 ## Drive guests from plain pytest
 
 `pytest` in a shell with `packages.vivarium-eval.env` on PATH loads

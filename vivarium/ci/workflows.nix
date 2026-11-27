@@ -304,6 +304,12 @@ let
       timeoutMinutes = 30;
       after = [ "direct-kernel" ];
     };
+    browser = {
+      # Chromium, as `vivarium browser` prepares it, loads a lab page by name.
+      attr = "checks.browser";
+      description = "a browser reaches a lab page by its name, over HTTPS with the lab CA";
+      timeoutMinutes = 30;
+    };
     kept-container = {
       # checks.kept runs under UML; this keeps the store in a host directory.
       attr = "checks.kept.container";
