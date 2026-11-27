@@ -11,9 +11,12 @@ from typing import TYPE_CHECKING, Any, Protocol
 from ..capability import Controls
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..boot import Boot
     from ..machine import Machine
     from ..machine_spec import MachineSpec
+    from ..needs import Missing
     from ..store import Store
 
 
@@ -151,6 +154,11 @@ class Backend(Protocol):
 
     def validate(self, spec: MachineSpec) -> None:
         """Raise `BackendError` when `spec.launch` is wrong for this backend."""
+        ...
+
+    async def missing(self, specs: Sequence[MachineSpec]) -> list[Missing]:
+        """What this host lacks to run *specs*, beyond their declared needs
+        (`vivarium_runner.needs`); asked before any guest boots."""
         ...
 
     def with_kernel(self, spec: MachineSpec, kernel: Path) -> MachineSpec:

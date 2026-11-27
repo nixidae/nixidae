@@ -46,7 +46,7 @@ import anyio
 import pytest
 import vivarium_socks
 from anyio.from_thread import BlockingPortal
-from vivarium_runner import Machine, MachineError, Machines, MachineSpec, RunContext, Unneeded, backends
+from vivarium_runner import Machine, MachineError, Machines, MachineSpec, RunContext, Unneeded, backends, needs
 from vivarium_runner.backends import BackendError
 from vivarium_runner.instances import seed
 from vivarium_runner.machine_spec import Socks
@@ -504,12 +504,23 @@ class Session:
             specs = with_kernel(specs, self.kernel)
         return specs[: len(machines)], specs[len(machines) :]
 
+    async def preflight(self) -> None:
+        """Raise `SessionError` naming everything this host lacks for the
+        guests (`vivarium_runner.needs`). Templates too: a guest added at
+        run time would fail as late as it boots."""
+        specs, templates = self.specs()
+        if missing := await needs.preflight([*specs, *templates], backends.get):
+            raise SessionError(
+                "this host cannot run the guests; nothing booted:\n" + "\n".join(f"  {item}" for item in missing)
+            )
+
     async def prepare(self) -> None:
         """What the whole run needs before any guest starts: the segments,
         each guest's forwards, the `Machine` of each guest. No guest boots."""
         if self._run is not None:
             raise SessionError("already prepared")
         specs, templates = self.specs()
+        await self.preflight()
         kernels = self.kernel or PerGuest[Path]()
         for one in specs:
             if (kernel := kernels.of(one.name)) is not None:

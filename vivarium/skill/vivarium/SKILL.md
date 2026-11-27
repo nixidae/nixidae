@@ -136,6 +136,7 @@ jq -c 'select(.kind=="case" and .data.outcome=="failed") | .text' "$OUT/events.j
 
 ## Traps
 
+- "this host cannot run the guests; nothing booted" lists each missing host need with its fix (`vivarium.needs`, plus the container probe). Fix the host; the test is not at fault.
 - `vivarium.memory` below ~192M runs the guest out of memory. The agent protects itself from the OOM killer, so a command or a service dies instead.
 - A guest agent failure surfaces as an exception from `vm.execute`; the traceback is in `await vm.journal("vivarium-agent")`.
 - Writes to `/nix/store` in a guest vanish at poweroff, by design.

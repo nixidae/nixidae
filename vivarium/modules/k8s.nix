@@ -1219,6 +1219,14 @@ in
       "br_netfilter"
     ]
     ++ lib.optional (lib.elem "kata" cfg.runtimes) "vhost_vsock";
+    # A container guest cannot load it: it runs on the host's kernel.
+    vivarium.needs.br-netfilter = {
+      on = "kernel";
+      kind = "path";
+      path = "/proc/sys/net/bridge/bridge-nf-call-iptables";
+      why = "without br_netfilter, kube-proxy's rules never see traffic between pods on one node, and every ClusterIP is unreachable";
+      remedy = "load br_netfilter on the host (modprobe br_netfilter)";
+    };
 
     /*
       Leave a veth's MAC where CNI put it.

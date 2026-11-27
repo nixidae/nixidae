@@ -45,6 +45,7 @@ import anyio
 
 from . import storeview
 from .lifetime import die_with_parent
+from .needs import Missing as Missing
 
 AGENT_DIR = "/run/host/agent"
 """Where the guest sees the host's agent directory."""
@@ -321,18 +322,6 @@ def oci_config(
 
 
 # ── what the host must have ─────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class Missing:
-    """One thing the host lacks, and what gives it."""
-
-    what: str
-    why: str
-    remedy: str
-
-    def __str__(self) -> str:
-        return f"{self.what}: {self.why}\n    fix: {self.remedy}"
 
 
 _USERNS_PROBE = "import os; os.unshare(os.CLONE_NEWUSER)"

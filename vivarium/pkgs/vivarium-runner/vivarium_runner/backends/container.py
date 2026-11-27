@@ -27,9 +27,12 @@ from .host import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..boot import Boot
     from ..machine import Machine
     from ..machine_spec import MachineSpec
+    from ..needs import Missing
     from ..store import Store
 
 
@@ -81,6 +84,10 @@ class Container:
     def __init__(self) -> None:
         # One per process, as `available` makes it: the probes run once a run.
         self.host = container.Host()
+
+    async def missing(self, specs: Sequence[MachineSpec]) -> list[Missing]:
+        """`container.probe` of this host: a link needs a veth pair too."""
+        return await self.host.missing(lan=any(spec.interfaces or spec.uplink is not None for spec in specs))
 
     @staticmethod
     def validate(spec: MachineSpec) -> None:

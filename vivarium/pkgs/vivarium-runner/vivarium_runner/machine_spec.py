@@ -18,6 +18,7 @@ from . import forward, sysctl
 from .boot import Boot, BootJson, Display, DisplayJson
 from .control import ControlSpec, ControlSpecJson
 from .forward import UplinkNetwork, UplinkNetworkJson
+from .needs import Need, NeedJson
 from .spec import BackendName, Seccomp, UplinkProxy, closed
 
 
@@ -143,6 +144,7 @@ class MachineSpecJson(TypedDict):
     socks: NotRequired[SocksJson]
     requires: NotRequired[list[str]]
     keep: NotRequired[int]
+    needs: NotRequired[list[NeedJson]]
 
 
 @closed
@@ -320,6 +322,8 @@ class MachineSpec:
     keep: int | None = None
     """`vivarium.persistSize` in MiB when `vivarium.persist` names a path:
     the guest gets a kept store (`Machine.kept`). None is no store."""
+    needs: tuple[Need, ...] = ()
+    """The entries of `vivarium.needs` the host must meet (`vivarium_runner.needs`)."""
 
     @property
     def vsock(self) -> bool:
@@ -373,6 +377,7 @@ class MachineSpec:
             network_ports=tuple(data.get("networkPorts", ())),
             socks=Socks.from_json(socks) if (socks := data.get("socks")) is not None else None,
             keep=data.get("keep"),
+            needs=tuple(Need.from_json(one) for one in data.get("needs", ())),
         )
 
     @property

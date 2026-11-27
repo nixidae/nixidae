@@ -294,6 +294,26 @@ rec {
     // lib.optionalAttrs (machine.vivarium.persist != [ ]) {
       keep = machine.vivarium.persistSize;
     }
+    # The needs the host must meet: a kernel need is the host's only under
+    # the container backend, where the guest runs on the host's kernel.
+    // (
+      let
+        hostNeeds = lib.filterAttrs (
+          _: need: need.on == "host" || machine.vivarium.backend == "container"
+        ) machine.vivarium.needs;
+      in
+      lib.optionalAttrs (hostNeeds != { }) {
+        needs = lib.mapAttrsToList (name: need: {
+          inherit name;
+          inherit (need)
+            kind
+            path
+            why
+            remedy
+            ;
+        }) hostNeeds;
+      }
+    )
     // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {
       nixStore = machine.vivarium.nixDatabase.loader;
     }

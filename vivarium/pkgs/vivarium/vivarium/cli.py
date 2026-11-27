@@ -450,9 +450,11 @@ async def run(args: argparse.Namespace) -> int:
     if args.only:
         session.deselect(args.only)
 
-    # Refuses a `--cpus` or `--kernel` the guests do not take, before the
-    # task group: an error raised inside it prints as a traceback.
+    # Refuses a `--cpus` or `--kernel` the guests do not take, and a host
+    # that lacks what they need, before the task group: an error raised
+    # inside it prints as a traceback.
     session.specs()
+    await session.preflight()
 
     if args.hold and not args.control:
         # A sandboxed check would wait for a stop nobody can send.

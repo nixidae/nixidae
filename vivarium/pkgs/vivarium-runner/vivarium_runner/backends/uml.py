@@ -30,9 +30,12 @@ from .host import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..boot import Boot, Kernel, Root
     from ..machine import Machine
     from ..machine_spec import MachineSpec
+    from ..needs import Missing
     from ..store import Store
 
 
@@ -211,6 +214,11 @@ class Uml:
     @staticmethod
     def store(rundir: Path, paths: list[str]) -> Store:
         return BoundStore.build(rundir / "nix", paths)
+
+    @staticmethod
+    async def missing(specs: Sequence[MachineSpec]) -> list[Missing]:
+        del specs  # the declared needs say it all
+        return []
 
     @staticmethod
     def validate(spec: MachineSpec) -> None:

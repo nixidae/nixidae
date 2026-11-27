@@ -853,6 +853,37 @@ $ less out/console/one.log                                                     #
 [reference.md](reference.md#what-a-run-leaves-behind) lists every file a
 run writes.
 
+## Declare what a guest needs from the host
+
+Before any guest boots, the runner checks what each guest needs from
+the host, templates included. A run that lacks something stops there,
+and says so for each item: what is missing, why the guest needs it and
+how to give it.
+
+```console
+[vivarium] this host cannot run the guests; nothing booted:
+  kvm (/dev/kvm does not exist): QEMU and libkrun run the guest on KVM (guests: one)
+    fix: load kvm_intel or kvm_amd on the host; ...
+```
+
+A QEMU or krun guest needs `/dev/kvm`, and a container guest needs what
+`container.probe()` checks: user namespaces, subordinate ids, a cgroup.
+A guest module declares more with `vivarium.needs`:
+
+```nix
+vivarium.needs.br-netfilter = {
+  on = "kernel";   # the kernel the guest runs on: checked only for a container guest
+  kind = "path";   # or "device": a node the runner can read and write
+  path = "/proc/sys/net/bridge/bridge-nf-call-iptables";
+  why = "kube-proxy's rules never see traffic between pods on one node";
+  remedy = "load br_netfilter on the host (modprobe br_netfilter)";
+};
+```
+
+`on = "host"` is checked for every guest. Check the function, not a
+module name: a built-in module can have no `/sys/module` entry. A module
+the kernel loads on use, such as a link type, needs no entry.
+
 ## Run a test from an agent
 
 With MCP, `vivarium-mcp` starts runs and reaches into them. nixidae's CLAUDE.md
