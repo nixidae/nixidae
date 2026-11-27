@@ -24,13 +24,16 @@ def main() -> None:
         "nothing booted",
         "absent-device (/dev/vivarium-absent does not exist)",
         "absent-path (/proc/vivarium-absent does not exist)",
+        "failing-probe (",
+        "exited 1)",
         "fix: none: the check expects this to be missing",
     ):
         if want not in log:
             driven.fail(f"the refusal does not say {want!r}")
         print(f"ok: the refusal says {want!r}")
-    if "present-path" in log:
-        driven.fail("the refusal names a need the host meets")
+    for met in ("present-path", "passing-probe"):
+        if met in log:
+            driven.fail(f"the refusal names {met}, which the host meets")
     print("ok: a need the host meets is not named")
     if "booting one" in log or (out / "console" / "one.log").exists():
         driven.fail("a guest began to boot")

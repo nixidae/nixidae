@@ -1219,13 +1219,48 @@ in
       "br_netfilter"
     ]
     ++ lib.optional (lib.elem "kata" cfg.runtimes) "vhost_vsock";
-    # A container guest cannot load it: it runs on the host's kernel.
-    vivarium.needs.br-netfilter = {
-      on = "kernel";
-      kind = "path";
-      path = "/proc/sys/net/bridge/bridge-nf-call-iptables";
-      why = "without br_netfilter, kube-proxy's rules never see traffic between pods on one node, and every ClusterIP is unreachable";
-      remedy = "load br_netfilter on the host (modprobe br_netfilter)";
+    # Checked on the host only for a container guest, which runs on the
+    # host's kernel. br_netfilter: no use loads it, so a container guest
+    # cannot. The probes use what the node uses, and load what it would.
+    vivarium.needs = {
+      br-netfilter = {
+        on = "kernel";
+        kind = "path";
+        path = "/proc/sys/net/bridge/bridge-nf-call-iptables";
+        why = "without br_netfilter, kube-proxy's rules never see traffic between pods on one node, and every ClusterIP is unreachable";
+        remedy = "load br_netfilter on the host (modprobe br_netfilter)";
+      };
+      kube-proxy-masquerade = {
+        on = "kernel";
+        kind = "probe";
+        command = [
+          (lib.getExe' pkgs.iptables "iptables")
+          "-t"
+          "nat"
+          "-A"
+          "POSTROUTING"
+          "-j"
+          "MASQUERADE"
+        ];
+        why = "kube-proxy (iptables mode) masquerades Service traffic in the nat table";
+        remedy = "a host kernel with nf_tables, NAT and masquerading (CONFIG_NF_TABLES, CONFIG_NF_NAT, CONFIG_NFT_MASQ)";
+      };
+    }
+    // lib.optionalAttrs (cfg.cni == "bridge") {
+      cni-bridge = {
+        on = "kernel";
+        kind = "probe";
+        command = [
+          (lib.getExe' pkgs.iproute2 "ip")
+          "link"
+          "add"
+          "vivarium-probe"
+          "type"
+          "bridge"
+        ];
+        why = "the bridge CNI plugin puts each node's pods on a bridge";
+        remedy = "a host kernel with bridging (CONFIG_BRIDGE)";
+      };
     };
 
     /*

@@ -303,15 +303,15 @@ rec {
         ) machine.vivarium.needs;
       in
       lib.optionalAttrs (hostNeeds != { }) {
-        needs = lib.mapAttrsToList (name: need: {
-          inherit name;
-          inherit (need)
-            kind
-            path
-            why
-            remedy
-            ;
-        }) hostNeeds;
+        needs = lib.mapAttrsToList (
+          name: need:
+          {
+            inherit name;
+            inherit (need) kind why remedy;
+          }
+          // lib.optionalAttrs (need.path != null) { inherit (need) path; }
+          // lib.optionalAttrs (need.command != [ ]) { inherit (need) command; }
+        ) hostNeeds;
       }
     )
     // lib.optionalAttrs (machine.vivarium.nixDatabase.loader != null) {

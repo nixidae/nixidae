@@ -1,11 +1,13 @@
-"""`vivarium_runner.needs`: what a host lacks, against a root of files."""
+"""`vivarium_runner.needs`: what a host lacks, against a root of files and real probes."""
 
 from __future__ import annotations
 
+import os
+import sys
 from typing import TYPE_CHECKING
 
 import anyio
-from vivarium_runner.needs import Missing, Need, NeedKind, missing, preflight, unmet
+from vivarium_runner.needs import Missing, Need, NeedKind, missing, preflight, probe, unmet
 from vivarium_runner.spec import BackendName
 from vivarium_runner.testing import machine_spec
 
@@ -15,8 +17,12 @@ if TYPE_CHECKING:
 
     from vivarium_runner import MachineSpec
 
-KVM = Need("kvm", NeedKind.DEVICE, "/dev/kvm", "QEMU runs on KVM", "load kvm")
-BRIDGE = Need("br-netfilter", NeedKind.PATH, "/proc/sys/net/bridge/bridge-nf-call-iptables", "pods", "modprobe")
+KVM = Need("kvm", NeedKind.DEVICE, "QEMU runs on KVM", "load kvm", path="/dev/kvm")
+BRIDGE = Need("br-netfilter", NeedKind.PATH, "pods", "modprobe", path="/proc/sys/net/bridge/bridge-nf-call-iptables")
+
+
+def _probe(code: str) -> Need:
+    return Need("p", NeedKind.PROBE, "why", "fix", command=(sys.executable, "-c", code))
 
 
 def test_a_path_is_met_when_it_exists(tmp_path: Path) -> None:
@@ -35,9 +41,21 @@ def test_a_device_must_be_readable_and_writable(tmp_path: Path) -> None:
     assert unmet(KVM, tmp_path) is None
 
 
+def test_a_probe_runs_as_root_of_namespaces_of_its_own() -> None:
+    here = os.readlink("/proc/self/ns/net")
+    own = f"import os, sys; sys.exit(os.getuid() or os.readlink('/proc/self/ns/net') == {here!r})"
+    assert anyio.run(probe, _probe(own)) is None
+
+
+def test_a_failed_probe_says_its_exit_and_last_line() -> None:
+    reason = anyio.run(probe, _probe("import sys; print('first'); sys.exit('no such link type')"))
+    assert reason is not None
+    assert reason.endswith("exited 1: no such link type")
+
+
 def test_one_item_for_each_need_names_every_guest_that_has_it(tmp_path: Path) -> None:
     guests = [machine_spec("a", needs=(KVM,)), machine_spec("b", needs=(KVM, BRIDGE)), machine_spec("c")]
-    found = missing(guests, tmp_path)
+    found = anyio.run(missing, guests, tmp_path)
     assert [item.what.split()[0] for item in found] == ["kvm", "br-netfilter"]
     assert found[0].why == "QEMU runs on KVM (guests: a, b)"
     assert found[0].remedy == "load kvm"

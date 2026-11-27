@@ -1,8 +1,9 @@
 /*
   Does the runner refuse a run whose guest needs what the host lacks,
   before any guest boots, naming each need, its reason and its remedy?
-  The guest needs a device and a path no host has, and one path every
-  host has; only the first two are named. tests/checks/needs.py.
+  The guest needs a device, a path and a probe no host has, and a path
+  and a probe every host has; only the first three are named.
+  tests/checks/needs.py.
 */
 {
   checkScript,
@@ -34,6 +35,20 @@ let
         kind = "path";
         path = "/proc/self";
         why = "every host has it";
+        remedy = "none";
+      };
+      failing-probe = {
+        on = "host";
+        kind = "probe";
+        command = [ (lib.getExe' pkgs.coreutils "false") ];
+        why = "the check runs a probe that fails";
+        remedy = "none: the check expects this to be missing";
+      };
+      passing-probe = {
+        on = "host";
+        kind = "probe";
+        command = [ (lib.getExe' pkgs.coreutils "true") ];
+        why = "the check runs a probe that passes";
         remedy = "none";
       };
     };
