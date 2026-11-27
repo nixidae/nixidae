@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 import anyio
 import anyio.abc
+import dns.resolver
 import pytest
 from vivarium_socks import protocol
 from vivarium_socks.protocol import AddressType, ProtocolError, Reply
-from vivarium_socks.resolve import IPAddress, Unresolved, servers_for
+from vivarium_socks.resolve import IPAddress, Resolver, Unresolved, servers_for
 from vivarium_socks.server import Resolving, serve
 from vivarium_socks.split import Lab, Split
 
@@ -211,3 +212,27 @@ async def test_split_passes_the_routers_refusal_on(split: tuple[int, int, Counti
     async with stream:
         assert answer[1] == Reply.HOST_UNREACHABLE
     assert router.seen == ["other.lab"]
+
+
+class Refusing(Resolver):
+    """A server that answers A and refuses AAAA, as dnsmasq does with `address=` and no upstream."""
+
+    def __init__(self, answers: dict[str, list[IPAddress]]) -> None:
+        super().__init__({"lab": ["10.0.2.15"]})
+        self.answers = answers
+
+    async def _query(self, servers: Sequence[str], name: str, rdtype: str) -> list[IPAddress]:
+        del servers, name
+        if rdtype not in self.answers:
+            raise dns.resolver.NoNameservers
+        return self.answers[rdtype]
+
+
+async def test_a_refused_type_keeps_the_other_types_addresses() -> None:
+    found = await Refusing({"A": [ipaddress.IPv4Address("10.0.2.15")]}).resolve("web.lab")
+    assert found == [ipaddress.IPv4Address("10.0.2.15")]
+
+
+async def test_a_name_no_type_answers_says_why() -> None:
+    with pytest.raises(Unresolved, match="web.lab: All nameservers failed"):
+        await Refusing({}).resolve("web.lab")

@@ -46,18 +46,24 @@ class Resolver:
         servers = servers_for(name, self.domains)
         if servers is None:
             raise Unresolved(f"{name}: under no domain this proxy resolves ({', '.join(sorted(self.domains))})")
-        resolver = dns.asyncresolver.Resolver(configure=False)
-        resolver.nameservers = list(servers)
-        resolver.lifetime = self.timeout
         found: list[IPAddress] = []
+        failed: dns.exception.DNSException | None = None
+        # One type's failure does not hide the other's answer: dnsmasq with
+        # `address=/name/v4` and no upstream refuses AAAA (measured, checks.browser).
         for rdtype in ("A", "AAAA"):
             try:
-                answer = await resolver.resolve(name, rdtype)
+                found += await self._query(servers, name, rdtype)
             except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
                 continue
             except dns.exception.DNSException as error:
-                raise Unresolved(f"{name}: {error}") from error
-            found += [ipaddress.ip_address(record.to_text()) for record in answer]
+                failed = failed or error
         if not found:
-            raise Unresolved(f"{name}: no address")
+            raise Unresolved(f"{name}: {failed or 'no address'}") from failed
         return found
+
+    async def _query(self, servers: Sequence[str], name: str, rdtype: str) -> list[IPAddress]:
+        resolver = dns.asyncresolver.Resolver(configure=False)
+        resolver.nameservers = list(servers)
+        resolver.lifetime = self.timeout
+        answer = await resolver.resolve(name, rdtype)
+        return [ipaddress.ip_address(record.to_text()) for record in answer]
