@@ -647,8 +647,8 @@ $ vivarium browser browser --url https://web.test/
   has one (`_https._tcp.<name>`, `_http._tcp.<name>`). Kubernetes
   publishes one for each named Service port, so
   `https://shop.default.svc.cluster.local/` reaches a Service whose
-  `https` port is 8443. This holds for every client of the proxy, not
-  only the browser.
+  `https` port is 8443 (`checks.k8s-lb`). This holds for every client
+  of the proxy, not only the browser.
 - It trusts the lab root (`access/ca.pem`) from a certificate store,
   where the root's name constraints hold: Firefox's profile, and on
   Linux Chromium's NSS database under a home of its own. On macOS,

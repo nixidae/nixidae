@@ -87,7 +87,23 @@ spec:
   ports:
   - {{name: lab, port: 443, targetPort: 8443}}
   - {{name: public, port: 8444, targetPort: 8444}}
+---
+apiVersion: v1
+kind: Service
+metadata: {{name: web-alt}}
+spec:
+  selector: {{app: web-tls}}
+  ports: [{{name: https, port: 8443, targetPort: 8443}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {{name: web-other}}
+spec:
+  selector: {{app: web-tls}}
+  ports: [{{name: tls, port: 8443, targetPort: 8443}}]
 """
+
+LAB_NAMES = ", ".join(f"{name}.default.svc.cluster.local" for name in ("web-tls", "web-alt", "web-other"))
 
 GREETING = "hello-through-the-router"
 POOL = ipaddress.IPv4Network("10.200.0.0/24")
@@ -152,7 +168,7 @@ async def test(vms: Machines) -> None:
 
 
 async def https(vms: Machines, cp: Machine, proxy: str) -> None:
-    for name, dns in (("web-tls", "web-tls.default.svc.cluster.local"), ("public-tls", "example.com")):
+    for name, dns in (("web-tls", LAB_NAMES), ("public-tls", "example.com")):
         await cp.succeed(f"cat <<'EOF' | kubectl apply --filename -\n{TLS.format(name=name, dns=dns)}\nEOF")
         await cp.succeed(f"kubectl wait --for=condition=Ready certificate/{name} --timeout=120s", timeout=130)
     server = SERVER.format(image=vms.settings["workloadImage"], openssl=vms.settings["openssl"])
@@ -168,6 +184,22 @@ async def https(vms: Machines, cp: Machine, proxy: str) -> None:
 
     await until(f"{url} with the bundle", trusted, 120, cp)
     print(f"[k8s-lb] the host trusts {url} through access/ca-bundle.pem", flush=True)
+
+    # web-alt has no port 443: only its `https` port's SRV record, from
+    # CoreDNS, sends the proxy to 8443. web-other's 8443 port has another
+    # name, so it has no `_https._tcp` record and gets no page.
+    moved = "https://web-alt.default.svc.cluster.local/"
+
+    async def by_service() -> tuple[bool, str]:
+        ok, out = await curl(vms, proxy, moved, "--cacert", bundle)
+        return ok and "s_server" in out, out
+
+    await until(f"{moved} through its SRV record", by_service, 60, cp)
+    print(f"[k8s-lb] the proxy follows {moved} to its https port, 8443", flush=True)
+    ok, out = await curl(vms, proxy, "https://web-other.default.svc.cluster.local/", "--cacert", bundle)
+    if ok:
+        raise RuntimeError(f"web-other, whose port is not named https, answered on 443: {out}")
+    print(f"[k8s-lb] web-other, port named tls: {out}", flush=True)
 
     # The same server against the public roots alone: refused for want of
     # an issuer (curl's 60), not for want of a trust file.
