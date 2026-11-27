@@ -152,10 +152,6 @@ let
       ]
     ) extra6;
 
-  fromOutside = lib.optionalString (
-    inside != [ ]
-  ) " ip saddr != { ${lib.concatStringsSep ", " inside} }";
-
   # The uplink's rules, and its gateway and DNS addresses to the relay
   # too. IPv6 has no DNS address of its own.
   ruleset =
@@ -174,10 +170,12 @@ let
           "iifname \"${bridge}\" ip daddr ${dns} tcp dport 53 redirect to :9000"
         ];
         mangle = [
-          # A reply from inside the lab to the router's own socket (the SOCKS
-          # proxy's DNS query) is the router's: tproxy would hand it to the
-          # relay, and the query would never hear back.
-          "iifname \"${tproxyIn}\" ip daddr ${gateway}${fromOutside} udp dport != 67 meta mark set 1 tproxy to :9001"
+          # A reply to the router's own socket (the SOCKS proxy's DNS query, to
+          # a guest or a cluster's DNS) is the router's: tproxy would hand it
+          # to the relay, and the query would never hear back. Conntrack
+          # tells it from a guest's own packet to the gateway, which no
+          # address does: a guest's DNS server shares the uplink's subnet.
+          "iifname \"${tproxyIn}\" ip daddr ${gateway} ct direction original udp dport != 67 meta mark set 1 tproxy to :9001"
           "iifname \"${tproxyIn}\" ip daddr ${dns} udp dport 53 meta mark set 1 tproxy to :9001"
           "iifname \"${bridge}\" ip daddr ${gateway} icmp type echo-request meta mark set 1"
         ];
