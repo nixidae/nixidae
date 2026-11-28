@@ -567,6 +567,8 @@ class Session:
         self.kept = await kept.load(self.out)
         where = access.write(self._access_guests(), self.out)
         exported = exports.Exports()
+        roots = trust.Trust(self.spec.name, where, trust.directory(), exported, self.spec.trustRoots)
+        await roots.start()
         vms.context = RunContext(
             artifacts=self.artifacts,
             access=where,
@@ -578,7 +580,7 @@ class Session:
             segments=run.lans,
             cloud=self.cloud,
             launcher=self,
-            trust=trust.Trust(self.spec.name, where, trust.directory(), exported),
+            trust=roots,
             exports=exported,
         )
         for vm in run.machines.values():

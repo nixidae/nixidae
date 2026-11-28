@@ -170,6 +170,26 @@ def test_chromium_on_linux_gets_a_home_with_the_lab_root(tmp_path: Path) -> None
     assert browser.LAB_ROOT_NICKNAME in _trusted(home / ".pki/nssdb")
 
 
+def test_every_root_in_the_file_is_trusted(tmp_path: Path) -> None:
+    now = datetime.datetime.now(datetime.UTC)
+    first = vivarium_ca.authority.root("vivarium test root", now).certificate_pem()
+    second = vivarium_ca.authority.root("a test's own root", now).certificate_pem()
+    roots = tmp_path / "ca.pem"
+    roots.write_text(first + second)
+    home = tmp_path / "home"
+    firefox = Browser(Family.FIREFOX, ("firefox",), "firefox")
+    browser.prepare(firefox, home, ("127.0.0.1", 1080), roots, "linux")
+    trusted = _trusted(home / "profile")
+    assert browser.nickname(0) in trusted
+    assert browser.nickname(1) in trusted
+
+
+def test_certificates_split_a_bundle_in_order() -> None:
+    now = datetime.datetime.now(datetime.UTC)
+    pems = [vivarium_ca.authority.root(f"root {n}", now).certificate_pem() for n in range(2)]
+    assert browser.certificates("junk\n" + "".join(pems)) == pems
+
+
 def test_chromium_saves_downloads_in_the_users_directory_not_its_own_home(tmp_path: Path) -> None:
     home, user = tmp_path / "home", tmp_path / "user"
     _write(user / "config/user-dirs.dirs", 'XDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOWNLOAD_DIR="$HOME/Hämtningar"\n')

@@ -634,6 +634,22 @@ and `checks.k8s-lb` checks it with curl.
 A test phase gets the same CA with `await vms.trust.issuer()`. A run that
 never asks makes nothing.
 
+### Trust a CA of your own
+
+A cluster can bring its own CA, made before the run: its guests trust it
+from their NixOS configuration, and its key arrives with the manifests.
+`trust.roots` names its certificate, and the host trusts it too:
+
+```nix
+trust.roots = [ "${platformCa}/tls.crt" ];
+```
+
+The run writes it to `access/ca.pem` after the lab root, and to
+`access/ca-bundle.pem`, when it starts. So `vivarium shell` and
+`vivarium browser` trust it whether or not a phase asks for the lab CA.
+vivarium does not constrain it. Give a CA whose key is in the Nix store
+name constraints, or it signs for any public name.
+
 ### Work in a shell that reaches the lab
 
 `vivarium shell NAME` starts your shell (`$SHELL`) with a live run's
@@ -689,8 +705,9 @@ $ vivarium browser web-devenv --url web.lab.test --url api.lab.test
   `https://shop.default.svc.cluster.local/` reaches a Service whose
   `https` port is 8443 (`checks.k8s-lb`). This holds for every client
   of the proxy, not only the browser.
-- It trusts the lab root (`access/ca.pem`) from a certificate store,
-  where the root's name constraints hold: Firefox's profile, and on
+- It trusts each root in `access/ca.pem` (the lab root, then
+  `trust.roots`) from a certificate store, where their name
+  constraints hold: Firefox's profile, and on
   Linux Chromium's NSS database under a home of its own. On macOS,
   Chromium trusts the keychain alone; the command prints the
   `security add-trusted-cert` line that adds the root once.

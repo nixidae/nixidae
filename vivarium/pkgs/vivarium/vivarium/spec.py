@@ -158,6 +158,8 @@ class Spec(Strict):
 
     pythonPath: list[Path] = Field(default_factory=list)  # noqa: N815 -- Nix writes it, so Nix spells it
     """Directories every phase script can import from."""
+    trustRoots: list[Path] = Field(default_factory=list)  # noqa: N815 -- Nix writes it, so Nix spells it
+    """`trust.roots`: PEM files of CAs the host trusts for this run, beside the lab root."""
     knobs: dict[str, Knob] = Field(default_factory=dict)
 
     unshare: Path | None = None

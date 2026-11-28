@@ -4,9 +4,10 @@ The browser gets a profile of its own for this launch, so it runs beside
 the user's open browser and leaves that profile alone. It reaches the lab
 through the session's split proxy (`VIVARIUM_PROXY`): SOCKS5 with remote
 names, so the lab resolves its own names and the browser resolves none.
-It trusts the lab root (`access/ca.pem`) from a real certificate store,
-where the root's name constraints hold: Firefox's profile, and Chromium's
-NSS database under a home of its own on Linux. Not Chromium's
+It trusts the run's roots (`access/ca.pem`: the lab root, then the test's
+`trust.roots`) from a real certificate store, where their name
+constraints hold: Firefox's profile, and Chromium's NSS database under a
+home of its own on Linux. Not Chromium's
 `--ignore-certificate-errors-spki-list`: measured, it also accepts a lab
 certificate for `example.com`.
 
@@ -59,6 +60,8 @@ FALLBACK: Final = ("chromium", "chromium-browser", "google-chrome-stable", "goog
 HTTPS_HANDLER: Final = "x-scheme-handler/https"
 LAUNCH_SERVICES: Final = Path("Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist")
 LAB_ROOT_NICKNAME: Final = "vivarium lab root"
+PEM_BEGIN: Final = "-----BEGIN CERTIFICATE-----"
+PEM_END: Final = "-----END CERTIFICATE-----"
 
 FIREFOX_PREFS: Final = {
     "network.proxy.type": 1,
@@ -229,14 +232,30 @@ def certutil() -> str:
     return program
 
 
+def certificates(pem: str) -> list[str]:
+    """Each PEM certificate in *pem*, in order."""
+    blocks = pem.split(PEM_END)
+    return [block[block.index(PEM_BEGIN) :] + PEM_END + "\n" for block in blocks if PEM_BEGIN in block]
+
+
+def nickname(index: int) -> str:
+    """The lab root's name in the store, then `... 2`, `... 3` for a test's own roots."""
+    return LAB_ROOT_NICKNAME if index == 0 else f"{LAB_ROOT_NICKNAME} {index + 1}"
+
+
 def add_root(database: Path, root: Path, tool: str) -> None:
-    """The lab root, trusted for servers, in the NSS database at *database*, with certutil *tool*."""
+    """Every root in *root*, trusted for servers, in the NSS database at *database*, with
+    certutil *tool*. certutil imports one certificate per `-i`: the first of a file."""
     database.mkdir(parents=True, exist_ok=True)
     if not (database / "cert9.db").exists():
         subprocess.run([tool, "-N", "--empty-password", "-d", f"sql:{database}"], check=True)
-    subprocess.run(
-        [tool, "-A", "-n", LAB_ROOT_NICKNAME, "-t", "C,,", "-i", str(root), "-d", f"sql:{database}"], check=True
-    )
+    for index, certificate in enumerate(certificates(root.read_text())):
+        subprocess.run(
+            [tool, "-A", "-n", nickname(index), "-t", "C,,", "-d", f"sql:{database}"],
+            input=certificate,
+            text=True,
+            check=True,
+        )
 
 
 def prepare(

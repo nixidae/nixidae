@@ -960,6 +960,7 @@ rec {
           # package does not depend on any spec.
           vivarium = "${runVenv}";
           pythonPath = map (path: "${path}") checkedConfig.pythonPath;
+          trustRoots = map (path: "${path}") checkedConfig.trust.roots;
           knobs = checkedConfig.resolved;
           phases = map (
             phase:

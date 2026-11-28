@@ -420,6 +420,22 @@ in
       '';
     };
 
+    trust.roots = mkOption {
+      type = types.listOf types.path;
+      default = [ ];
+      example = lib.literalExpression ''[ "''${platformCa}/tls.crt" ]'';
+      description = ''
+        PEM files of CAs the host trusts for this run, beside the lab root:
+        a CA the guests' own services sign with, made before the run.
+        They go into `access/ca.pem` and `access/ca-bundle.pem` when the
+        run starts, so `vivarium shell` and `vivarium browser` trust them.
+
+        vivarium constrains none of them. A CA whose key is in the store
+        signs for any name it is not constrained from: give it X.509 name
+        constraints, as the lab CA has.
+      '';
+    };
+
     python.packages = mkOption {
       type = types.listOf types.package;
       default = [ ];
