@@ -738,6 +738,8 @@ class _Call:
         "_label",
         "_lock",
         "_result",
+        "_started",
+        "_withdrawn",
         "finished",
         "hooks",
         "loop",
@@ -760,6 +762,8 @@ class _Call:
         self._fn = fn
         self._lock = threading.Lock()
         self._closed = False
+        self._started = False
+        self._withdrawn = False
         self.hooks: _Hooks | None = None
         self.wake: asyncio.Future[None] = loop.create_future()
         self.finished = False
@@ -769,6 +773,10 @@ class _Call:
     def run(self) -> None:
         """On the worker. `_typed` inline: a generator context costs
         0.76 µs a call, measured beside a 20 µs hop."""
+        with self._lock:
+            if self._withdrawn:
+                return
+            self._started = True
         try:
             with _InRequest(self.request, self):
                 result = self._fn()
@@ -820,6 +828,19 @@ class _Call:
         if hooks is not None:
             hooks.close()
 
+    def withdraw(self) -> bool:
+        """On the loop, once cancelled: whether no thread has started
+        this call. Then none will: the thread that dequeues it skips it.
+        A call queued behind a busy executor has no `checkInterrupt` to
+        reach, so waiting for it to finish waited for the whole queue
+        (nixidae/nixidae#1672)."""
+        with self._lock:
+            if self._started:
+                return False
+            self._withdrawn = True
+        self.finished = True
+        return True
+
     def outcome(self) -> Any:
         error, self._error = self._error, None
         if error is not None:
@@ -860,6 +881,9 @@ async def _until_done(call: _Call) -> Any:
         import huggorm_bindings
 
         call.close()
+        if call.withdraw():
+            huggorm_bindings.forget_request(call.request)
+            raise
         huggorm_bindings.cancel_request(call.request)
         try:
             with anyio.CancelScope(shield=True):

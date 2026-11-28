@@ -315,6 +315,42 @@ async def test_a_cancelled_call_blocked_in_a_read_returns(silent_daemon: str) ->
     assert time.monotonic() - started < STOPPED_WITHIN
 
 
+async def test_a_cancelled_call_queued_behind_a_full_pool_returns(tmp_path: Any) -> None:
+    """nixidae/nixidae#1672. Every pool thread blocks in a read, so the
+    next call waits in the queue, where no `checkInterrupt` reaches it.
+    The cancel waited for the call to finish, which needed a free thread:
+    it never returned. A socket that listens and never accepts holds each
+    connect in the kernel's backlog, and each handshake's read blocks."""
+    import socket
+
+    from huggorm_generated import _runtime
+
+    size = _runtime._shared_pool()._size
+    path = str(tmp_path / "unaccepted.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(size * 4)
+    stuck = [AsyncStore(f"unix://{path}") for _ in range(size)]
+    queued = AsyncStore(URI)
+    probe = await queued.parse_store_path("/nix/store/00000000000000000000000000000000-x")
+    try:
+        async with anyio.create_task_group() as tg:
+            for store in stuck:
+                tg.start_soon(store.get_version)
+            await anyio.sleep(CANCEL_AFTER)
+            started = time.monotonic()
+            with anyio.move_on_after(CANCEL_AFTER) as scope:
+                await queued.is_valid_path(probe)
+            assert scope.cancelled_caught, "a pool thread was free"
+            assert time.monotonic() - started < STOPPED_WITHIN
+            tg.cancel_scope.cancel()
+        # The withdrawn call holds no thread: the pool answers the next one.
+        with anyio.fail_after(STOPPED_WITHIN):
+            assert not await queued.is_valid_path(probe)
+    finally:
+        server.close()
+
+
 # Interruptible with no primop, which has no rpc: `toJSON` calls
 # `checkInterrupt` once per element. About 1s uncancelled on dynhetz.
 REMOTE_SLOW = "builtins.stringLength (builtins.toJSON (builtins.genList (x: x * x) 6000000))"
