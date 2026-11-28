@@ -49,7 +49,7 @@ vivarium monitor "$OUT" --quiet                                          # backg
 
 ## Environments
 
-Guests that stay up after the phases, for work from the host (a cluster to `kubectl` against):
+Guests that stay up after the phases, for work from the host (a cluster to `kubectl` against). `vivarium.recipes.lab.enable` names every guest `<guest>.lab.test` for the host's proxy, `vivarium.lab.names.X.ports.https = P` adds `X.lab.test` on port P, `vivarium.lab.tls = { enable; units; }` gives a lab-CA certificate in `/var/lib/vivarium/tls` (phases needing it: `after = [ "lab" ]`); `examples/web-devenv`:
 
 ```sh
 vivarium up <test> [--name N] [--daemonize]   # background; exits 0 at ready with access.json on stdout, 4 if a phase failed (paused); --daemonize: own systemd user unit vivarium-N.service, outlives the caller's cgroup

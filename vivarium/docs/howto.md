@@ -404,6 +404,48 @@ $ vivarium shell k8s-host -- kubectl get configmap probe
 
 etcd then writes to a disk and not to a tmpfs, in every run.
 
+### Reach guests by name over HTTPS
+
+`vivarium.recipes.lab.enable` gives a lab of NixOS guests names, HTTPS
+and a way in from the host (nixidae/nixidae#1669). `examples/web-devenv`
+is a whole environment that uses it, with a README of the commands, and
+`checks.web-devenv` proves them.
+
+```nix
+mkTest {
+  vivarium.recipes.lab.enable = true;
+  nodes.web = { config, ... }: {
+    vivarium.lab.names.api.ports.https = 8443;   # api.lab.test, on 8443
+    vivarium.lab.tls = { enable = true; units = [ "nginx" ]; };
+    services.nginx.virtualHosts."web.lab.test".sslCertificate = "${config.vivarium.lab.tls.directory}/cert.pem";
+  };
+}
+```
+
+- Each guest behind the run's router is `<guest>.lab.test`, plus each
+  name in `vivarium.lab.names`. The router's SOCKS proxy answers them
+  with no DNS server, and each guest has them in `/etc/hosts`.
+  `vivarium.recipes.lab.domain` changes `lab.test`; it ends in `.test` or
+  `.internal`, the only names the lab CA signs.
+- A name's `ports.https` (or `ports.http`) adds an SRV record. The proxy
+  follows it, so `https://api.lab.test/` from the host reaches 8443. A
+  guest inside the lab names the port.
+- `vivarium.lab.tls.enable` puts a certificate for the guest's names in
+  `/var/lib/vivarium/tls` (`cert.pem`, `key.pem`), signed by the run's
+  CA. The recipe's `lab` phase writes it once the guests are up. Each
+  unit in `tls.units` starts once the key is there, in a group that
+  reads it.
+- A guest is up before its router lease, so its name can lead nowhere
+  for a moment. The `lab` phase ends only when every named guest holds
+  its address. A phase that needs names or certificates runs
+  `after = [ "lab" ]`.
+- `vivarium shell` and `vivarium browser` reach the names and trust the
+  certificates, as for a cluster (below).
+
+Template instances get their addresses at run time, so they have no
+names. `vivarium.recipes.kubernetes.loadBalancer` turns this recipe on
+and adds `cluster.local`.
+
 ### Load an image into a live cluster
 
 `vivarium load` imports image tarballs into every node of a live run, as
@@ -539,9 +581,9 @@ $ curl http://10.200.0.1/
 ```
 
 `socks5h://`, not `socks5://`, makes the proxy resolve the name, not the
-host. Chromium takes `--proxy-server=socks5://ADDR`, and Firefox needs
-`network.proxy.socks_remote_dns`. A program that cannot use a proxy
-cannot reach the cluster this way yet.
+host. `vivarium browser` sets up a browser this way (see "Open a browser
+into the lab"). A program that cannot use a proxy cannot reach the
+cluster this way yet.
 
 `vivarium.router.routes`, `vivarium.router.inside` and
 `vivarium.router.socks` are the router's own options; the recipe sets
@@ -576,15 +618,12 @@ The run exports `SSL_CERT_FILE` (OpenSSL, Go on Linux, Python's ssl),
 $ curl https://web-tls.default.svc.cluster.local/
 ```
 
-Browsers read no variable: import `ca.pem` into their own store.
-Chromium on Linux reads `~/.pki/nssdb`:
-
-```console
-$ certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "vivarium lab root" -i ./k8s/access/ca.pem
-```
-
-Firefox has its own store: Settings, Certificates, View Certificates,
-Authorities, Import, and trust it to identify websites.
+Browsers read no variable. `vivarium browser` starts one that trusts the
+root without a change to your own browser profile (see "Open a browser
+into the lab"). To trust it in your own profile instead, import
+`access/ca.pem` once: Chromium on Linux reads `~/.pki/nssdb`
+(`certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "vivarium lab root" -i
+ca.pem`), and Firefox has its own store (Settings, Certificates).
 
 Both CAs carry X.509 name constraints. They sign only for `cluster.local`,
 `test`, `internal`, `localhost` and private addresses, so a cluster that
@@ -633,8 +672,8 @@ for more. A URL with no scheme opens as `https://`. `--browser PROGRAM`
 names a Chromium or Firefox family program instead.
 
 ```console
-$ vivarium up checks.browser
-$ vivarium browser browser --url https://web.test/
+$ vivarium up checks.web-devenv
+$ vivarium browser web-devenv --url web.lab.test --url api.lab.test
 ```
 
 - The browser gets a profile of its own for this launch, so it runs
