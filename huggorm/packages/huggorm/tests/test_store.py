@@ -11,6 +11,7 @@ import gc
 import hashlib
 import os
 import pathlib
+import subprocess
 import sys
 from typing import Any, cast
 
@@ -198,6 +199,33 @@ def test_a_store_says_whether_it_trusts_us_or_says_nothing(store: Store) -> None
 
     silent = Store("ssh://no-such-host-this-test-never-connects")
     assert silent.is_trusted_client() is None
+
+
+def test_a_store_names_the_nix_behind_it(store: Store, tmp_path: pathlib.Path, private_daemon: str) -> None:
+    """`Store::getVersion`: a local store answers the Nix these bindings link, a daemon client the
+    version from the daemon's handshake, and a store that no Nix answers for says nothing.
+
+    The daemon's answer is compared with what its own binary prints. This lane's daemon is this
+    lane's Nix, so the two sources agree in value and differ only in where the value comes from."""
+    from huggorm_bindings import nix_version
+
+    nix = os.environ["HUGGORM_ORACLE_NIX"]
+    printed = subprocess.run([nix, "--version"], capture_output=True, text=True, check=True).stdout.split()[-1]
+
+    assert Store(str(tmp_path / "chroot")).get_version() == nix_version()
+    assert Store(private_daemon).get_version() == printed
+    assert store.get_version() is None
+
+
+async def test_an_async_daemon_client_names_the_daemons_nix(private_daemon: str) -> None:
+    """The same answer through the async class, which a caller in an event loop uses."""
+    from huggorm_generated import AsyncStore
+
+    store = AsyncStore(private_daemon)
+    try:
+        assert await store.get_version() == Store(private_daemon).get_version()
+    finally:
+        await store.aclose()
 
 
 def test_a_store_need_not_answer_for_all_its_paths(store: Store) -> None:

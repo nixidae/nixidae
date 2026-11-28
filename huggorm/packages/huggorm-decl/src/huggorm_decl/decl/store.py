@@ -1198,6 +1198,16 @@ class Store:
             return huggorm::as_word(*flag);
         """)
 
+    @cxx_name("getVersion")
+    def get_version(self) -> Opt[Str]:
+        """The Nix version of whatever answers for this store, or None.
+
+        A daemon client answers the version the daemon sent in its
+        handshake, so it takes a connection. A local store answers the
+        version of the Nix these bindings link. Every other store, a
+        binary cache or `dummy://`, answers nothing: Nix does not
+        know which Nix wrote it."""
+
     @needs(Local("nix/store/gc-store.hh"))
     @cxx_name("collectGarbage")
     def collect_garbage(self, options: GCOptions) -> GCResults:
