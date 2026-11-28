@@ -65,6 +65,14 @@ vivarium.mkTest {
       script = ./latency-test.py;
       after = [ "warm" ];
     };
+    ship = {
+      script = ./ship-test.py;
+      after = [ "boot" ];
+      nodes = [
+        "bare"
+        "client"
+      ];
+    };
   };
   nodes = {
     server = {
@@ -113,6 +121,23 @@ vivarium.mkTest {
         "flakes"
       ];
     };
+    # Nix and sshd, and nothing of huggorm: the client copies its closure.
+    bare = {
+      imports = [ (lan "192.168.98.4/24") ];
+      services.openssh = {
+        enable = true;
+        ports = [ 22 ];
+      };
+      # Outside `trusted-users`: the daemon refuses its unsigned paths.
+      users.users.plain = {
+        isNormalUser = true;
+        # A normal user's default shell; the guard's `sh -c` must pass it.
+        shell = pkgs.fish;
+      };
+      programs.fish.enable = true;
+      # The copy lands in the guest's in-memory store; RAM is sparse.
+      vivarium.memory = "3072M";
+    };
     client = {
       imports = [ (lan "192.168.98.3/24") ];
       environment.systemPackages = [ venv ];
@@ -129,5 +154,7 @@ vivarium.mkTest {
     warm = "${./warm.py}";
     project = "${./project}";
     server = "192.168.98.2";
+    bare = "192.168.98.4";
+    venv = "${venv}";
   };
 }

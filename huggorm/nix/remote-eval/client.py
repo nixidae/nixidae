@@ -85,6 +85,8 @@ class Tracked(SourceAccessor):
 class Options:
     server: str
     port: int
+    user: str
+    provision: bool
     key: pathlib.Path
     python: str
     root: pathlib.Path
@@ -135,13 +137,17 @@ async def run(options: Options) -> Report:
     started = time.monotonic()
     local = Store(DUMMY).add_accessor_to_store("source", Tracked(options.root, shown))
     report.seconds["hash_locally"] = time.monotonic() - started
-    command = ssh.server_command(ServerOptions(callbacks=True, load_config=options.load_config), python=options.python)
+    server = ServerOptions(callbacks=True, load_config=options.load_config)
     started = time.monotonic()
     async with (
         asyncssh.connect(
-            options.server, options.port, username="root", client_keys=[str(options.key)], known_hosts=None
+            options.server, options.port, username=options.user, client_keys=[str(options.key)], known_hosts=None
         ) as connection,
-        ssh.spawned(connection, command) as dial,
+        (
+            ssh.provisioned(connection, server, python=options.python)
+            if options.provision
+            else ssh.spawned(connection, ssh.server_command(server, python=options.python))
+        ) as dial,
         remote.connect(dial, experimental_callbacks=True) as client,
     ):
         store = await client.acquire(AsyncStore, options.store)
@@ -184,10 +190,14 @@ def main() -> None:
     parser.add_argument("--setting", nargs=2, action="append", default=[], metavar=("NAME", "VALUE"))
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--load-config", action="store_true", help="the server reads its own nix.conf")
+    parser.add_argument("--user", default="root")
+    parser.add_argument("--provision", action="store_true", help="copy the closure to a server that lacks it")
     args = parser.parse_args()
     options = Options(
         server=args.server,
         port=args.port,
+        user=args.user,
+        provision=args.provision,
         key=args.key,
         python=args.python,
         root=args.root,
