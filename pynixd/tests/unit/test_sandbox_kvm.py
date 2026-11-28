@@ -11,13 +11,15 @@ from typing import TYPE_CHECKING, cast
 
 from pynixd_store.builder import local
 from pynixd_store.builder.settings import BuildSettings
-from pynixd_store.builder.site import BuildPaths
+from pynixd_store.builder.site import KVM_DEVICE, BuildPaths, VmSite
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
 
+    from pynixd_store.builder.spec import ChildSpec
+    from pynixd_store.builder.vm import BuildVm
     from pynixd_store.engine import StoreEngine
 
 
@@ -48,3 +50,11 @@ def test_a_store_without_kvm_binds_no_device(tmp_path: Path, monkeypatch: pytest
 
 def test_a_host_without_the_device_binds_nothing_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert str(tmp_path / "kvm") not in _bound(tmp_path, monkeypatch, {"kvm"}, device=False)
+
+
+def test_a_build_in_the_vm_binds_no_host_device(tmp_path: Path) -> None:
+    """The guest's `/dev` has no KVM, so the host's device is no source there (nixidae/nixidae#1666)."""
+    spec = cast("ChildSpec", {"binds": [(KVM_DEVICE, KVM_DEVICE, False), ("/dev/null", "/dev/null", False)]})
+    site = VmSite(cast("BuildVm", None), tmp_path, frozenset(), ())
+    site.configure(spec, 0)
+    assert spec["binds"] == [("/dev/null", "/dev/null", False)]

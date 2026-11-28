@@ -75,7 +75,7 @@ from .restriction import SOCKET_NAME, RestrictionContext
 from .runner import RunnerSandbox
 from .settings import SandboxPath
 from .sibling import SiblingSandbox
-from .site import BuilderFailed, BuildPaths, BuildSite, builder_ended, choose_site
+from .site import KVM_DEVICE, BuilderFailed, BuildPaths, BuildSite, builder_ended, choose_site
 from .spec import AwsCredentials, BuildenvSpec, ChildSpec, DarwinSpec, FetchSpec
 from .usage import USAGE_NAME
 from .vm import BuildVm
@@ -109,8 +109,6 @@ DISK_FULL_BYTES = 8 * 1024 * 1024
 """Less free space than this after a failure is a full disk (`decideWhetherDiskFull`, `derivation-builder.cc:304`)."""
 
 DEV_FILES = ("/dev/full", "/dev/null", "/dev/random", "/dev/tty", "/dev/urandom", "/dev/zero")
-KVM_DEVICE = "/dev/kvm"
-"""Bound into every chroot when the store's features name `kvm` (`linux-derivation-builder.cc:755`)."""
 
 DARWIN = sys.platform == "darwin"
 """`DarwinDerivationBuilder`: never a chroot; `useSandbox` picks the sandbox profile instead."""

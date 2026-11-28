@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from .usage import BuildUsage, UsageSample
 
 __all__ = [
+    "KVM_DEVICE",
     "BuildPaths",
     "BuildSite",
     "BuilderFailed",
@@ -80,6 +81,9 @@ __all__ = [
     "choose_site",
     "listen",
 ]
+
+KVM_DEVICE = "/dev/kvm"
+"""Bound into every chroot when the store's features name `kvm` (`linux-derivation-builder.cc:755`)."""
 
 
 @dataclass
@@ -387,6 +391,9 @@ class VmSite(BuildSite):
         return None
 
     def configure(self, spec: ChildSpec, sample_seconds: float) -> None:
+        # The guest has its own `/dev`, without KVM: the host's `/dev/kvm` is no source there, and its bind failed
+        # every build in the VM with `getting attributes of path "/dev/kvm"` (nixidae/nixidae#1666).
+        spec["binds"] = [bind for bind in spec["binds"] if bind[0] != KVM_DEVICE]
         spec["cgroup"] = str(build_cgroup.GUEST)
         spec["cgroup_report"] = True
         spec["sample_seconds"] = sample_seconds
