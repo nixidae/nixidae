@@ -205,7 +205,10 @@ lib.fix (self: {
     they are not checks, and it goes away once we know what our runners
     have.
   */
-  inherit (tests) checks;
+  # The site too: an `{include}` of a missing file fails only its build.
+  checks = tests.checks // {
+    docs-site = docs;
+  };
 
   # The workflows that run the tests. nixidae renders each one to
   # `.github/workflows/vivarium-<name>.yml`.

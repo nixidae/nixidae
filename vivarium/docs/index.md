@@ -14,6 +14,7 @@ a container.
 :caption: Contents
 
 getting-started
+examples
 howto
 reference
 test-options
