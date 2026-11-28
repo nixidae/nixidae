@@ -101,9 +101,9 @@ def test_wrappers_are_written_again_alike(tmp_path: Path) -> None:
     assert len(before) == len(shell.UNPROXIED) + 1
 
 
-@pytest.mark.parametrize("command", ["env", "shell"])
+@pytest.mark.parametrize("command", ["env", "shell", "browser"])
 def test_a_run_that_is_not_up_is_refused(tmp_path: Path, command: str, capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as stopped:
         cli.main([command, "--out", str(tmp_path)])
     assert stopped.value.code == 3
-    assert "is not up" in capsys.readouterr().err
+    assert f"vivarium {command}: no run in {tmp_path}" in capsys.readouterr().err

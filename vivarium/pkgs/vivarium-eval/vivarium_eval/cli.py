@@ -733,7 +733,7 @@ async def down(out: Path) -> Exit:
     try:
         reply = await control.request(socket, control.Op.STOP)
     except OSError as error:
-        say(f"no run is listening at {socket}: {error}")
+        say(environments.why_not_up(out, again=False) if not await environments.live(out) else f"{socket}: {error}")
         return Exit.NO_RUN
     if not reply.ok:
         say(reply.error or "the run refused stop")
@@ -815,7 +815,7 @@ def open_browser(args: argparse.Namespace) -> int:
     """`browser`: runs until the browser exits, then drops its profile."""
     out = target_of(args)
     if not anyio.run(environments.live, out):
-        print(f"vivarium browser: {out} is not up; `vivarium up` it first", file=sys.stderr)
+        print(f"vivarium browser: {environments.why_not_up(out)}", file=sys.stderr)
         return Exit.NO_RUN
     try:
         found = browser.find(args.browser, os.environ, Path.home(), sys.platform)
@@ -830,7 +830,7 @@ def enter(args: argparse.Namespace) -> int:
     name ports another run may hold now. The run hands them over."""
     out = target_of(args)
     if not anyio.run(environments.live, out):
-        print(f"vivarium {args.command}: {out} is not up; `vivarium up` it first", file=sys.stderr)
+        print(f"vivarium {args.command}: {environments.why_not_up(out)}", file=sys.stderr)
         return Exit.NO_RUN
     try:
         found = shell.gather(out, anyio.run(shell.exported, out), proxied=args.proxied)
@@ -859,7 +859,7 @@ def live_run(command: str, words: list[str], out: Path | None) -> Path | Exit:
         print(f"vivarium {command}: {error}", file=sys.stderr)
         return Exit.USAGE
     if not anyio.run(environments.live, found):
-        print(f"vivarium {command}: {found} is not up; `vivarium up` it first", file=sys.stderr)
+        print(f"vivarium {command}: {environments.why_not_up(found)}", file=sys.stderr)
         return Exit.NO_RUN
     return found
 

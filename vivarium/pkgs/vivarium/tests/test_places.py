@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from vivarium import environments, places
-from vivarium.control import RUN_FILE, SOCKET, RunFile
+from vivarium.control import RUN_FILE, SOCKET, Origin, RunFile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -77,3 +77,28 @@ async def test_a_dead_run_is_down() -> None:
     (out / RUN_FILE).write_text(about.to_json())
     [one] = await environments.every()
     assert (one.name, one.up) == ("ended", False)
+
+
+def test_a_missing_environment_is_named_as_missing() -> None:
+    assert environments.why_not_up(places.environment("nosuch")) == (
+        "no environment is named nosuch; `vivarium ps` lists them"
+    )
+
+
+def test_a_down_environment_says_how_to_start_it_again() -> None:
+    out = places.environment("lab")
+    out.mkdir(parents=True)
+    origin = Origin(cli=out / "vivarium", attr="checks.browser", file=out / "my tree")
+    about = RunFile(pid=2**22 + 1, out=out, vivarium=out / "vivarium", socket=None, commands=(), origin=origin)
+    (out / RUN_FILE).write_text(about.to_json())
+    assert environments.why_not_up(out) == (
+        f"the environment lab is down; start it again: vivarium up checks.browser --file '{out}/my tree' --name lab"
+    )
+    assert environments.why_not_up(out, again=False) == "the environment lab is down"
+
+
+def test_a_run_of_ones_own_without_an_origin_is_down(tmp_path: Path) -> None:
+    assert environments.why_not_up(tmp_path) == f"no run in {tmp_path}"
+    about = RunFile(pid=2**22 + 1, out=tmp_path, vivarium=tmp_path / "vivarium", socket=None, commands=())
+    (tmp_path / RUN_FILE).write_text(about.to_json())
+    assert environments.why_not_up(tmp_path) == f"the run in {tmp_path} is down"

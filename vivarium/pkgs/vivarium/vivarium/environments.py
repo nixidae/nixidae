@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import pwd
+import shlex
 import shutil
 import subprocess
 import sys
@@ -126,3 +127,21 @@ def _remover(out: Path) -> list[str] | None:
     uid = os.getuid()
     subordinate = uid != 0 and namespace.has_subordinate_ids(pwd.getpwuid(uid).pw_name, uid)
     return [*namespace.user_argv(str(unshare), subordinate=subordinate), "--", sys.executable, "-c", runroot.REMOVE]
+
+
+def why_not_up(out: Path, *, again: bool = True) -> str:
+    """Why *out* has no live run: no such environment, or one that is down. With *again*, the
+    `vivarium up` line that starts a down one again, from the origin its `run.json` keeps."""
+    name = places.environment_name(out)
+    if not (out / RUN_FILE).exists():
+        return f"no environment is named {name}; `vivarium ps` lists them" if name else f"no run in {out}"
+    what = f"the environment {name}" if name else f"the run in {out}"
+    try:
+        origin = RunFile.from_json((out / RUN_FILE).read_text()).origin
+    except (OSError, ValueError, KeyError):
+        origin = None
+    if not again or origin is None:
+        return f"{what} is down"
+    where = ["--name", name] if name else ["--out", str(out)]
+    line = shlex.join(["vivarium", "up", origin.attr, "--file", str(origin.file), *where])
+    return f"{what} is down; start it again: {line}"
