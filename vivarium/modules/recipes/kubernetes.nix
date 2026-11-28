@@ -206,7 +206,9 @@ in
             }.";
           }
         ];
-        router.enable = lib.mkDefault true;
+        # The router, its proxy and the lab's names are the generic lab's;
+        # Kubernetes adds `cluster.local` and the LoadBalancer controller.
+        vivarium.recipes.lab.enable = lib.mkDefault true;
         nodes.${routerName} = {
           imports = [ ../k8s-lb.nix ];
           _module.args.vivariumLb = vivariumPackages.lb;
@@ -224,10 +226,7 @@ in
             ];
             # Pod ranges are routed per node at run time, by vivarium-lb.
             inside = [ some.podSubnet ];
-            socks = {
-              enable = lib.mkDefault true;
-              domains."cluster.local" = [ (nthService 10) ];
-            };
+            socks.domains."cluster.local" = [ (nthService 10) ];
           };
         };
       })
