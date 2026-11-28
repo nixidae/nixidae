@@ -50,12 +50,15 @@ profile alone. Both work only while the environment is up.
 ## In your own project
 
 Put the environment in a file of your project, such as `dev.nix`. This
-one serves `./public` at `https://web.lab.test/`:
+one serves `./public` at `https://web.lab.test/`. It is `own/dev.nix`
+here, and `checks.web-devenv-own` runs it, with this tree's vivarium as
+the `vivarium` argument:
 
 ```nix
-let
-  vivarium = (import (builtins.fetchTarball "https://github.com/nixidae/vivarium/archive/main.tar.gz") { }).lib;
-in
+{
+  vivarium ?
+    (import (builtins.fetchTarball "https://github.com/nixidae/vivarium/archive/main.tar.gz") { }).lib,
+}:
 {
   web = vivarium.mkTest {
     name = "web";
