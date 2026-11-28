@@ -9,7 +9,9 @@ import functools
 import json
 import os
 import pathlib
+import shlex
 import socket
+import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -24,15 +26,19 @@ from test_source_accessor import SOURCE, Memory
 from huggorm import ServerOptions, remote, transport, worker
 from huggorm.server import serve, serve_stream
 from huggorm.server_options import SshListen
-from huggorm.session import AsyncRemoteSession
+from huggorm.session import AsyncRemoteSession, AsyncSession
+from huggorm.ship import NotShippable, server_closure, store_path_of
 from huggorm.spawn import STOP_GRACE
 from huggorm.ssh import (
+    ABSENT,
+    PRESENT,
     Ssh,
     SshConnection,
     SshStream,
     connected,
     forwarded,
-    server_command,
+    guarded_command,
+    provisioned,
     sessions,
     socket_dialer,
     spawned,
@@ -48,6 +54,16 @@ class _AnyPassword(asyncssh.SSHServer):
         return True
 
 
+def _guard_answer(command: str) -> bytes | None:
+    """What the guard of a `guarded_command` writes on this fake host,
+    which holds every interpreter but those under /absent; None for a
+    command with no guard."""
+    words = shlex.split(command)
+    if words[:2] != ["sh", "-c"]:
+        return None
+    return ABSENT if "/absent/" in words[2] else PRESENT
+
+
 @pytest.fixture
 def ssh_commands() -> list[str]:
     """The command each session asked for, in order."""
@@ -60,7 +76,14 @@ async def ssh_port(ssh_commands: list[str]) -> AsyncIterator[int]:
     session, whatever command the session asks for."""
 
     async def session(stdin: Any, stdout: Any, _stderr: Any) -> None:
-        ssh_commands.append(stdin.channel.get_command())
+        command = stdin.channel.get_command()
+        ssh_commands.append(command)
+        answer = _guard_answer(command)
+        if answer is not None:
+            stdout.write(answer)
+            if answer == ABSENT:
+                stdout.channel.exit(0)
+                return
         await serve_stream(SshStream(stdin, stdout))
         # What a remote server process does when it exits.
         stdout.channel.exit(0)
@@ -139,7 +162,7 @@ async def test_ssh_runs_the_server_command_for_its_options(ssh_port: int, ssh_co
     async with worker(_OPTIONS, via=via, store_uri="dummy://") as session:
         state = await session.eval(await session.store())
         assert await (await state.eval_expr("1 + 1")).integer() == 2
-    assert ssh_commands == [server_command(_OPTIONS, python="/remote/python")]
+    assert ssh_commands == [guarded_command(_OPTIONS, python="/remote/python")]
 
 
 async def test_an_ssh_connection_the_caller_holds_carries_a_worker(
@@ -149,8 +172,62 @@ async def test_an_ssh_connection_the_caller_holds_carries_a_worker(
     async with worker(_OPTIONS, via=via, store_uri="dummy://") as session:
         state = await session.eval(await session.store())
         assert await (await state.eval_expr("1 + 1")).integer() == 2
-    assert ssh_commands == [server_command(_OPTIONS)]
+    assert ssh_commands == [guarded_command(_OPTIONS)]
     assert not ssh_connection.is_closed()
+
+
+@pytest.mark.parametrize(("python", "answer"), [(sys.executable, PRESENT), ("/absent/python", ABSENT)])
+async def test_the_guard_answers_one_byte_from_a_real_shell(python: str, answer: bytes) -> None:
+    """The command as a remote shell runs it: `PRESENT` and then the
+    server, which ends at EOF; or `ABSENT` and an exit."""
+    async with await anyio.open_process(guarded_command(python=python), stderr=None) as process:
+        assert process.stdout is not None
+        assert process.stdin is not None
+        assert await process.stdout.receive(1) == answer
+        await process.stdin.aclose()
+        with anyio.fail_after(STOP_GRACE):
+            assert await process.wait() == 0
+
+
+async def test_an_interpreter_outside_the_store_is_not_shipped(
+    ssh_connection: asyncssh.SSHClientConnection, ssh_commands: list[str]
+) -> None:
+    """The guard answers ABSENT, and no copy can carry a path outside
+    the store, so the start fails before any copy and starts nothing
+    more."""
+    with pytest.raises(NotShippable, match="outside /nix/store"):
+        async with provisioned(ssh_connection, python="/absent/python", source="dummy://"):
+            pytest.fail("a server started from an interpreter the host lacks")
+    assert ssh_commands == [guarded_command(python="/absent/python")]
+
+
+@pytest.mark.parametrize(
+    ("path", "held"),
+    [
+        ("/nix/store/abc-venv/bin/python", "/nix/store/abc-venv"),
+        ("/nix/store/abc-venv", "/nix/store/abc-venv"),
+        ("/nix/store/", None),
+        ("/nix/storex/abc/bin", None),
+        ("/home/user/python", None),
+    ],
+)
+def test_store_path_of(path: str, held: str | None) -> None:
+    assert store_path_of(path, "/nix/store") == held
+
+
+async def test_a_file_outside_the_closure_is_not_shipped(tmp_path: pathlib.Path) -> None:
+    """A module the interpreter's closure lacks, as PYTHONPATH loads
+    one: a copy would start a server that cannot import it."""
+    outside = tmp_path / "huggorm.py"
+    outside.write_text("")
+    (tmp_path / "venv" / "bin").mkdir(parents=True)
+    (tmp_path / "venv" / "bin" / "python").write_text("")
+    async with AsyncSession(DUMMY) as session:
+        store = session.store()
+        venv = await store.add_path_to_store("venv", str(tmp_path / "venv"))
+        python = f"{await store.print_store_path(venv)}/bin/python"
+        with pytest.raises(NotShippable, match="outside the closure"):
+            await server_closure(store, python, [str(outside)])
 
 
 # -- a server that already runs, reached over Unix socket forwarding ------
