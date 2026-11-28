@@ -284,7 +284,11 @@ def add_target(command: argparse.ArgumentParser) -> None:
 
 def target_of(args: argparse.Namespace) -> Path:
     if (args.name is None) == (args.out is None):
-        raise SystemExit(f"vivarium {args.command}: name an environment or give --out, one of them")
+        up = [one.name for one in anyio.run(environments.every) if one.up]
+        raise SystemExit(
+            f"vivarium {args.command}: name an environment or give --out, one of them"
+            + (f"; up: {', '.join(up)}" if up else "; none is up")
+        )
     try:
         return places.environment(args.name) if args.out is None else args.out.absolute()
     except places.PlaceError as error:

@@ -7,7 +7,8 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
-from vivarium import exports
+from vivarium import exports, places
+from vivarium.control import RUN_FILE, RunFile
 from vivarium_eval import cli, shell
 
 if TYPE_CHECKING:
@@ -107,3 +108,17 @@ def test_a_run_that_is_not_up_is_refused(tmp_path: Path, command: str, capsys: p
         cli.main([command, "--out", str(tmp_path)])
     assert stopped.value.code == 3
     assert f"vivarium {command}: no run in {tmp_path}" in capsys.readouterr().err
+
+
+def test_no_target_names_the_environments_that_are_up() -> None:
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["browser"])
+    assert str(stopped.value).endswith("name an environment or give --out, one of them; none is up")
+    # A run file whose pid lives and whose socket is not there yet: a run still starting, so up.
+    out = places.environment("lab")
+    out.mkdir(parents=True)
+    about = RunFile(pid=os.getpid(), out=out, vivarium=out / "vivarium", socket=None, commands=())
+    (out / RUN_FILE).write_text(about.to_json())
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["shell"])
+    assert str(stopped.value).endswith("; up: lab")
