@@ -589,6 +589,11 @@ cluster this way yet.
 `vivarium.router.socks` are the router's own options; the recipe sets
 them. A lab without Kubernetes can set them on `nodes.router`.
 
+A program on the router itself has no way out: the uplink is in a VRF,
+and the router runs no resolver. `vivarium.router.egress = true` on
+`nodes.router` gives its own programs the uplink as a guest has it, for
+a service on the router that pulls, such as a container.
+
 ### Trust the cluster's HTTPS
 
 `vivarium.recipes.kubernetes.certManager.enable` runs cert-manager with a

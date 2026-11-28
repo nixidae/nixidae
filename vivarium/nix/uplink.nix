@@ -19,6 +19,9 @@ rec {
   # sends a guest's TCP to `gateway` on to the host, as QEMU's user
   # network does.
   services = "${net}.4";
+  # The router's own programs, as a guest of its own uplink
+  # (`vivarium.router.egress`).
+  egress = "${net}.5";
   # A routed guest's host part, by its `vivarium.index`; every other guest
   # takes index 0's.
   host = index: 15 + index;

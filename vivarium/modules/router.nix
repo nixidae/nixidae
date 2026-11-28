@@ -369,6 +369,19 @@ in
         address. A guest reaches them on the uplink's `services` address.
       '';
     };
+    egress = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        The router's own programs reach the internet and resolve names,
+        as a guest does: a veth from the router's main table onto the
+        uplink's bridge, at the uplink's `egress` address
+        (nix/uplink.nix), with its gateway and resolver. Without it they
+        have neither: the uplink is in a VRF, and the router runs no
+        resolver. For a test that runs a service on the router that pulls,
+        such as OpenPERouter's containers.
+      '';
+    };
     inside = mkOption {
       type = types.listOf types.str;
       default = [ ];
@@ -787,6 +800,90 @@ in
           )
         ) networks
       );
+    })
+    # The router as a guest of its own uplink: its main-table end of a veth
+    # whose other end is a port on the bridge, as a guest's uplink is. The
+    # bridge's ruleset sends what it carries off the subnet to the relay.
+    (lib.mkIf (cfg.enable && cfg.egress) {
+      systemd.network.netdevs."20-egress" = {
+        netdevConfig = {
+          Kind = "veth";
+          Name = "egress";
+          MTUBytes = toString config.vivarium.mtu;
+        };
+        peerConfig.Name = "egress-port";
+      };
+      systemd.network.networks = {
+        "40-egress-port" = {
+          matchConfig.Name = "egress-port";
+          networkConfig.Bridge = bridge;
+          linkConfig.RequiredForOnline = "no";
+        };
+        "40-egress" = {
+          matchConfig.Name = "egress";
+          address = [ "${uplink.egress}/${toString uplink.prefixLength}" ];
+          gateway = [ gateway ];
+          linkConfig.RequiredForOnline = "no";
+          # The local table after the VRF's (rule 1000), not first (rule
+          # 0): first, `egress`'s address is local on the VRF's bridge
+          # too, and the bridge drops its ARP as a martian source
+          # (measured: "martian source (src=10.0.2.5, dst=10.0.2.2,
+          # dev=uplink)"). Here and not by hand: networkd removes a rule
+          # it does not manage.
+          routingPolicyRules = [
+            {
+              Table = "local";
+              Priority = 2000;
+              Family = "both";
+            }
+          ];
+        };
+      };
+      networking.nameservers = [ dns ];
+      # Its own conntrack zone: a connection leaves `egress` and comes back
+      # into this namespace on the bridge. In one zone that second pass
+      # matches the entry the first made, the relay's redirect (a NAT,
+      # new connections only) never applies, and the VRF has no route:
+      # "connect: no route to host" (measured).
+      networking.nftables.ruleset = ''
+        table inet vivarium-egress {
+          chain output {
+            type filter hook output priority raw;
+            oifname "egress" ct zone set 1
+          }
+          chain prerouting {
+            type filter hook prerouting priority raw;
+            iifname "egress" ct zone set 1
+          }
+        }
+      '';
+      # The kernel's own rule 0 for the local table, which the rule above
+      # replaces. networkd leaves the kernel's rules alone.
+      systemd.services.vivarium-egress-rules = {
+        description = "The local table after the uplink VRF's";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "systemd-networkd.service" ];
+        path = [ pkgs.iproute2 ];
+        # A minute of tries, then the boot reports it failed.
+        unitConfig = {
+          StartLimitIntervalSec = 120;
+          StartLimitBurst = 60;
+        };
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          # Until networkd has configured `egress` and added rule 2000.
+          Restart = "on-failure";
+          RestartSec = 1;
+        };
+        # Never without a local table: rule 2000 first, then rule 0 goes.
+        script = ''
+          ip -4 rule show pref 2000 | grep -q local
+          ip -6 rule show pref 2000 | grep -q local
+          ip -4 rule del pref 0 table local 2>/dev/null || true
+          ip -6 rule del pref 0 table local 2>/dev/null || true
+        '';
+      };
     })
     (lib.mkIf ownRelay {
       vivarium.launch.config.egress = "${egress}/bin/egress";
