@@ -15,6 +15,7 @@
     ./boot.nix
     ./cache.nix
     ./kubernetes.nix
+    ./lab.nix
     ./suites.nix
   ];
 }

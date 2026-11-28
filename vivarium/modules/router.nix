@@ -402,6 +402,36 @@ in
         };
         description = "DNS servers inside the lab, by the domain they answer for.";
       };
+      zone = {
+        domains = mkOption {
+          type = types.listOf types.str;
+          default = [ ];
+          description = "Domains the proxy answers from `hosts` and `services` alone, with no DNS server.";
+        };
+        hosts = mkOption {
+          type = types.attrsOf (types.listOf types.str);
+          default = { };
+          example = {
+            "web.lab.test" = [ "10.0.2.15" ];
+          };
+          description = "Addresses by name, under `domains`.";
+        };
+        services = mkOption {
+          type = types.attrsOf (types.listOf (types.attrsOf types.anything));
+          default = { };
+          example = {
+            "_https._tcp.web.lab.test" = [
+              {
+                priority = 0;
+                weight = 0;
+                port = 8443;
+                target = "web.lab.test";
+              }
+            ];
+          };
+          description = "SRV records by owner name, under `domains`.";
+        };
+      };
       networks = mkOption {
         type = types.listOf types.str;
         internal = true;
@@ -663,6 +693,10 @@ in
                 "${domain}=${lib.concatStringsSep "," servers}"
               ]) cfg.socks.domains
             )
+            ++ lib.optionals (cfg.socks.zone.domains != [ ]) [
+              "--zone"
+              (pkgs.writeText "vivarium-lab-zone.json" (builtins.toJSON cfg.socks.zone))
+            ]
           );
           # It binds the bridge's address, which networkd may not have set
           # yet: retry, slower than systemd's start limit.

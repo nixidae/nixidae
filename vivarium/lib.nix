@@ -288,7 +288,8 @@ rec {
     // lib.optionalAttrs (machine.vivarium.router.enable && machine.vivarium.router.socks.enable) {
       socks = {
         inherit (machine.vivarium.router.socks) port networks;
-        domains = lib.attrNames machine.vivarium.router.socks.domains;
+        domains =
+          lib.attrNames machine.vivarium.router.socks.domains ++ machine.vivarium.router.socks.zone.domains;
       };
     }
     // lib.optionalAttrs (machine.vivarium.persist != [ ]) {

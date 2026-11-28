@@ -129,6 +129,7 @@ in
     ./guest.nix
     ./image.nix
     ./kept.nix
+    ./lab.nix
     ./needs.nix
     ./nftables.nix
     ./qemu.nix
