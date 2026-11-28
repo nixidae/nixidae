@@ -21,19 +21,16 @@ from typing import TYPE_CHECKING, Final
 
 from vivarium import exports, places
 from vivarium.control import SOCKET, Op, request
+from vivarium.exports import (
+    ENVIRONMENT as ENVIRONMENT,
+    NO_PROXY as NO_PROXY,
+    NO_PROXY_VARIABLES as NO_PROXY_VARIABLES,
+    OUT as OUT,
+    PROXY_VARIABLES as PROXY_VARIABLES,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-ENVIRONMENT: Final = "VIVARIUM_ENVIRONMENT"
-OUT: Final = "VIVARIUM_OUT"
-
-PROXY_VARIABLES: Final = ("ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
-"""curl reads `http_proxy` in lower case only; Go and Python read both."""
-NO_PROXY_VARIABLES: Final = ("NO_PROXY", "no_proxy")
-NO_PROXY: Final = "localhost,127.0.0.0/8,::1"
-"""The host's own forwards, a kubeconfig's API server among them. Go leaves
-loopback alone by itself; curl does not."""
 
 UNPROXY: Final = "unproxy"
 UNPROXIED: Final = (
@@ -91,15 +88,9 @@ def variables(
 ) -> dict[str, str]:
     """What `env` prints and `shell` sets. *wrappers* is `unproxy`'s
     directory, put first on *path* when the run serves a proxy."""
-    found = dict(exported)
-    found[OUT] = str(out)
-    if environment is not None:
-        found[ENVIRONMENT] = environment
-    proxy = exported.get(exports.PROXY)
-    if proxied and proxy is not None:
-        found |= dict.fromkeys(PROXY_VARIABLES, proxy) | dict.fromkeys(NO_PROXY_VARIABLES, NO_PROXY)
-        if wrappers is not None:
-            found["PATH"] = os.pathsep.join([str(wrappers), *([path] if path else [])])
+    found = exports.shell(exported, environment=environment, out=out, proxied=proxied)
+    if proxied and exports.PROXY in exported and wrappers is not None:
+        found["PATH"] = os.pathsep.join([str(wrappers), *([path] if path else [])])
     return found
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from vivarium import exports
@@ -38,3 +39,12 @@ def test_the_reply_round_trips() -> None:
 def test_a_malformed_reply_is_refused(content: object) -> None:
     with pytest.raises(exports.ExportError):
         exports.decode(json.dumps(content))
+
+
+def test_a_phase_gets_the_variables_vivarium_shell_sets(tmp_path: Path) -> None:
+    proxy = "socks5h://127.0.0.1:1080"
+    found = exports.shell({exports.PROXY: proxy, "KUBECONFIG": "/k"}, environment="lab", out=tmp_path)
+    assert {found[name] for name in exports.PROXY_VARIABLES} == {proxy}
+    assert found["no_proxy"] == exports.NO_PROXY
+    assert (found["KUBECONFIG"], found[exports.ENVIRONMENT], found[exports.OUT]) == ("/k", "lab", str(tmp_path))
+    assert not set(exports.shell({}, environment=None, out=tmp_path)) & set(exports.PROXY_VARIABLES)
