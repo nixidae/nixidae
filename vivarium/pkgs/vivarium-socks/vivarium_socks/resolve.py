@@ -11,13 +11,18 @@ goes to its target and port: Kubernetes publishes one for each named
 Service port, so https://shop.default.svc.cluster.local/ reaches a
 Service whose `https` port is 8443. No record leaves the request as it
 came. nixidae/nixidae#1656.
+
+A `Zone` holds the names the lab declares itself (`vivarium.lab`): each
+guest's address and its ports' SRV records, built at evaluation and
+answered with no DNS server. nixidae/nixidae#1669.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, Protocol
 
 import dns.asyncresolver
@@ -54,6 +59,51 @@ class NameResolver(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class Zone:
+    """Names the lab declares, answered without a DNS server: a guest's address
+    and the SRV records of its ports, built when the run is evaluated."""
+
+    domains: frozenset[str] = frozenset()
+    hosts: Mapping[str, Sequence[IPAddress]] = field(default_factory=dict)
+    services: Mapping[str, Sequence[Service]] = field(default_factory=dict)
+    """By owner, such as `_https._tcp.web.lab.test`."""
+
+    def holds(self, name: str) -> bool:
+        labels = _labels(name)
+        return any(".".join(labels[start:]) in self.domains for start in range(len(labels)))
+
+    @classmethod
+    def from_json(cls, text: str) -> Zone:
+        """`{"domains": [...], "hosts": {name: [address]}, "services": {owner: [{priority, weight, port, target}]}}`.
+        Raises ValueError."""
+        raw = json.loads(text)
+        if not isinstance(raw, dict):
+            raise ValueError("a zone is a JSON object")
+        return cls(
+            frozenset(_name(each) for each in raw.get("domains", [])),
+            {
+                _name(name): [ipaddress.ip_address(each) for each in found]
+                for name, found in raw.get("hosts", {}).items()
+            },
+            {
+                _name(owner): [
+                    Service(int(each["priority"]), int(each["weight"]), int(each["port"]), _name(each["target"]))
+                    for each in records
+                ]
+                for owner, records in raw.get("services", {}).items()
+            },
+        )
+
+
+def _labels(name: str) -> list[str]:
+    return _name(name).split(".")
+
+
+def _name(name: str) -> str:
+    return name.lower().rstrip(".")
+
+
 def servers_for(name: str, domains: Mapping[str, Sequence[str]]) -> Sequence[str] | None:
     """The servers of the longest configured domain that holds *name*."""
     labels = name.lower().rstrip(".").split(".")
@@ -75,14 +125,20 @@ def pick(records: Sequence[Service]) -> tuple[str, int] | None:
 
 
 class Resolver:
-    def __init__(self, domains: Mapping[str, Sequence[str]], timeout: float = 5.0) -> None:
+    def __init__(self, domains: Mapping[str, Sequence[str]], timeout: float = 5.0, zone: Zone | None = None) -> None:
         self.domains = {domain.lower().rstrip("."): list(servers) for domain, servers in domains.items()}
         self.timeout = timeout
+        self.zone = zone or Zone()
 
     async def resolve(self, name: str) -> list[IPAddress]:
+        if self.zone.holds(name):
+            if declared := self.zone.hosts.get(_name(name)):
+                return list(declared)
+            raise Unresolved(f"{name}: no such name in the lab ({', '.join(sorted(self.zone.domains))})")
         servers = servers_for(name, self.domains)
         if servers is None:
-            raise Unresolved(f"{name}: under no domain this proxy resolves ({', '.join(sorted(self.domains))})")
+            known = sorted({*self.domains, *self.zone.domains})
+            raise Unresolved(f"{name}: under no domain this proxy resolves ({', '.join(known)})")
         found: list[IPAddress] = []
         failed: dns.exception.DNSException | None = None
         # One type's failure does not hide the other's answer: dnsmasq with
@@ -100,6 +156,8 @@ class Resolver:
 
     async def service(self, name: str, port: int) -> tuple[str, int] | None:
         prefix = SERVICES.get(port)
+        if prefix is not None and self.zone.holds(name):
+            return pick(self.zone.services.get(f"{prefix}.{_name(name)}", ()))
         servers = servers_for(name, self.domains)
         if prefix is None or servers is None:
             return None

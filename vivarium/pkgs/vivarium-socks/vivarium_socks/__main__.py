@@ -1,14 +1,15 @@
-"""`vivarium-socks --listen HOST:PORT --domain SUFFIX=SERVER[,SERVER]`."""
+"""`vivarium-socks --listen HOST:PORT [--domain SUFFIX=SERVER[,SERVER]] [--zone FILE]`."""
 
 from __future__ import annotations
 
 import argparse
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 
 import anyio
 
-from .resolve import Resolver
+from .resolve import Resolver, Zone
 from .server import Resolving, serve
 
 
@@ -37,6 +38,12 @@ def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar="SUFFIX=SERVER[,SERVER]",
         help="resolve names under SUFFIX at these DNS servers (repeatable)",
     )
+    parser.add_argument(
+        "--zone",
+        type=Path,
+        metavar="FILE",
+        help="a JSON zone of the lab's own names and SRV records, answered with no DNS server",
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args(argv)
 
@@ -45,7 +52,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s")
     host, port = args.listen
-    anyio.run(serve, host, port, Resolving(Resolver(dict(args.domain))))
+    zone = None if args.zone is None else Zone.from_json(args.zone.read_text())
+    anyio.run(serve, host, port, Resolving(Resolver(dict(args.domain), zone=zone)))
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import dns.resolver
 import pytest
 from vivarium_socks import protocol
 from vivarium_socks.protocol import AddressType, ProtocolError, Reply
-from vivarium_socks.resolve import IPAddress, Resolver, Service, Unresolved, pick, servers_for
+from vivarium_socks.resolve import IPAddress, Resolver, Service, Unresolved, Zone, pick, servers_for
 from vivarium_socks.server import Resolving, serve
 from vivarium_socks.split import Lab, Split
 
@@ -288,3 +288,52 @@ async def test_only_web_ports_of_lab_names_ask_for_a_service_record() -> None:
     assert await resolver.service("shop.lab", 5432) is None
     assert await resolver.service("example.com", 443) is None
     assert resolver.asked == ["_https._tcp.shop.lab", "_http._tcp.shop.lab"]
+
+
+ZONE = """{
+  "domains": ["lab.test"],
+  "hosts": {"web.lab.test": ["10.0.2.15"], "shop.lab.test": ["10.0.2.15"]},
+  "services": {"_https._tcp.shop.lab.test": [{"priority": 0, "weight": 0, "port": 8443, "target": "shop.lab.test"}]}
+}"""
+
+
+async def test_the_zone_answers_its_names_with_no_server() -> None:
+    resolver = Resolver({}, zone=Zone.from_json(ZONE))
+    assert await resolver.resolve("WEB.lab.test.") == [ipaddress.IPv4Address("10.0.2.15")]
+    with pytest.raises(Unresolved, match=r"nosuch\.lab\.test: no such name in the lab"):
+        await resolver.resolve("nosuch.lab.test")
+    with pytest.raises(Unresolved, match="under no domain"):
+        await resolver.resolve("example.com")
+
+
+async def test_the_zone_answers_service_records_for_web_ports() -> None:
+    resolver = Resolver({}, zone=Zone.from_json(ZONE))
+    assert await resolver.service("shop.lab.test", 443) == ("shop.lab.test", 8443)
+    assert await resolver.service("web.lab.test", 443) is None, "no record: the request's own port"
+    assert await resolver.service("shop.lab.test", 5432) is None
+
+
+async def test_a_zone_name_reaches_its_port_through_the_proxy() -> None:
+    """https://shop.lab.test/ reaches the guest's 8443 from the zone alone, as a browser would."""
+    async with anyio.create_task_group() as group:
+        listener = await anyio.create_tcp_listener(local_host="127.0.0.1", local_port=0)
+        group.start_soon(listener.serve, echo)
+        port = listener.extra(anyio.abc.SocketAttribute.local_port)
+        zone = Zone(
+            frozenset({"lab.test"}),
+            {"shop.lab.test": [ipaddress.IPv4Address("127.0.0.1")]},
+            {"_https._tcp.shop.lab.test": [Service(0, 0, port, "shop.lab.test")]},
+        )
+        proxy = await group.start(serve, "127.0.0.1", 0, Resolving(Resolver({}, zone=zone)))
+        stream, answer = await socks_connect(proxy, bytes([3, 13]) + b"shop.lab.test", 443)
+        async with stream:
+            assert answer[1] == Reply.SUCCEEDED
+            await stream.send(b"hi")
+            assert await stream.receive() == b"echo:hi"
+        group.cancel_scope.cancel()
+
+
+@pytest.mark.parametrize("text", ["[]", '{"hosts": {"a.lab.test": ["not an address"]}}', '{"services": {"x": [{}]}}'])
+def test_a_malformed_zone_is_refused(text: str) -> None:
+    with pytest.raises((ValueError, KeyError)):
+        Zone.from_json(text)
