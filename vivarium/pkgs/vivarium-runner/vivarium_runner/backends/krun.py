@@ -20,6 +20,7 @@ from .host import (
     egress_args,
     kept_store,
     memory_bytes,
+    nixos_root_size,
     processes_pss_kib,
     require_ids,
     scratch_disk,
@@ -179,7 +180,9 @@ class Krun:
             if disk_fds:
                 disk_rw = disk_fds[0]
             else:
-                disk_rw, disk_ro = await scratch_disk(config.qemu_img, rundir, spec.image)
+                disk_rw, disk_ro = await scratch_disk(
+                    config.qemu_img, rundir, spec.image, size_mib=nixos_root_size(spec)
+                )
                 opened += [disk_rw, disk_ro]
             # As Qemu._uplink_netdev: an uplink segment (a router's,
             # nixidae/nixidae#1404) is the run's fd.

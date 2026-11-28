@@ -285,7 +285,15 @@ lib.mkMerge [
               # See modules/image.nix: a build is where this is worth catching.
               test -s root/nix-state/nix/db/db.sqlite
               test -s root/nix-state/nix/db/schema''}
-            truncate -s ${toString cfg.diskSize}M disk.img
+            # As large as what it holds, not `vivarium.diskSize`: the store
+            # keeps no holes, so that size is that many bytes in the store,
+            # written and hashed again for every change to the guest (20 GiB
+            # of zeros for a 20 GiB disk, 133 MB of it data). The runner's
+            # layer over it is diskSize (`scratch_disk`), and the root grows
+            # to it at boot (`autoResize` below). Twice the contents and 64
+            # MiB covers ext4's journal and metadata.
+            size=$(( $(du -sm root | cut -f1) * 2 + 64 ))
+            truncate -s "''${size}M" disk.img
             fakeroot -- sh -c 'chown -R 0:0 root && mkfs.ext4 -q -L nixos -d root disk.img'
             mv disk.img $out
           '';
@@ -298,6 +306,8 @@ lib.mkMerge [
         # mkfs made it at build time and every run gets a new overlay, so a
         # check finds nothing. The kernel replays the journal at mount.
         noCheck = true;
+        # systemd-growfs: from the image's size to the disk's, online.
+        autoResize = true;
       };
 
       /*

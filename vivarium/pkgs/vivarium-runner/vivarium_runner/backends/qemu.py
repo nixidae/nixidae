@@ -38,6 +38,7 @@ from .host import (
     kept_store,
     log_tail,
     memory_file_kib,
+    nixos_root_size,
     require_ids,
     scratch_disk,
     socket_dir,
@@ -330,7 +331,7 @@ class Qemu:
             disk_fds = _reopen(disk_fds)
             opened.extend(disk_fds)
         else:
-            disk_fds = await scratch_disk(config.qemu_img, rundir, spec.image)
+            disk_fds = await scratch_disk(config.qemu_img, rundir, spec.image, size_mib=nixos_root_size(spec))
             opened.extend(disk_fds)
             if firmware is not None:
                 esp_fds = await scratch_disk(config.qemu_img, rundir, firmware.esp, backing="qcow2")

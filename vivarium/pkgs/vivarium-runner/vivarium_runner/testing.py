@@ -22,6 +22,7 @@ def machine_json(name: str, backend: BackendName = BackendName.UML) -> MachineSp
         "kind": "nixos",
         "index": 0,
         "image": f"/nix/store/{name}-root",
+        "diskSize": 512,
         "memory": "128M",
         "seccomp": Seccomp.AUTO,
         "cpus": 1,

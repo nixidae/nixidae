@@ -117,6 +117,7 @@ class MachineSpecJson(TypedDict):
     """Open: `nixos`, or a name from `vivarium.kinds`, which a module may add to."""
     index: int
     image: str
+    diskSize: int
     memory: Memory
     seccomp: Seccomp
     cpus: Cpus
@@ -253,6 +254,9 @@ class MachineSpec:
     """`vivarium.kind`: `nixos`, or the guest kind it imports from `vivarium.kinds`."""
     index: int
     image: Path
+    disk_size: int
+    """`vivarium.diskSize`, MiB: the root disk a guest sees, which the image
+    itself need not be."""
     memory: str
     """Resolved: `vivarium.memory` against the host's available memory at start."""
     seccomp: Seccomp
@@ -350,6 +354,7 @@ class MachineSpec:
             kind=data["kind"],
             index=data["index"],
             image=Path(data["image"]),
+            disk_size=data["diskSize"],
             memory=resolve_memory(data["memory"]),
             seccomp=Seccomp(data["seccomp"]),
             cpus=resolve_cpus(data["cpus"], host_cpus()),

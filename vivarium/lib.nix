@@ -323,6 +323,7 @@ rec {
     }
     // {
       image = "${machine.vivarium.rootImage}";
+      inherit (machine.vivarium) diskSize;
     }
     # A guest kind's system is never built: its disk is not this NixOS.
     // lib.optionalAttrs (machine.vivarium.kind == "nixos") {

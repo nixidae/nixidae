@@ -19,6 +19,7 @@ from .base import BackendError
 
 if TYPE_CHECKING:
     from ..machine import Machine
+    from ..machine_spec import MachineSpec
 
 
 def log_tail(path: Path, lines: int = 20) -> str:
@@ -290,11 +291,29 @@ def make_kept_store(size: int | None, kept: Path | None, rundir: Path, *, direct
     return path
 
 
-async def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str = "raw") -> tuple[int, int]:
+def nixos_root_size(spec: MachineSpec) -> int | None:
+    """The disk size for a scratch layer over *spec*'s root image.
+
+    Only vivarium's own NixOS root grows to `vivarium.diskSize`
+    (modules/qemu.nix). A guest kind's disk is a vendor's, at the size
+    its vendor made it, and a smaller layer would cut it off.
+    """
+    return spec.disk_size if spec.kind == "nixos" else None
+
+
+async def scratch_disk(
+    qemu_img: Path, rundir: Path, image: Path, backing: str = "raw", size_mib: int | None = None
+) -> tuple[int, int]:
     """A writable layer over the read-only root image, with no name.
 
     The same shape as UML's ``ubd0=<cow>,<image>``: the image stays in
     the store, and everything the guest writes goes here instead.
+
+    *size_mib* makes the layer larger than the image: a NixOS root is
+    built only as large as what it holds, and grows its file system to
+    the disk at boot. The store keeps no holes, so a root built at
+    `vivarium.diskSize` is that many bytes in the store: 20 GiB of zeros,
+    written and hashed for every change to the guest.
 
     The file is unlinked before QEMU is started and handed over as open
     file descriptors.  So the only thing keeping those gigabytes alive
@@ -324,6 +343,7 @@ async def scratch_disk(qemu_img: Path, rundir: Path, image: Path, backing: str =
             "-b",
             str(image),
             str(scratch),
+            *([f"{size_mib}M"] if size_mib is not None else []),
         ],
         check=False,
     )

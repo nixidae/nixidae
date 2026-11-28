@@ -237,7 +237,10 @@ what a test sets for its segments.
 **Root image.** Almost empty: busybox, an `/init`, and a symlink to the
 system's `init`. `/init` mounts the guest's store view over hostfs with a
 writable overlay on top, then execs systemd. So a guest costs a sparse
-512 MiB ext4 file rather than a copy of its closure.
+512 MiB ext4 file rather than a copy of its closure. On QEMU and krun
+the image is only as large as what it holds (69 MB for `checks.lan`),
+because the store keeps no holes: the run's layer over it is
+`vivarium.diskSize`, and the root grows to it at boot.
 
 **Store views.** Each guest sees its own closure and nothing else: the
 runner binds each path of the guest's closure read-only into a view, and
