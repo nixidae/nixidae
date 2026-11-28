@@ -37,16 +37,18 @@ let
     buildCommand = "echo hello > $out";
   };
 
-  # Content-addressed, so the produced copy may differ from it and still name no output path.
+  # Content-addressed, so the produced copy may differ from it and still name no output path. `ts` in the name
+  # gives each test its own output path: a resolved derivation that another test wrote references the output, and
+  # `drv-and-output` then could not delete it.
   helloCA = mkCADrv {
-    name = "hello";
+    name = "hello-${ts}";
     buildCommand = "echo hello > $out";
   };
 
   # Not a byte copy: identical text would land on `helloCA`'s own path, which this derivation references, and no
   # collection could delete the produced `.drv`. Nix master refuses a non-canonical copy (a trailing newline).
   producingDrv = mkCADrv {
-    name = "hello.drv";
+    name = "hello-${ts}.drv";
     hashMode = "text";
     buildCommand = ''
       while IFS= read -r line || [ -n "$line" ]; do
