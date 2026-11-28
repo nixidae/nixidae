@@ -310,6 +310,18 @@ let
       description = "a browser reaches a lab page by its name, over HTTPS with the lab CA";
       timeoutMinutes = 30;
     };
+    web-devenv = {
+      # examples/web-devenv: lab names and HTTPS for plain NixOS guests.
+      attr = "checks.web-devenv";
+      description = "the host's shell reaches NixOS guests by lab name over HTTPS";
+      timeoutMinutes = 30;
+    };
+    lab = {
+      # The guests' side of `recipes.lab`, and TLS units that come back.
+      attr = "checks.lab";
+      description = "a guest reaches another by lab name, and TLS units restart by themselves";
+      timeoutMinutes = 30;
+    };
     kept-container = {
       # checks.kept runs under UML; this keeps the store in a host directory.
       attr = "checks.kept.container";
