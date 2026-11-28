@@ -1,0 +1,46 @@
+# The app: a certificate from the run's lab CA, the Deployment that serves
+# with it, and a LoadBalancer Service whose `https` port is 8443.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hello
+spec:
+  secretName: hello-tls
+  dnsNames: [hello.default.svc.cluster.local]
+  issuerRef: {kind: ClusterIssuer, name: vivarium}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+spec:
+  selector:
+    matchLabels: {app: hello}
+  template:
+    metadata:
+      labels: {app: hello}
+    spec:
+      containers:
+        - name: hello
+          image: hello:dev
+          imagePullPolicy: Never
+          ports: [{name: https, containerPort: 8443}]
+          # Ready when it listens: `kubectl rollout status` waits for this.
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 1
+          volumeMounts: [{name: tls, mountPath: /tls, readOnly: true}]
+      volumes:
+        - name: tls
+          secret: {secretName: hello-tls}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  type: LoadBalancer
+  selector: {app: hello}
+  # Named `https`: Kubernetes publishes _https._tcp.hello.default.svc.cluster.local,
+  # so https://hello.default.svc.cluster.local/ from the host reaches 8443.
+  ports: [{name: https, port: 8443, targetPort: https}]
