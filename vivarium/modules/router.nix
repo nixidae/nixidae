@@ -458,7 +458,10 @@ in
       vivarium.memory = lib.mkDefault (if config.vivarium.backend == "uml" then "256M" else "512M");
       # E2: two carry 16 Gbit/s on krun, and one is the limit. Every host
       # core, krun's default, fills 256M with per-CPU state before boot ends.
-      vivarium.cpus = lib.mkDefault 2;
+      # A uniprocessor UML kernel takes one, and warns about more.
+      vivarium.cpus = lib.mkDefault (
+        if config.vivarium.backend == "uml" && !config.vivarium.uml.smp then 1 else 2
+      );
       # A TX completion interrupt costs krun about 14 us: 237k of them filled
       # a vCPU. Off, host to guest went from 8.6-8.7 to 12.2-13.7 Gbit/s,
       # guest to host stayed at 16.6-18.5 (2026-11-17, router-lab.md).
