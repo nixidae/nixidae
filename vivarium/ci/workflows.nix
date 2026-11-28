@@ -322,6 +322,12 @@ let
       description = "a guest reaches another by lab name, and TLS units restart by themselves";
       timeoutMinutes = 30;
     };
+    web-devenv-own = {
+      # The README's own-project dev.nix, as it is.
+      attr = "checks.web-devenv-own";
+      description = "the README's dev.nix serves its page by lab name";
+      timeoutMinutes = 30;
+    };
     kept-container = {
       # checks.kept runs under UML; this keeps the store in a host directory.
       attr = "checks.kept.container";
@@ -454,6 +460,18 @@ let
       timeoutMinutes = 45;
       after = [ "test-containerd" ];
     };
+    k8s-devenv = {
+      description = "an app on a one-node cluster, by its Service name over HTTPS from the host";
+      timeoutMinutes = 45;
+      after = [ "test-containerd" ];
+    };
+    k8s-devenv-kept = {
+      description = "examples/k8s-devenv comes up a second time on its kept cluster";
+      timeoutMinutes = 60;
+      after = [ "test-containerd" ];
+      # Two runs of one driver in a check script: no backend variants.
+      backend = "uml";
+    };
     k8s-kept = {
       description = "a second run of a Kubernetes environment resumes its cluster";
       timeoutMinutes = 60;
@@ -529,6 +547,7 @@ let
       "checks.ruff"
       "checks.check-scripts"
       "checks.docs"
+      "checks.docs-site"
       "checks.check-python"
       "checks.check-k8s-images"
       "checks.check-k8s-config"
